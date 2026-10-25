@@ -66,7 +66,7 @@ Kilenc naptári nap átlagával, azonos forgalom és fájlformátum mellett tíz
 - A tíznapos esemény hátralévő napjait töltéssel hidaljuk át: az egész csomag egy külső USB-C töltőcsatlakozón keresztül, szokásos telefontöltőről legyen tölthető. Töltés közben a rádió és a felvevő működjön tovább, a rögzítés ne szakadjon meg.
 - Előzetes feltételezés, hogy naponta 1-2 óra töltési lehetőség lesz; a töltő pontos teljesítménye most nem követelmény.
 - A felvevő lehetőleg kompakt, hordozható táskába kerüljön. Felmerült ház: [QBRICK System Pro Toolcase 8012](https://www.alza.hu/barkacs/qbrick-system-pro-toolcase-8012-szerszamoslada-d7865595.htm).
-- Felmerült táplálási elképzelés: négy 18650-es cellát fogadó shield, telefonos töltőről tölthető kivitel, 5 V-os kimenet a vezérléshez. A konkrét shield és annak valós képességei még ellenőrzendők.
+- A négy 18650-es cella csak kiinduló példa, nem felső korlát. Legfeljebb 4 x 4, azaz 16 darab 18650-es cella férhet bele; ez fizikai keret, nem előírt 4S4P elektromos kapcsolás. A szükséges cellaszámot, elrendezést és védett töltési/tápellátási rendszert a teljes rádió + felvevő mért fogyasztása és a töltési ablak alapján kell kiválasztani. Felmerült egy négycellás, 5 V-os kimenetű shield is; a konkrét shield képességei még ellenőrzendők.
 - Felmerült, hogy egy USB-C-n tölthető UV-5R-akkumulátor is kaphatna energiát a közös tápból; ennek megvalósíthatósága és üzemidőhatása nyitott kérdés.
 - A vezérlőhöz rendelkezésre áll egy ESP32-S3-N16R8 CAM kártya SD-kártya-foglalattal; használata még nem végleges döntés.
 
