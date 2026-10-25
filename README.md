@@ -1,3 +1,23 @@
 # RadioRecorder
 
-This is a Radio Recorder Project
+ESP32-S3 prototípus kézi, mono WAV-felvételhez microSD-kártyára. Nyitott saját Wi-Fi hálózatán böngészőből indítható és állítható le; a lezárt felvételek visszahallgathatók és letölthetők.
+
+## Első, rádió nélküli próba
+
+1. Ellenőrizd a saját panelen, hogy a [próbarajzon](docs/radio-receive-adc.svg) szereplő GPIO1 valóban ADC1_CH0, és az SD-foglalat lábai CMD=GPIO38, CLK=GPIO39, DATA0=GPIO40. A panelre vonatkozó [figyelmeztetések](docs/functional-hardware.md) továbbra is érvényesek.
+2. A rajz szerinti előfeszített ADC-áramkört csak ismert, kis szintű, az ESP-vel biztonságosan közös referenciájú próbaforrással építsd meg. A rádió egyik érintkezőjét se csatlakoztasd. GPIO1-en nyugalomban kb. 1,65 V-ot, jellel kb. 0,3-2,7 V közötti csúcsokat ellenőrizz; a GPIO soha ne kerüljön 0 V alá vagy 3,3 V fölé.
+3. Helyezz be FAT32-formátumú microSD-t, és tápláld a panelt a saját USB-csatlakozójáról. Kamera, transzformátor és rádióbekötés ehhez a próbához nem kell.
+
+## Fordítás és használat
+
+PlatformIO: `pio run -e esp32-s3-devkitc-1`, majd a tényleges panel és port ellenőrzése után `pio run -e esp32-s3-devkitc-1 -t upload`. A soros monitor sebessége **115200 baud** (`monitor_speed = 115200`). Bootkor az SD, ADC, felvevő és a Wi-Fi AP IP-címe jelenik meg; felvételkor a kezdés, leállítás, fájlnév és hiba is. A monitorban az `i` karakter elküldésével bármikor újra lekérhető a státusz. Mivel a monitor nem reseteli a panelt (`monitor_rts = 0`, `monitor_dtr = 0`), az indulási üzenetekhez nyitott monitor mellett nyomd meg a panel reset gombját.
+
+A jelenlegi Arduino-panelprofilban a `Serial` az **UART0** kimenete (GPIO43 TX, GPIO44 RX), nem automatikusan a natív USB CDC. A monitort az UART0-hoz kapcsolódó USB-soros porton használd; ha a panel csak natív USB-csatlakozón látszik és a monitor üres, az USB CDC engedélyezése külön panel-/portbeállítást igényel. Ne csatlakoztass 5 V-os soros adaptert a 3,3 V-os GPIO-khoz.
+
+Indulás után csatlakozz a **RadioRecorder** nevű, jelszó nélküli Wi-Fi hálózathoz, majd nyisd meg a `http://192.168.4.1` címet. A felvételt a weboldalon indítsd és állítsd le. Leállítás után az `REC00001.wav` jellegű fájlok megjelennek a listában. Ha egy fájl kétszer látszott, a lista egyidejű frissítéseit a firmware most kizárja; ha a hiba újrafeltöltés után is jelentkezik, ellenőrizd a kártyán lévő fájlneveket. Egyszerre egy felvétel készül.
+
+A **Fájlkezelő** linken (`http://192.168.4.1/files`) az SD-kártya mappái és fájljai 20-as lapokban böngészhetők. WAV, MP3, M4A, OGG, FLAC, AAC és WebM hangfájlokhoz lejátszó nyitható; a tényleges lejátszhatóság a telefon böngészőjétől és a fájl kódolásától is függ. Bármely fájl letölthető. Az SD olvasása felvétel alatt tiltott; az éppen készülő fájl csak lezárás után jelenik meg.
+
+A **GPIO1 jel** mérése induláskor ki van kapcsolva. A **Mérés bekapcsolása** gombbal 100 ms-os blokkokból számolt RMS- és csúcsértékek 30 másodperces grafikonja jelenik meg, továbbá a nyers DC-középérték (mindhárom 12 bites ADC-számlálási egységben). Kikapcsolva, felvételen kívül az ADC nem mintavételez; felvétel közben a grafikon bekapcsolva a rögzítés mintáit használja. Az oldal bezárásakor vagy a lekérdezés több mint 4 másodperces megszűnése után a figyelés leáll. Ez még nem automatikus indítási küszöb. A csatlakoztatás nélkül szabadon hagyott GPIO zaja nem alkalmas küszöb beállítására: előbb a dokumentált előfeszítő áramkört és biztonságos próbaforrást teszteld.
+
+A felvétel 22 050 Hz-es, 16 bites mono PCM WAV (a belső ADC valójában 12 bites). Nincs még hangérzékelés, előpuffer, időbélyeg vagy rádióhoz illesztett bemenet. Áramvesztés közben az éppen írt WAV sérülhet. A **nyitott Wi-Fi-n bárki a közelben** elérheti a felvételeket és a vezérlést; csak ellenőrzött próbakörnyezetben használd. Valós hardveres felvételi próba még szükséges.
