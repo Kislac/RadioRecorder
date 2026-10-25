@@ -2,6 +2,34 @@
 
 Ez a lista a [követelmények](../requirements.md) szerinti **felvétel, Wi-Fi webszerver, helyi/rádiós visszajátszás és automatizmusok** kipróbálásához szükséges hardvert gyűjti össze. Az akkumulátor, töltés, végleges ház és üzemidő most nincs méretezve. A felvétel jogi kérdése a projekt részéről tisztázott; ez a jegyzet nem vizsgálja újra. Az éterbe történő adást nem tekintjük az első próbapad részeként: a PTT és a rádió felé menő hang előbb külön, RF nélküli tesztterheléssel vizsgálandó.
 
+## Első lépcső: ADC-próba rádió nélkül
+
+![Első, rádió nélkül végezhető ADC-próba kapcsolási rajza](radio-receive-adc.svg)
+
+**STOP - a rádiót ne csatlakoztasd a rajzhoz.** A 2026-10-25-én a 2.5 mm-es tip és sleeve között mért érték vétel nélkül 0 V, vétel közben **3.5-3.6 V DC**, illetve **3.4-4 V AC** a multiméter szerint; az AC-érték a hangerővel változik. Ez nem felel meg az alább eredetileg előírt, elhanyagolható differenciális DC feltételnek. A két hangérintkező közé közvetlenül tett transzformátor-primer DC-terhelést kaphat és telítésbe mehet; a rajz rádióoldali bekötése **érvénytelen**, amíg nincs újratervezve. A multiméter beszédnél nem ad megbízható csúcsfeszültséget. Most csak az ESP előfeszítő/ADC oldala építhető meg, rádió nélkül; a rádiót a saját akkujáról járasd.
+
+Az [adott pinout-képen](2026-10-24_11h20_03.png) a csatlakozósor **GPIO1** jelű pontja ADC1_CH0; a microSD jelei **GPIO38 = CMD, GPIO39 = CLK, GPIO40 = DATA0**. Kamera nélkül a GPIO1 jó *jelölt* az első mono felvételi próbához. A kép nem bizonyítja, hogy az OV5640-es vásárolt panel minden vezetéke azonos: az „1” szitázást és az SD működését a kézben lévő panelen ellenőrizni kell. GPIO1-et választjuk, **nem** a 2.5 mm-es dugó első érintkezőjét vagy a panel soros első lábát. Az [Espressif ADC-leírása](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/adc/index.html) megerősíti a GPIO1/ADC1 csatornát és a folyamatos mintavételi módot.
+
+**A most megépíthető ESP-oldali próbához szükséges:** 2 db 10 kΩ, 1 db 27 kΩ ellenállás; 100 nF soros csatoló- és 4.7 nF szűrőkondenzátor; próbalap, multiméter és egy ismert, kis szintű, az ESP felé megfelelően illesztett próbajel-forrás. Rádióhoz való 2.5 mm-es dugó és hangfrekvenciás leválasztó transzformátor **most nem szükséges**; a mért DC mellett a korábban rajzolt primerkapcsolás nem használható. Az első fázisban **nem kell** INMP441, MAX98357A, DAC, relé/PTT, RTC vagy webszerver. Az ESP-t a saját USB-csatlakozójáról tápláld.
+
+```text
+Rádió 2.5 mm TRS: tip, sleeve és ring -> NINCS BEKÖTVE
+Transzformátor primer: -> NINCS BEKÖTVE (DC-csatolás újratervezendő)
+
+Ismert, megfelelően illesztett próbajel -> 100 nF soros kondenzátor -> 27 kΩ -> ESP GPIO1 (ADC1_CH0)
+Próbajel-forrás igazolt közös referenciaja -----------------------------> ESP GND
+ESP 3V3 -> 10 kΩ -> GPIO1 -> 10 kΩ -> ESP GND
+GPIO1 -> 4.7 nF -> ESP GND
+
+Panel saját microSD-foglalata: CMD=GPIO38, CLK=GPIO39, DATA0=GPIO40 (1 bites mód jelölt)
+```
+
+**A rádióoldali bemeneti fokozat újratervezése előtt** a pontos rádió-/jackváltozat és a terhelés alatti jelalak mérendő. A [telefonos kapcsolás](UV5R%20audio%20interface.md) nem hiteles készülék-pinout. Hálózati földelésű szkóp földcsipeszét ne tedd egyik ismeretlen hangérintkezőre sem; differenciális vagy leválasztott mérési módszer kell. Se tipet, se sleeve-et ne köss ESP GND-re pusztán a mért számok alapján. A korábbi telefonos **470 Ω-os** vezeték nem ADC-bemenetvédő/előfeszítő áramkör, azt ne másold át. Vételi próbafelvétel csak igazolt, DC-t kezelő új bemeneti fokozat után kezdhető.
+
+A két 10 kΩ-os ellenállás kb. **1.65 V nyugalmi középfeszültséget** ad a GPIO1-nek. A 27 kΩ és a párhuzamosan 5 kΩ-ot jelentő előfeszítés a transzformátor szekunder jelét kb. **0.16-szorosára** csillapítja (terheléstől függő becslés). Az ADC-t a szélesebb bemeneti tartományt adó **12 dB-es csillapítással** állítsuk be. **Csak igazoltan kis jelszinttel** csatlakoztass rádiót: a bekapcsolás előtt mérj kb. 1.65 V nyugalmi feszültséget a GPIO1-en, vétel közben pedig szkóppal ellenőrizd, hogy a beszédcsúcsok kb. 0.3-2.7 V között maradnak, nem lapulnak el, és a bemenet semmiképp sem megy 0 V alá vagy 3.3 V fölé. A 4.7 nF csak egyszerű próbaszűrő, nem garantált anti-alias szűrő; a belső ADC zaját/frekvenciaátvitelét a visszahallgatott mintán kell elbírálni. Ha ez a hangút túl zajos vagy torz, akkor lépünk át dokumentált külső I2S ADC/kodek modulra; a lentebb felsorolt kodekek **nem** előfeltételei ennek az első próbának.
+
+**Rögzítési viselkedés a hardverpróbához:** kezdetben 22 050 mintavétel/s, mono WAV; az ADC *folyamatos mintavételi* perifériáját használjuk, nem időzítetlen `analogRead()`-hívások sorát. A nyugalmi ADC-középértéket vonjuk ki, rövid (például 10-20 ms-os) blokkok hangszintjét átlagoljuk; hiszterézissel és állítható csendidővel indítsunk/zárjunk fájlt. A beszéd elejét egy 2 s-os körpuffer tartja meg (22 050 x 2 bájt x 2 s = **88 200 bájt** PCM-adat), amit a hanginduláskor a fájl elejére kell írni. A WAV 16 bites mintái **nem** jelentenek 16 bites minőséget: az ESP belső ADC-je 12 bites, a felvétel zaját külön mérni kell. Csak a kártyaírás és az ADC együttes próbaeredménye után érdemes finomítani a VAD-küszöböt és hosszabbítani az előpuffert.
+
 ## Választott kiindulópont
 
 A már meglévő **ESP32-S3-N16R8 CAM + microSD** panel az első prototípus vezérlője, nem végleges panelválasztás. A termékoldal OV5640 kamerát ír, míg a [pinout-jegyzet](pinout.md) OV2640-hez készült; **egyetlen GPIO-kiosztás sem tekinthető még jóváhagyottnak**. A kamerát a funkciók nem igénylik. Az alaplapnak az SD-írás, a hang folyamatos feldolgozása és a Wi-Fi webkiszolgálás közbeni egyidejűséget kell bizonyítania.
@@ -56,7 +84,7 @@ Opcionális: a felmerült OLED + forgó enkóder. A web és az automatikus rögz
 ## Legolcsóbb tisztázó próbák sorrendben
 
 1. Azonosítani a panel fizikai revízióját, a tényleges SD-kötést és a hozzáférhető GPIO-kat; egy egyszerű SD-írással ellenőrizni, hogy a meglévő panel alkalmas-e.
-2. Ellenőrzött audio modullal szimulált analóg hangot rögzíteni 22 050 Hz/16 bit mono WAV-ba, 2/5/10 s előpufferrel; a helyi mikrofonnak ettől függetlenül működnie kell. A 10 s mono PCM előpuffer kb. 441 kB; a DMA és az egyéb feladatok memóriáját ezen felül kell biztosítani.
+2. Először az előfeszített belső ADC-n ismert, kis szintű próbajelet rögzíteni 22 050 Hz/16 bit mono WAV-ba 2 s előpufferrel; a rádiót nem csatlakoztatni. Ha a belső ADC hangminősége kevés, ellenőrzött külső audio modullal megismételni a próbát. Később 5/10 s előpufferrel is tesztelni; a 10 s mono PCM puffer kb. 441 kB, a DMA és az egyéb feladatok memóriáját ezen felül kell biztosítani.
 3. Legalább 900 fájlos napterhelés mellett rögzítés közben bekapcsolni a webet, telefonról keresni, meghallgatni és letölteni; a felvétel eleje, a WAV-fejléc és a fájlrendszer maradjon ép.
 4. Saját hangszórós lejátszás, kézi/ütemezett/véletlen fájlválasztás, ütközéskezelés, Wi-Fi-gomb és RTC átállásának próbája. A relé csak **szimulált PTT terhelést** kapcsoljon; resetre vagy hibára engedjen el, legyen kézi stop.
-5. Csak ezek után a pontos rádió analóg hangjának mérése és védett illesztése; a rádióba visszajátszás fizikai/jelszintű próbája külön, ellenőrzött feltételek mellett. Ha a kamerás panel GPIO-ja vagy a hangút nem igazolható, dokumentált, kamera nélküli S3 + SD fejlesztőpanelre váltás lehet a kisebb kockázat.
+5. A rádió tip-sleeve kimenetén vétel alatt mért 3.5-3.6 V DC miatt a korábbi transzformátoros primer-bekötés nem alkalmazható. A rádió pontos csatlakozójának és terhelés alatti jelalakjának igazolása után külön, DC-t kezelő bemeneti fokozatot kell tervezni és csak utána készülhet rádiófelvétel. A rádióba visszajátszás fizikai/jelszintű próbája további külön lépés. Ha a kamerás panel GPIO-ja vagy a hangút nem igazolható, dokumentált, kamera nélküli S3 + SD fejlesztőpanelre váltás lehet a kisebb kockázat.

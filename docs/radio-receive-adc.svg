@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">ESP32-S3 ADC1 bench test - radio disconnected</title>
+  <desc id="desc">Known safe low-level audio test source through a 100 nF series capacitor and 27 kilohm resistor to GPIO1. Two 10 kilohm resistors bias GPIO1 between 3.3 volts and ESP ground, with a 4.7 nF capacitor to ground. The radio and transformer are disconnected because the measured radio output has 3.5 to 3.6 volts DC during reception.</desc>
+  <defs>
+    <style>
+      .wire { fill: none; stroke: #26343a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .part { fill: none; stroke: #26343a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .dot { fill: #26343a; }
+      .label { fill: #26343a; font: 20px sans-serif; }
+      .small { fill: #485861; font: 16px sans-serif; }
+      .note { fill: #8a3b2d; font: 17px sans-serif; }
+      .heading { fill: #183b45; font: bold 25px sans-serif; }
+    </style>
+  </defs>
+  <rect width="1200" height="720" fill="#fff"/>
+  <text x="64" y="52" class="heading">ESP32-S3 ADC test with known safe audio source</text>
+  <text x="64" y="84" class="note">STOP: measured radio RX output has 3.5-3.6 V DC. NO radio connection.</text>
+
+  <text x="64" y="171" class="label">TEST SOURCE - verified low-level audio only</text>
+  <text x="64" y="201" class="small">Source reference must be safe to share with ESP GND.</text>
+  <circle cx="140" cy="260" r="6" class="part"/>
+  <circle cx="140" cy="370" r="6" class="part"/>
+  <text x="65" y="252" class="small">AUDIO (not radio)</text>
+  <text x="65" y="361" class="small">REFERENCE</text>
+  <path class="wire" d="M146 260 H590 M146 370 H300 V590 H1080"/>
+  <path class="part" d="M590 239 V281 M610 239 V281"/>
+  <path class="wire" d="M610 260 H690"/>
+  <text x="549" y="220" class="label">C1 100 nF</text>
+  <path class="part" d="M690 260 L702 249 L714 271 L726 249 L738 271 L750 249 L762 271 L774 249 L786 260"/>
+  <path class="wire" d="M786 260 H1110"/>
+  <text x="706" y="220" class="label">R1 27 kohm</text>
+  <circle cx="870" cy="260" r="5" class="dot"/>
+  <circle cx="955" cy="260" r="5" class="dot"/>
+  <circle cx="1040" cy="260" r="5" class="dot"/>
+  <text x="1070" y="241" class="label">GPIO1</text>
+  <text x="1070" y="282" class="small">ADC1_CH0</text>
+
+  <path class="wire" d="M870 260 V217 M870 144 V120"/>
+  <path class="part" d="M870 144 L859 155 L881 166 L859 177 L881 188 L859 199 L870 217"/>
+  <path class="wire" d="M820 120 H920"/>
+  <text x="804" y="111" class="label">ESP 3V3</text>
+  <text x="888" y="182" class="small">R2 10 kohm</text>
+
+  <path class="wire" d="M955 260 V333 M955 433 V590"/>
+  <path class="part" d="M955 333 L944 345 L966 360 L944 375 L966 390 L944 405 L966 420 L955 433"/>
+  <text x="840" y="388" class="small">R3 10 kohm</text>
+
+  <path class="wire" d="M1040 260 V355 M1040 380 V590"/>
+  <path class="part" d="M1019 355 H1061 M1019 380 H1061"/>
+  <text x="1060" y="379" class="small">C2 4.7 nF</text>
+  <circle cx="955" cy="590" r="5" class="dot"/>
+  <circle cx="1040" cy="590" r="5" class="dot"/>
+  <path class="wire" d="M790 590 V608 M773 608 H807 M780 618 H800 M786 628 H794"/>
+  <text x="816" y="621" class="label">ESP GND</text>
+
+  <text x="65" y="516" class="note">Radio 2.5 mm tip, ring, sleeve: NOT CONNECTED.</text>
+  <text x="65" y="545" class="note">Radio 3.5 mm MIC/PTT: NOT CONNECTED.</text>
+  <text x="65" y="663" class="small">Power ESP via its own USB. Use only a verified safe test source; no bench supply to the radio audio pins.</text>
+  <text x="65" y="689" class="small">Check GPIO1 ~1.65 V idle and 0.3-2.7 V peaks. Radio input requires a redesigned DC-safe interface.</text>
+</svg>
