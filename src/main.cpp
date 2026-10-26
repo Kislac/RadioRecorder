@@ -1,16 +1,30 @@
 #include <Arduino.h>
 #include <SD_MMC.h>
 #include <WebServer.h>
+#include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <atomic>
 #include <cJSON.h>
 #include "esp_adc/adc_continuous.h"
 
 constexpr uint32_t kSampleRate = 22050;
+constexpr int kAudioGpio = 1;
+constexpr char kFirmwareVersion[] = "0.1.2";
+constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 constexpr size_t kDmaBufferSize = 4096;
+constexpr size_t kLiveFrameBytes = 1024;
 constexpr uint32_t kMaxWavBytes = 0xffffffffU - 44;
 WebServer server(80);
+WebSocketsServer audioSocket(81);
+struct AudioFrame {
+  uint16_t length;
+  uint8_t samples[kLiveFrameBytes];
+};
+QueueHandle_t liveFrames = nullptr;
+std::atomic<int> liveClient{-1};
+std::atomic<bool> liveCaptureFault{false};
 adc_continuous_handle_t adcHandle = nullptr;
+adc_channel_t audioChannel;
 TaskHandle_t recorderTask = nullptr;
 std::atomic<bool> stopRequested{false};
 std::atomic<bool> adcOverflow{false};
@@ -25,12 +39,19 @@ std::atomic<uint8_t> signalFault{0};
 enum class CaptureState { idle, starting, recording };
 std::atomic<CaptureState> captureState{CaptureState::idle};
 bool sdReady = false;
+std::atomic<bool> recordingsPresent{false};
 bool adcReady = false;
 bool wifiReady = false;
+uint8_t wifiTestPhase = 0;
+uint32_t wifiTestSince = 0;
 char recordingName[16] = {};
 char lastError[80] = {};
 uint8_t dmaBuffer[kDmaBufferSize];
 uint8_t pcmBuffer[kDmaBufferSize / 2];
+
+String firmwareVersion() {
+  return String(kFirmwareVersion) + "." + String(kFirmwareBuild);
+}
 
 const char kPage[] PROGMEM = R"HTML(<!doctype html>
 <html lang="hu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -48,23 +69,88 @@ a{color:#12604f;text-decoration:underline;text-underline-offset:3px}#more{margin
 .signalbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.signalbar h2{margin:0}.signalvalues{color:var(--muted);margin:14px 0;font-variant-numeric:tabular-nums}
 #signalChart{width:100%;height:200px;display:block;background:#f8faf7;border:1px solid var(--line)}.legend{display:flex;gap:20px;color:var(--muted);font-size:13px;margin-top:10px}.legend b{font-weight:normal}
 .legend b:first-child{color:#12604f}.legend b:last-child{color:var(--accent)}
+.livecontrols{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}.livecontrols label{font-size:14px;color:var(--muted)}.livecontrols input{width:120px;accent-color:#12604f}
 @media(max-width:560px){li{grid-template-columns:1fr}li a{justify-self:start}h1{font-size:30px}}
-</style></head><body><header>RADIO RECORDER <a href="/files">Fájlkezelő</a></header>
-<main><h1>Felvétel</h1><p class="state" id="state">Kapcsolódás...</p><button id="toggle" disabled>Felvétel indítása</button><p class="note" id="message"></p>
+</style></head><body><header>RADIO RECORDER <span id="firmwareVersion">v?</span> <a href="/files">Fájlkezelő</a></header>
+<main><h1>Felvétel</h1><p class="state" id="state">Kapcsolódás...</p><button id="toggle" disabled>Felvétel indítása</button> <button id="wifiTest" disabled>Wi-Fi zajteszt</button><p class="note" id="message"></p>
 <p class="note">Csak ellenőrzött, kis szintű tesztforrás. A rádiót még ne csatlakoztasd.</p></main>
-<section><div class="signalbar"><h2>GPIO1 jel</h2><button id="signalToggle" disabled>Mérés bekapcsolása</button></div>
-<p id="signalValues" class="signalvalues">Kikapcsolva</p><div id="signalPlot" hidden><canvas id="signalChart" aria-label="GPIO1 RMS és csúcs idősor" role="img"></canvas>
+<section><div class="signalbar"><h2 id="signalHeading">ADC jel</h2><button id="signalToggle" disabled>Mérés bekapcsolása</button></div>
+<p id="signalValues" class="signalvalues">Kikapcsolva</p><div id="signalPlot" hidden><canvas id="signalChart" aria-label="ADC RMS és csúcs idősor" role="img"></canvas>
 <div class="legend"><b>RMS</b><b>Csúcs</b><span>ADC egység / 30 s</span></div></div></section>
+<section><div class="signalbar"><h2>Élő hang</h2><button id="liveToggle" disabled>Hallgatás indítása</button></div>
+<div class="livecontrols"><label for="liveVolume">Hangerő</label><input id="liveVolume" type="range" min="0" max="100" value="50"><button id="liveTest">Hangpróba</button></div>
+<p id="liveStatus" class="note">Kikapcsolva</p></section>
 <section><h2>Mentett felvételek</h2><p id="empty">Betöltés...</p><ol id="files"></ol><button id="more" hidden>Továbbiak</button></section>
 <footer>ESP32-S3 / microSD</footer>
 <script>
-const stateEl=document.querySelector('#state'),toggle=document.querySelector('#toggle'),message=document.querySelector('#message');
+const stateEl=document.querySelector('#state'),toggle=document.querySelector('#toggle'),wifiTest=document.querySelector('#wifiTest'),message=document.querySelector('#message'),firmwareVersion=document.querySelector('#firmwareVersion');
 const files=document.querySelector('#files'),empty=document.querySelector('#empty'),more=document.querySelector('#more');
 const signalToggle=document.querySelector('#signalToggle'),signalValues=document.querySelector('#signalValues');
-const signalPlot=document.querySelector('#signalPlot'),signalChart=document.querySelector('#signalChart');
+const signalPlot=document.querySelector('#signalPlot'),signalChart=document.querySelector('#signalChart'),signalHeading=document.querySelector('#signalHeading');
+const liveToggle=document.querySelector('#liveToggle'),liveStatus=document.querySelector('#liveStatus'),liveVolume=document.querySelector('#liveVolume'),liveTest=document.querySelector('#liveTest');
 let currentState='',nextOffset=null,loaded=false,listing=false;
 let meterRunning=false,meterGeneration=0,meterTimer=null,lastSignalSequence=-1;
+let liveSocket=null,audioContext=null,audioGain=null,nextAudioTime=0;
 const signalHistory=[];
+function stopLive(){
+ const socket=liveSocket;liveSocket=null;
+ if(socket)socket.close();
+ const context=audioContext;audioContext=null;audioGain=null;if(context)context.close().catch(()=>{});
+ liveToggle.textContent='Hallgatás indítása';liveStatus.textContent='Kikapcsolva';
+}
+liveToggle.addEventListener('click',async()=>{
+ if(liveSocket){stopLive();return}
+ liveToggle.disabled=true;
+ try{
+  const Context=window.AudioContext||window.webkitAudioContext;if(!Context||!window.WebSocket)throw Error();
+  audioContext=new Context({latencyHint:'interactive'});
+  audioGain=audioContext.createGain();audioGain.gain.value=Number(liveVolume.value)/100;
+  audioGain.connect(audioContext.destination);
+  const unlock=audioContext.createBufferSource();unlock.buffer=audioContext.createBuffer(1,1,22050);
+  unlock.connect(audioGain);unlock.start();
+  await audioContext.resume();
+  const socket=new WebSocket('ws://'+location.hostname+':81/');socket.binaryType='arraybuffer';liveSocket=socket;
+  liveStatus.textContent='Kapcsolódás...';
+  socket.onopen=()=>{if(socket!==liveSocket)return;liveToggle.textContent='Hallgatás leállítása';liveStatus.textContent='Várakozás hangra...'};
+  socket.onmessage=event=>{
+   if(socket!==liveSocket||!(event.data instanceof ArrayBuffer)||!audioContext)return;
+   const view=new DataView(event.data),length=Math.floor(view.byteLength/2);if(!length)return;
+   const buffer=audioContext.createBuffer(1,length,22050),channel=buffer.getChannelData(0);
+  let peak=0;
+  for(let index=0;index<length;index++){
+   const value=view.getInt16(index*2,true)/32768;channel[index]=value;peak=Math.max(peak,Math.abs(value));
+  }
+  if(audioContext.state!=='running'){
+   liveStatus.textContent='Lejátszás szünetel ('+audioContext.state+'), PCM csúcs: '+Math.round(peak*100)+'%';
+   return;
+  }
+   const now=audioContext.currentTime;
+  if(nextAudioTime<now+0.12||nextAudioTime>now+0.8)nextAudioTime=now+0.12;
+   const source=audioContext.createBufferSource();source.buffer=buffer;source.connect(audioGain);source.start(nextAudioTime);
+   nextAudioTime+=buffer.duration;
+  liveStatus.textContent='Élő hang, PCM csúcs: '+Math.round(peak*100)+'%, kb. '+Math.round((nextAudioTime-now)*1000)+' ms puffer';
+  };
+  socket.onclose=()=>{if(socket!==liveSocket)return;stopLive();liveStatus.textContent='A kapcsolat lezárult.'};
+  socket.onerror=()=>{if(socket!==liveSocket)return;stopLive();liveStatus.textContent='A hangkapcsolat nem elérhető.'};
+ }catch{stopLive();liveStatus.textContent='A böngésző nem tudja elindítani a hangot.'}
+ liveToggle.disabled=false;
+});
+liveVolume.addEventListener('input',()=>{if(audioGain)audioGain.gain.value=Number(liveVolume.value)/100});
+liveTest.addEventListener('click',async()=>{
+ const Context=window.AudioContext||window.webkitAudioContext;
+ if(!Context){liveStatus.textContent='Hangpróba nem támogatott.';return}
+ const context=audioContext||new Context({latencyHint:'interactive'});
+ try{
+  const tone=context.createOscillator(),gain=context.createGain();
+  tone.frequency.value=440;gain.gain.value=Number(liveVolume.value)/100*0.15;
+  tone.connect(gain);gain.connect(context.destination);
+  tone.onended=()=>{tone.disconnect();gain.disconnect();if(context!==audioContext)context.close().catch(()=>{})};
+  tone.start();tone.stop(context.currentTime+0.4);
+  await context.resume();
+  liveStatus.textContent='Hangpróba lejátszva.';
+ }catch{if(context!==audioContext)context.close().catch(()=>{});liveStatus.textContent='A hangpróba nem sikerült.'}
+});
+addEventListener('pagehide',stopLive);
 function drawSignal(){
  const width=signalChart.clientWidth,height=200,ratio=devicePixelRatio||1,context=signalChart.getContext('2d');
  signalChart.width=Math.round(width*ratio);signalChart.height=Math.round(height*ratio);context.setTransform(ratio,0,0,ratio,0,0);
@@ -135,11 +221,16 @@ async function refresh(){
  try{
   const response=await fetch('/api/status',{cache:'no-store'});if(!response.ok)throw Error();
   const data=await response.json();
+  firmwareVersion.textContent='v'+data.version;
+  signalHeading.textContent='GPIO'+data.audioGpio+' jel';
+  signalChart.setAttribute('aria-label','GPIO'+data.audioGpio+' RMS és csúcs idősor');
   const busy=data.state!=='idle';
   stateEl.textContent=!data.ready?'SD vagy ADC nem elérhető':busy?(data.state==='starting'?'Felvétel indul...':'Felvétel folyamatban'):(data.hasRecordings?'Van mentett felvétel':'Nincs mentett felvétel');
   toggle.textContent=busy?'Felvétel leállítása':'Felvétel indítása';toggle.classList.toggle('recording',busy);
   toggle.disabled=!data.ready||data.state==='starting'||(busy&&data.stopping);
+  wifiTest.disabled=!data.ready||busy||!!liveSocket;
   signalToggle.disabled=!data.meterReady&&!meterRunning;
+  liveToggle.disabled=!data.liveReady&&!liveSocket;
   message.textContent=data.error||'';
   if(!busy&&(!loaded||currentState!=='idle'))await list(true);
   currentState=data.state;
@@ -149,6 +240,12 @@ toggle.addEventListener('click',async()=>{
  toggle.disabled=true;
  try{const response=await fetch(currentState==='idle'?'/api/start':'/api/stop',{method:'POST'});if(!response.ok)message.textContent=await response.text();}
  catch{message.textContent='A kérés nem sikerült.'}
+ await refresh();
+});
+wifiTest.addEventListener('click',async()=>{
+ wifiTest.disabled=true;
+ try{const response=await fetch('/api/wifi-test',{method:'POST'});if(!response.ok)message.textContent=await response.text();}
+ catch{message.textContent='A zajteszt nem indult el.'}
  await refresh();
 });
 more.addEventListener('click',()=>list(false));
@@ -173,13 +270,16 @@ button{cursor:pointer;background:var(--ink);color:white;border:1px solid var(--i
 .name{font-weight:700;overflow-wrap:anywhere}.meta{color:var(--muted);font-size:13px;margin:4px 0 0}.actions{display:flex;align-items:center;gap:16px;flex-shrink:0}audio{width:min(100%,400px);height:40px;display:block;margin-top:12px}
 #message{color:var(--muted);margin:20px 0;line-height:1.4}#more{margin-top:22px}footer{border-top:1px solid var(--line);color:var(--muted);font-size:13px}
 @media(max-width:520px){.items li{display:block}.actions{margin-top:12px}.toolbar{align-items:flex-start;flex-direction:column}h1{font-size:29px}}
-</style></head><body><header>RADIO RECORDER <a href="/">Felvétel</a></header>
+</style></head><body><header>RADIO RECORDER <span id="firmwareVersion">v?</span> <a href="/">Felvétel</a></header>
 <main><h1>Fájlkezelő</h1><ol id="crumbs" class="crumbs"></ol>
 <div class="toolbar"><strong id="location">microSD</strong><button id="reload" title="Lista frissítése">Frissítés</button></div>
 <p id="message">Betöltés...</p><ol id="items" class="items"></ol><button id="more" hidden>Továbbiak</button></main>
 <footer>Lejátszás a böngésző által támogatott hangformátumokkal.</footer>
 <script>
 const folder=new URLSearchParams(location.search).get('dir')||'/';
+fetch('/api/status',{cache:'no-store'}).then(response=>response.json()).then(data=>{
+ document.querySelector('#firmwareVersion').textContent='v'+data.version;
+}).catch(()=>{});
 const listEl=document.querySelector('#items'),message=document.querySelector('#message'),more=document.querySelector('#more');
 let next=0,loading=false;
 const sound=name=>/\.(wav|mp3|m4a|mp4|ogg|oga|opus|flac|aac|webm)$/i.test(name);
@@ -231,6 +331,47 @@ more.addEventListener('click',()=>load());breadcrumbs();load();
 void put16(uint8_t *destination, uint16_t value) {
   destination[0] = value & 0xff;
   destination[1] = value >> 8;
+}
+
+void queueLiveAudio(const uint8_t *samples, size_t length) {
+  if (liveClient.load() < 0 || liveFrames == nullptr) return;
+  for (size_t offset = 0; offset < length; offset += kLiveFrameBytes) {
+    AudioFrame frame = {};
+    frame.length = min(kLiveFrameBytes, length - offset);
+    memcpy(frame.samples, samples + offset, frame.length);
+    xQueueSend(liveFrames, &frame, 0);
+  }
+}
+
+void onAudioSocket(uint8_t client, WStype_t event, uint8_t *, size_t) {
+  if (event == WStype_CONNECTED) {
+    if (!adcReady || recorderTask == nullptr || liveFrames == nullptr || liveClient.load() >= 0) {
+      audioSocket.disconnect(client);
+      return;
+    }
+    xQueueReset(liveFrames);
+    liveCaptureFault.store(false);
+    liveClient.store(client);
+    xTaskNotifyGive(recorderTask);
+    Serial.println("Live audio connected");
+  } else if (event == WStype_DISCONNECTED && liveClient.load() == client) {
+    liveClient.store(-1);
+    xQueueReset(liveFrames);
+    Serial.println("Live audio disconnected");
+  }
+}
+
+void sendLiveFrames() {
+  int client = liveClient.load();
+  if (client < 0 || liveFrames == nullptr) return;
+  if (liveCaptureFault.exchange(false)) {
+    audioSocket.disconnect(client);
+    return;
+  }
+  AudioFrame frame;
+  if (xQueueReceive(liveFrames, &frame, 0) == pdTRUE && !audioSocket.sendBIN(client, frame.samples, frame.length)) {
+    audioSocket.disconnect(client);
+  }
 }
 
 void put32(uint8_t *destination, uint32_t value) {
@@ -340,10 +481,13 @@ void sendStatus() {
   CaptureState state = captureState.load();
   bool ready = sdReady && adcReady && recorderTask != nullptr;
   String json = "{\"ready\":" + String(ready ? "true" : "false");
+  json += ",\"version\":\"" + firmwareVersion() + "\"";
+  json += ",\"audioGpio\":" + String(kAudioGpio);
   json += ",\"meterReady\":" + String(adcReady && recorderTask ? "true" : "false");
+  json += ",\"liveReady\":" + String(adcReady && recorderTask && liveFrames && wifiReady ? "true" : "false");
   json += ",\"state\":\"" + String(state == CaptureState::idle ? "idle" : state == CaptureState::starting ? "starting" : "recording") + "\"";
   json += ",\"stopping\":" + String(stopRequested.load() ? "true" : "false");
-  json += ",\"hasRecordings\":" + String(ready && state == CaptureState::idle && hasRecordings() ? "true" : "false");
+  json += ",\"hasRecordings\":" + String(ready && state == CaptureState::idle && recordingsPresent.load() ? "true" : "false");
   json += ",\"error\":\"" + String(state == CaptureState::idle ? lastError : "") + "\"}";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", json);
@@ -360,29 +504,48 @@ void sendRecordings() {
     server.send(500, "text/plain", "Cannot read SD card");
     return;
   }
-  String json = "{\"files\":[";
-  uint32_t index = 0;
-  uint32_t shown = 0;
-  bool moreFiles = false;
+  uint32_t total = 0;
   File entry;
   while ((entry = directory.openNextFile())) {
-    String name = fileName(entry);
-    if (!entry.isDirectory() && isRecordingFile(name) && entry.size() >= 44) {
-      if (index >= offset && shown < 20) {
-        if (shown) json += ',';
-        json += "{\"name\":\"" + name + "\",\"bytes\":" + String(entry.size()) + "}";
-        ++shown;
-      } else if (index >= offset + 20) {
-        moreFiles = true;
-        entry.close();
-        break;
-      }
-      ++index;
-    }
+    if (!entry.isDirectory() && isRecordingFile(fileName(entry)) && entry.size() >= 44) ++total;
     entry.close();
   }
   directory.close();
-  json += moreFiles ? "],\"next\":" + String(offset + shown) + "}" : "],\"next\":null}";
+
+  const uint32_t end = offset < total ? total - offset : 0;
+  const uint32_t start = end > 20 ? end - 20 : 0;
+  String names[20];
+  size_t sizes[20];
+  uint32_t index = 0;
+  uint32_t shown = 0;
+  if (start < end) {
+    directory = SD_MMC.open("/");
+    if (!directory) {
+      server.send(500, "text/plain", "Cannot read SD card");
+      return;
+    }
+    while ((entry = directory.openNextFile())) {
+      String name = fileName(entry);
+      if (!entry.isDirectory() && isRecordingFile(name) && entry.size() >= 44) {
+        if (index >= start && index < end) {
+          names[shown] = name;
+          sizes[shown++] = entry.size();
+        }
+        if (++index >= end) {
+          entry.close();
+          break;
+        }
+      }
+      entry.close();
+    }
+    directory.close();
+  }
+  String json = "{\"files\":[";
+  for (uint32_t item = shown; item > 0; --item) {
+    if (item < shown) json += ',';
+    json += "{\"name\":\"" + names[item - 1] + "\",\"bytes\":" + String(sizes[item - 1]) + "}";
+  }
+  json += offset + shown < total ? "],\"next\":" + String(offset + shown) + "}" : "],\"next\":null}";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", json);
 }
@@ -595,8 +758,14 @@ void initWeb() {
     Serial.println("Cannot start Wi-Fi AP");
     return;
   }
-  server.on("/", HTTP_GET, []() { server.send_P(200, "text/html; charset=utf-8", kPage); });
-  server.on("/files", HTTP_GET, []() { server.send_P(200, "text/html; charset=utf-8", kFilesPage); });
+  server.on("/", HTTP_GET, []() {
+    server.sendHeader("Cache-Control", "no-store");
+    server.send_P(200, "text/html; charset=utf-8", kPage);
+  });
+  server.on("/files", HTTP_GET, []() {
+    server.sendHeader("Cache-Control", "no-store");
+    server.send_P(200, "text/html; charset=utf-8", kFilesPage);
+  });
   server.on("/api/status", HTTP_GET, sendStatus);
   server.on("/api/recordings", HTTP_GET, sendRecordings);
   server.on("/api/files", HTTP_GET, sendFiles);
@@ -608,6 +777,14 @@ void initWeb() {
     if (startRecording()) server.send(200, "text/plain", recordingName);
     else server.send(409, "text/plain", lastError[0] ? lastError : "SD, ADC or recorder unavailable");
   });
+  server.on("/api/wifi-test", HTTP_POST, []() {
+    if (liveClient.load() >= 0 || wifiTestPhase != 0 || !startRecording()) {
+      server.send(409, "text/plain", "Stop live audio and other recordings first");
+      return;
+    }
+    wifiTestPhase = 1;
+    server.send(200, "text/plain", recordingName);
+  });
   server.on("/api/stop", HTTP_POST, []() {
     if (stopRecording()) server.send(200, "text/plain", "Stopping");
     else server.send(409, "text/plain", "Not recording");
@@ -616,12 +793,15 @@ void initWeb() {
   const char *headers[] = {"Range"};
   server.collectHeaders(headers, 1);
   server.begin();
+  audioSocket.onEvent(onAudioSocket);
+  audioSocket.begin();
   wifiReady = true;
 }
 
 void printSetupStatus() {
+  Serial.printf("Firmware: v%s\n", firmwareVersion().c_str());
   Serial.printf("SD card: %s\n", sdReady ? "ready" : "unavailable");
-  Serial.printf("ADC GPIO1: %s\n", adcReady ? "ready" : "unavailable");
+  Serial.printf("ADC GPIO%d: %s\n", kAudioGpio, adcReady ? "ready" : "unavailable");
   Serial.printf("Recorder: %s\n", sdReady && recorderTask ? "ready" : "unavailable");
   if (wifiReady) {
     Serial.print("Wi-Fi AP SSID: ");
@@ -639,15 +819,17 @@ void monitorIdle() {
   if (adc_continuous_flush_pool(adcHandle) != ESP_OK || adc_continuous_start(adcHandle) != ESP_OK) {
     signalFault.store(1);
     signalEnabled.store(false);
+    liveCaptureFault.store(true);
     return;
   }
   signalActive.store(true);
   SignalWindow window;
   float dcLevel = 2048.0f;
-  while (signalRequested() && captureState.load() == CaptureState::idle) {
+  while ((signalRequested() || liveClient.load() >= 0) && captureState.load() == CaptureState::idle) {
     if (adcOverflow.load(std::memory_order_relaxed)) {
       signalFault.store(2);
       signalEnabled.store(false);
+      liveCaptureFault.store(true);
       break;
     }
     uint32_t length = 0;
@@ -656,22 +838,33 @@ void monitorIdle() {
     if (result != ESP_OK || length % SOC_ADC_DIGI_RESULT_BYTES != 0) {
       signalFault.store(3);
       signalEnabled.store(false);
+      liveCaptureFault.store(true);
       break;
     }
     uint32_t validSamples = 0;
+    size_t pcmLength = 0;
+    bool publishSignal = signalRequested();
     for (uint32_t offset = 0; offset < length; offset += SOC_ADC_DIGI_RESULT_BYTES) {
       adc_digi_output_data_t sample;
       memcpy(&sample, dmaBuffer + offset, sizeof(sample));
-      if (sample.type2.unit != ADC_UNIT_1 || sample.type2.channel != ADC_CHANNEL_0) continue;
+      if (sample.type2.unit != ADC_UNIT_1 || sample.type2.channel != audioChannel) continue;
       ++validSamples;
       dcLevel += (static_cast<float>(sample.type2.data) - dcLevel) / 1024.0f;
-      addSignalSample(window, sample.type2.data, static_cast<int32_t>(sample.type2.data - dcLevel));
+      float centered = static_cast<float>(sample.type2.data) - dcLevel;
+      if (publishSignal) addSignalSample(window, sample.type2.data, static_cast<int32_t>(centered));
+      if (liveClient.load() >= 0) {
+        int32_t value = constrain(static_cast<int32_t>(centered * 16), -32768, 32767);
+        put16(pcmBuffer + pcmLength, static_cast<uint16_t>(static_cast<int16_t>(value)));
+        pcmLength += 2;
+      }
     }
     if (!validSamples) {
       signalFault.store(3);
       signalEnabled.store(false);
+      liveCaptureFault.store(true);
       break;
     }
+    if (pcmLength) queueLiveAudio(pcmBuffer, pcmLength);
   }
   adc_continuous_stop(adcHandle);
   signalActive.store(false);
@@ -680,7 +873,7 @@ void monitorIdle() {
 void recordLoop(void *) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    if (captureState.load() == CaptureState::idle && signalRequested()) monitorIdle();
+    if (captureState.load() == CaptureState::idle && (signalRequested() || liveClient.load() >= 0)) monitorIdle();
     if (captureState.load() != CaptureState::starting) continue;
     adcOverflow.store(false, std::memory_order_relaxed);
     String path = String("/") + recordingName;
@@ -716,7 +909,7 @@ void recordLoop(void *) {
         for (uint32_t offset = 0; offset < length; offset += SOC_ADC_DIGI_RESULT_BYTES) {
           adc_digi_output_data_t sample;
           memcpy(&sample, dmaBuffer + offset, sizeof(sample));
-          if (sample.type2.unit != ADC_UNIT_1 || sample.type2.channel != ADC_CHANNEL_0) continue;
+          if (sample.type2.unit != ADC_UNIT_1 || sample.type2.channel != audioChannel) continue;
           dcLevel += (static_cast<float>(sample.type2.data) - dcLevel) / 1024.0f;
           float centered = static_cast<float>(sample.type2.data) - dcLevel;
           if (publishSignal) addSignalSample(window, sample.type2.data, static_cast<int32_t>(centered));
@@ -729,6 +922,7 @@ void recordLoop(void *) {
           snprintf(lastError, sizeof(lastError), "ADC returned no valid samples");
           break;
         }
+        queueLiveAudio(pcmBuffer, pcmLength);
         if (dataBytes > kMaxWavBytes - pcmLength || file.write(pcmBuffer, pcmLength) != pcmLength) {
           snprintf(lastError, sizeof(lastError), "SD write failed or WAV size limit reached");
           break;
@@ -751,15 +945,20 @@ void recordLoop(void *) {
       SD_MMC.remove(path);
       if (!lastError[0]) snprintf(lastError, sizeof(lastError), "Cannot finish WAV file");
     }
-    if (valid) Serial.printf("Recording stopped: %s (%lu audio bytes)\n", recordingName, static_cast<unsigned long>(dataBytes));
+    if (valid) {
+      recordingsPresent.store(true);
+      Serial.printf("Recording stopped: %s (%lu audio bytes)\n", recordingName, static_cast<unsigned long>(dataBytes));
+    }
     else Serial.printf("Recording failed: %s\n", recordingName);
     if (lastError[0]) Serial.printf("Recording error: %s\n", lastError);
     captureState.store(CaptureState::idle);
-    if (signalRequested()) xTaskNotifyGive(recorderTask);
+    if (signalRequested() || liveClient.load() >= 0) xTaskNotifyGive(recorderTask);
   }
 }
 
 bool initAdc() {
+  adc_unit_t unit;
+  if (adc_continuous_io_to_channel(kAudioGpio, &unit, &audioChannel) != ESP_OK || unit != ADC_UNIT_1) return false;
   adc_continuous_handle_cfg_t handleConfig = {};
   handleConfig.max_store_buf_size = 32768;
   handleConfig.conv_frame_size = 1024;
@@ -767,7 +966,7 @@ bool initAdc() {
 
   adc_digi_pattern_config_t pattern = {};
   pattern.atten = ADC_ATTEN_DB_12;
-  pattern.channel = ADC_CHANNEL_0;
+  pattern.channel = audioChannel;
   pattern.unit = ADC_UNIT_1;
   pattern.bit_width = ADC_BITWIDTH_12;
 
@@ -790,16 +989,49 @@ void setup() {
   Serial.begin(115200);
   Serial.println("RadioRecorder setup starting");
   sdReady = SD_MMC.setPins(39, 38, 40) && SD_MMC.begin("/sdcard", true, false) && SD_MMC.cardType() != CARD_NONE;
+  if (sdReady) recordingsPresent.store(hasRecordings());
   adcReady = initAdc();
   if (adcReady && xTaskCreatePinnedToCore(recordLoop, "recorder", 8192, nullptr, 2, &recorderTask, 1) != pdPASS) {
     Serial.println("Cannot create recorder task");
   }
+  if (recorderTask) liveFrames = xQueueCreate(8, sizeof(AudioFrame));
   initWeb();
   printSetupStatus();
 }
 
 void loop() {
-  server.handleClient();
+  if (wifiReady) {
+    server.handleClient();
+    audioSocket.loop();
+    sendLiveFrames();
+  }
+  if (wifiTestPhase == 1) {
+    if (captureState.load() == CaptureState::recording) {
+      wifiTestSince = millis();
+      wifiTestPhase = 2;
+    } else if (captureState.load() == CaptureState::idle) {
+      wifiTestPhase = 0;
+    }
+  } else if (wifiTestPhase == 2) {
+    if (captureState.load() == CaptureState::idle) {
+      wifiTestPhase = 0;
+    } else if (millis() - wifiTestSince >= 5000) {
+      if (!WiFi.mode(WIFI_OFF)) {
+        Serial.println("Wi-Fi noise test: cannot disable Wi-Fi");
+        stopRecording();
+        wifiTestPhase = 4;
+      } else {
+        wifiReady = false;
+        wifiTestSince = millis();
+        wifiTestPhase = 3;
+      }
+    }
+  } else if (wifiTestPhase == 3 && millis() - wifiTestSince >= 10000) {
+    stopRecording();
+    wifiTestPhase = 4;
+  } else if (wifiTestPhase == 4 && captureState.load() == CaptureState::idle) {
+    ESP.restart();
+  }
   if (Serial.available()) {
     char command = Serial.read();
     if (command == 'r' && !startRecording()) Serial.println("Cannot start recording");
