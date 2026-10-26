@@ -9,7 +9,10 @@
 
 constexpr uint32_t kSampleRate = 22050;
 constexpr int kAudioGpio = 1;
-constexpr char kFirmwareVersion[] = "0.1.2";
+constexpr int kEncoderClkGpio = 21;
+constexpr int kEncoderDtGpio = 47;
+constexpr int kEncoderSwGpio = 14;
+constexpr char kFirmwareVersion[] = "0.1.7";
 constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 constexpr size_t kDmaBufferSize = 4096;
 constexpr size_t kLiveFrameBytes = 1024;
@@ -29,6 +32,8 @@ TaskHandle_t recorderTask = nullptr;
 std::atomic<bool> stopRequested{false};
 std::atomic<bool> adcOverflow{false};
 std::atomic<bool> signalEnabled{false};
+std::atomic<bool> serialMeterEnabled{false};
+std::atomic<bool> audioLowpassEnabled{false};
 std::atomic<bool> signalActive{false};
 std::atomic<uint32_t> signalLastPoll{0};
 std::atomic<uint32_t> signalSequence{0};
@@ -38,19 +43,63 @@ std::atomic<uint16_t> signalBias{0};
 std::atomic<uint8_t> signalFault{0};
 enum class CaptureState { idle, starting, recording };
 std::atomic<CaptureState> captureState{CaptureState::idle};
+std::atomic<uint32_t> recordingStartedAt{0};
 bool sdReady = false;
 std::atomic<bool> recordingsPresent{false};
 bool adcReady = false;
 bool wifiReady = false;
 uint8_t wifiTestPhase = 0;
 uint32_t wifiTestSince = 0;
+portMUX_TYPE encoderMux = portMUX_INITIALIZER_UNLOCKED;
+volatile uint8_t encoderState = 0;
+volatile int8_t encoderQuarterSteps = 0;
+volatile int32_t encoderSteps = 0;
 char recordingName[16] = {};
 char lastError[80] = {};
 uint8_t dmaBuffer[kDmaBufferSize];
 uint8_t pcmBuffer[kDmaBufferSize / 2];
 
+struct AudioLowpass {
+  float input1 = 0;
+  float input2 = 0;
+  float output1 = 0;
+  float output2 = 0;
+
+  float process(float input) {
+    float output = 0.1370154f * input + 0.2740308f * input1 + 0.1370154f * input2
+                   + 0.7155086f * output1 - 0.2635703f * output2;
+    input2 = input1;
+    input1 = input;
+    output2 = output1;
+    output1 = output;
+    return output;
+  }
+};
+
+int16_t encodePcm(float centered, AudioLowpass &lowpass) {
+  float filtered = lowpass.process(centered);
+  float value = audioLowpassEnabled.load() ? filtered : centered;
+  return static_cast<int16_t>(constrain(static_cast<int32_t>(value * 16), -32768, 32767));
+}
+
 String firmwareVersion() {
   return String(kFirmwareVersion) + "." + String(kFirmwareBuild);
+}
+
+void IRAM_ATTR onEncoderEdge() {
+  static const DRAM_ATTR int8_t transitions[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
+  uint8_t state = (digitalRead(kEncoderClkGpio) << 1) | digitalRead(kEncoderDtGpio);
+  portENTER_CRITICAL_ISR(&encoderMux);
+  encoderQuarterSteps += transitions[(encoderState << 2) | state];
+  encoderState = state;
+  if (encoderQuarterSteps >= 4) {
+    encoderSteps = encoderSteps + 1;
+    encoderQuarterSteps = 0;
+  } else if (encoderQuarterSteps <= -4) {
+    encoderSteps = encoderSteps - 1;
+    encoderQuarterSteps = 0;
+  }
+  portEXIT_CRITICAL_ISR(&encoderMux);
 }
 
 const char kPage[] PROGMEM = R"HTML(<!doctype html>
@@ -70,9 +119,11 @@ a{color:#12604f;text-decoration:underline;text-underline-offset:3px}#more{margin
 #signalChart{width:100%;height:200px;display:block;background:#f8faf7;border:1px solid var(--line)}.legend{display:flex;gap:20px;color:var(--muted);font-size:13px;margin-top:10px}.legend b{font-weight:normal}
 .legend b:first-child{color:#12604f}.legend b:last-child{color:var(--accent)}
 .livecontrols{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}.livecontrols label{font-size:14px;color:var(--muted)}.livecontrols input{width:120px;accent-color:#12604f}
+.filtercontrol{display:flex;align-items:center;gap:10px;margin-top:20px;cursor:pointer}.filtercontrol input{width:18px;height:18px;accent-color:#12604f}
 @media(max-width:560px){li{grid-template-columns:1fr}li a{justify-self:start}h1{font-size:30px}}
 </style></head><body><header>RADIO RECORDER <span id="firmwareVersion">v?</span> <a href="/files">Fájlkezelő</a></header>
 <main><h1>Felvétel</h1><p class="state" id="state">Kapcsolódás...</p><button id="toggle" disabled>Felvétel indítása</button> <button id="wifiTest" disabled>Wi-Fi zajteszt</button><p class="note" id="message"></p>
+<label class="filtercontrol"><input id="lowpassToggle" type="checkbox">3,4 kHz-es zajszűrő</label>
 <p class="note">Csak ellenőrzött, kis szintű tesztforrás. A rádiót még ne csatlakoztasd.</p></main>
 <section><div class="signalbar"><h2 id="signalHeading">ADC jel</h2><button id="signalToggle" disabled>Mérés bekapcsolása</button></div>
 <p id="signalValues" class="signalvalues">Kikapcsolva</p><div id="signalPlot" hidden><canvas id="signalChart" aria-label="ADC RMS és csúcs idősor" role="img"></canvas>
@@ -83,7 +134,7 @@ a{color:#12604f;text-decoration:underline;text-underline-offset:3px}#more{margin
 <section><h2>Mentett felvételek</h2><p id="empty">Betöltés...</p><ol id="files"></ol><button id="more" hidden>Továbbiak</button></section>
 <footer>ESP32-S3 / microSD</footer>
 <script>
-const stateEl=document.querySelector('#state'),toggle=document.querySelector('#toggle'),wifiTest=document.querySelector('#wifiTest'),message=document.querySelector('#message'),firmwareVersion=document.querySelector('#firmwareVersion');
+const stateEl=document.querySelector('#state'),toggle=document.querySelector('#toggle'),wifiTest=document.querySelector('#wifiTest'),lowpassToggle=document.querySelector('#lowpassToggle'),message=document.querySelector('#message'),firmwareVersion=document.querySelector('#firmwareVersion');
 const files=document.querySelector('#files'),empty=document.querySelector('#empty'),more=document.querySelector('#more');
 const signalToggle=document.querySelector('#signalToggle'),signalValues=document.querySelector('#signalValues');
 const signalPlot=document.querySelector('#signalPlot'),signalChart=document.querySelector('#signalChart'),signalHeading=document.querySelector('#signalHeading');
@@ -222,6 +273,7 @@ async function refresh(){
   const response=await fetch('/api/status',{cache:'no-store'});if(!response.ok)throw Error();
   const data=await response.json();
   firmwareVersion.textContent='v'+data.version;
+  lowpassToggle.checked=data.lowpass;
   signalHeading.textContent='GPIO'+data.audioGpio+' jel';
   signalChart.setAttribute('aria-label','GPIO'+data.audioGpio+' RMS és csúcs idősor');
   const busy=data.state!=='idle';
@@ -241,6 +293,14 @@ toggle.addEventListener('click',async()=>{
  try{const response=await fetch(currentState==='idle'?'/api/start':'/api/stop',{method:'POST'});if(!response.ok)message.textContent=await response.text();}
  catch{message.textContent='A kérés nem sikerült.'}
  await refresh();
+});
+lowpassToggle.addEventListener('change',async()=>{
+ const enabled=lowpassToggle.checked;lowpassToggle.disabled=true;
+ try{
+  const response=await fetch(enabled?'/api/filter/on':'/api/filter/off',{method:'POST'});
+  if(!response.ok)throw Error();
+ }catch{lowpassToggle.checked=!enabled;message.textContent='A zajszűrő kapcsolása sikertelen.'}
+ await refresh();lowpassToggle.disabled=false;
 });
 wifiTest.addEventListener('click',async()=>{
  wifiTest.disabled=true;
@@ -404,6 +464,7 @@ struct SignalWindow {
 };
 
 bool signalRequested() {
+  if (serialMeterEnabled.load()) return true;
   if (!signalEnabled.load()) return false;
   if (static_cast<uint32_t>(millis() - signalLastPoll.load()) <= 4000) return true;
   signalEnabled.store(false);
@@ -451,6 +512,73 @@ bool stopRecording() {
   return true;
 }
 
+void pollEncoderRotation() {
+  static uint32_t nextActionAt = 0;
+  portENTER_CRITICAL(&encoderMux);
+  int32_t steps = encoderSteps;
+  encoderSteps = 0;
+  portEXIT_CRITICAL(&encoderMux);
+  if (!steps || static_cast<int32_t>(millis() - nextActionAt) < 0) return;
+  nextActionAt = millis() + 300;
+  if (steps > 0) {
+    if (wifiTestPhase != 0) {
+      Serial.println("Zajteszt alatt a felvetel nem kapcsolhato");
+    } else if (captureState.load() == CaptureState::idle) {
+      Serial.println(startRecording() ? String("Felvetel indul: ") + recordingName : String("Felvetel nem indithato: ") + lastError);
+    } else if (stopRequested.load()) {
+      Serial.println("Felvetel leallitasa folyamatban");
+    } else {
+      Serial.println(stopRecording() ? "Felvetel leallitasa kerese" : "Felvetel nem allithato le");
+    }
+  } else {
+    bool enabled = !serialMeterEnabled.load();
+    if (enabled && (!adcReady || recorderTask == nullptr)) {
+      Serial.println("ADC meres nem elerheto");
+      return;
+    }
+    serialMeterEnabled.store(enabled);
+    if (enabled) {
+      signalFault.store(0);
+      xTaskNotifyGive(recorderTask);
+    }
+    Serial.println(enabled ? "Soros ADC meres bekapcsolva" : "Soros ADC meres kikapcsolva");
+  }
+}
+
+void pollSerialMeter() {
+  static bool wasEnabled = false;
+  static uint32_t lastSequence = 0;
+  static uint32_t lastPrintAt = 0;
+  if (!serialMeterEnabled.load()) {
+    wasEnabled = false;
+    return;
+  }
+  if (!wasEnabled) {
+    lastSequence = signalSequence.load();
+    lastPrintAt = millis() - 500;
+    wasEnabled = true;
+  }
+  if (millis() - lastPrintAt < 500) return;
+  uint8_t fault = signalFault.load();
+  if (fault) {
+    Serial.printf("ADC meresi hiba (%u)\n", fault);
+    serialMeterEnabled.store(false);
+    return;
+  }
+  uint32_t sequence = signalSequence.load();
+  if (sequence == lastSequence) return;
+  lastSequence = sequence;
+  lastPrintAt = millis();
+  char recordingLabel[64] = {};
+  if (captureState.load() == CaptureState::recording) {
+    uint32_t elapsedMs = lastPrintAt - recordingStartedAt.load();
+    snprintf(recordingLabel, sizeof(recordingLabel), "REC %s | t=%lu.%03lu s | ", recordingName,
+             static_cast<unsigned long>(elapsedMs / 1000), static_cast<unsigned long>(elapsedMs % 1000));
+  }
+  Serial.printf("%sGPIO%d RMS: %u | Csucs: %u | DC-kozep: %u (ADC)\n", recordingLabel, kAudioGpio,
+                signalRms.load(), signalPeak.load(), signalBias.load());
+}
+
 bool isRecordingFile(const String &name) {
   if (name.length() != 12) return false;
   String upper = name;
@@ -483,6 +611,7 @@ void sendStatus() {
   String json = "{\"ready\":" + String(ready ? "true" : "false");
   json += ",\"version\":\"" + firmwareVersion() + "\"";
   json += ",\"audioGpio\":" + String(kAudioGpio);
+  json += ",\"lowpass\":" + String(audioLowpassEnabled.load() ? "true" : "false");
   json += ",\"meterReady\":" + String(adcReady && recorderTask ? "true" : "false");
   json += ",\"liveReady\":" + String(adcReady && recorderTask && liveFrames && wifiReady ? "true" : "false");
   json += ",\"state\":\"" + String(state == CaptureState::idle ? "idle" : state == CaptureState::starting ? "starting" : "recording") + "\"";
@@ -767,6 +896,14 @@ void initWeb() {
     server.send_P(200, "text/html; charset=utf-8", kFilesPage);
   });
   server.on("/api/status", HTTP_GET, sendStatus);
+  server.on("/api/filter/on", HTTP_POST, []() {
+    audioLowpassEnabled.store(true);
+    server.send(200, "text/plain", "Low-pass enabled");
+  });
+  server.on("/api/filter/off", HTTP_POST, []() {
+    audioLowpassEnabled.store(false);
+    server.send(200, "text/plain", "Low-pass disabled");
+  });
   server.on("/api/recordings", HTTP_GET, sendRecordings);
   server.on("/api/files", HTTP_GET, sendFiles);
   server.on("/api/signal", HTTP_GET, sendSignal);
@@ -798,8 +935,52 @@ void initWeb() {
   wifiReady = true;
 }
 
+void toggleWifi() {
+  if (wifiTestPhase != 0) {
+    Serial.println("Wi-Fi zajteszt alatt nem kapcsolhato");
+    return;
+  }
+  if (wifiReady) {
+    server.close();
+    audioSocket.close();
+    liveClient.store(-1);
+    if (liveFrames) xQueueReset(liveFrames);
+    if (!WiFi.mode(WIFI_OFF)) {
+      server.begin();
+      audioSocket.begin();
+      Serial.println("Wi-Fi kikapcsolasa sikertelen");
+      return;
+    }
+    wifiReady = false;
+    Serial.println("Wi-Fi kikapcsolva; a felvetel folytatodik");
+  } else if (WiFi.mode(WIFI_AP) && WiFi.softAP("RadioRecorder")) {
+    server.begin();
+    audioSocket.begin();
+    wifiReady = true;
+    Serial.print("Wi-Fi bekapcsolva: http://");
+    Serial.println(WiFi.softAPIP());
+  } else {
+    WiFi.mode(WIFI_OFF);
+    Serial.println("Wi-Fi bekapcsolasa sikertelen");
+  }
+}
+
+void pollEncoderButton() {
+  static bool lastReading = HIGH;
+  static bool stable = HIGH;
+  static uint32_t changedAt = 0;
+  bool reading = digitalRead(kEncoderSwGpio);
+  if (reading != lastReading) changedAt = millis();
+  lastReading = reading;
+  if (reading != stable && millis() - changedAt >= 30) {
+    stable = reading;
+    if (stable == LOW) toggleWifi();
+  }
+}
+
 void printSetupStatus() {
   Serial.printf("Firmware: v%s\n", firmwareVersion().c_str());
+  Serial.printf("3.4 kHz low-pass: %s (f = toggle)\n", audioLowpassEnabled.load() ? "on" : "off");
   Serial.printf("SD card: %s\n", sdReady ? "ready" : "unavailable");
   Serial.printf("ADC GPIO%d: %s\n", kAudioGpio, adcReady ? "ready" : "unavailable");
   Serial.printf("Recorder: %s\n", sdReady && recorderTask ? "ready" : "unavailable");
@@ -824,6 +1005,7 @@ void monitorIdle() {
   }
   signalActive.store(true);
   SignalWindow window;
+  AudioLowpass lowpass;
   float dcLevel = 2048.0f;
   while ((signalRequested() || liveClient.load() >= 0) && captureState.load() == CaptureState::idle) {
     if (adcOverflow.load(std::memory_order_relaxed)) {
@@ -853,8 +1035,7 @@ void monitorIdle() {
       float centered = static_cast<float>(sample.type2.data) - dcLevel;
       if (publishSignal) addSignalSample(window, sample.type2.data, static_cast<int32_t>(centered));
       if (liveClient.load() >= 0) {
-        int32_t value = constrain(static_cast<int32_t>(centered * 16), -32768, 32767);
-        put16(pcmBuffer + pcmLength, static_cast<uint16_t>(static_cast<int16_t>(value)));
+        put16(pcmBuffer + pcmLength, static_cast<uint16_t>(encodePcm(centered, lowpass)));
         pcmLength += 2;
       }
     }
@@ -888,10 +1069,12 @@ void recordLoop(void *) {
     } else {
       started = true;
       signalActive.store(true);
+      recordingStartedAt.store(millis());
       captureState.store(CaptureState::recording);
       Serial.printf("Recording started: %s\n", recordingName);
       float dcLevel = 2048.0f;
       SignalWindow window;
+      AudioLowpass lowpass;
       while (!stopRequested.load()) {
         bool publishSignal = signalRequested();
         if (adcOverflow.load(std::memory_order_relaxed)) {
@@ -913,9 +1096,7 @@ void recordLoop(void *) {
           dcLevel += (static_cast<float>(sample.type2.data) - dcLevel) / 1024.0f;
           float centered = static_cast<float>(sample.type2.data) - dcLevel;
           if (publishSignal) addSignalSample(window, sample.type2.data, static_cast<int32_t>(centered));
-          int32_t value = static_cast<int32_t>(centered * 16);
-          value = constrain(value, -32768, 32767);
-          put16(pcmBuffer + pcmLength, static_cast<uint16_t>(static_cast<int16_t>(value)));
+          put16(pcmBuffer + pcmLength, static_cast<uint16_t>(encodePcm(centered, lowpass)));
           pcmLength += 2;
         }
         if (pcmLength == 0) {
@@ -988,6 +1169,12 @@ bool initAdc() {
 void setup() {
   Serial.begin(115200);
   Serial.println("RadioRecorder setup starting");
+  pinMode(kEncoderClkGpio, INPUT_PULLUP);
+  pinMode(kEncoderDtGpio, INPUT_PULLUP);
+  pinMode(kEncoderSwGpio, INPUT_PULLUP);
+  encoderState = (digitalRead(kEncoderClkGpio) << 1) | digitalRead(kEncoderDtGpio);
+  attachInterrupt(digitalPinToInterrupt(kEncoderClkGpio), onEncoderEdge, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(kEncoderDtGpio), onEncoderEdge, CHANGE);
   sdReady = SD_MMC.setPins(39, 38, 40) && SD_MMC.begin("/sdcard", true, false) && SD_MMC.cardType() != CARD_NONE;
   if (sdReady) recordingsPresent.store(hasRecordings());
   adcReady = initAdc();
@@ -1000,6 +1187,9 @@ void setup() {
 }
 
 void loop() {
+  pollEncoderRotation();
+  pollSerialMeter();
+  pollEncoderButton();
   if (wifiReady) {
     server.handleClient();
     audioSocket.loop();
@@ -1037,6 +1227,11 @@ void loop() {
     if (command == 'r' && !startRecording()) Serial.println("Cannot start recording");
     if (command == 's') Serial.println(stopRecording() ? "Stop requested" : "Not recording");
     if (command == 'i') printSetupStatus();
+    if (command == 'f') {
+      bool enabled = !audioLowpassEnabled.load();
+      audioLowpassEnabled.store(enabled);
+      Serial.println(enabled ? "3.4 kHz low-pass enabled" : "3.4 kHz low-pass disabled");
+    }
   }
   delay(10);
 }

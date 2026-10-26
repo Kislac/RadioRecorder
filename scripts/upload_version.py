@@ -10,7 +10,7 @@ if "upload" in COMMAND_LINE_TARGETS:
     build_number += 1
     print(f"Firmware upload build: {build_number}")
 
-    def finish_upload(source, target, environment):
+    def finish_upload(target, source, env):
         counter_file.write_text(f"{build_number}\n", encoding="ascii")
         print(f"Firmware upload completed: {build_number}")
 
