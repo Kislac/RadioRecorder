@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 700" role="img" aria-labelledby="title desc">
+  <title id="title">ESP32-S3 PDM hangkimenet: ketfokozatu RC-szuro, DC-csatolas es probaterheles</title>
+  <desc id="desc">GPIO2 soros 1 kiloohmos R1 ellenallason at az A pontra, majd soros 1 kiloohmos R2-n at a B pontra vezet. A-rol C1 10 nanofarad es B-rol C2 10 nanofarad a kozos ESP foldre csatlakozik. B-t soros 100 nanofarados C3 kondenzator koti C-hez, onnan soros 100 kiloohmos R3 vezet a D meropontra. D-rol 1 kiloohmos R4 csatlakozik ESP foldre. A nagy impedancias meromuszer D es ESP fold kozott van. A radio MIC, PTT es GND erintkezoi nincsenek bekotve.</desc>
+  <defs>
+    <style>
+      .wire { fill: none; stroke: #26343a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .part { fill: none; stroke: #26343a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .dot { fill: #26343a; }
+      .label { fill: #26343a; font: 20px sans-serif; }
+      .small { fill: #485861; font: 17px sans-serif; }
+      .note { fill: #8a3b2d; font: 19px sans-serif; }
+      .heading { fill: #183b45; font: bold 27px sans-serif; }
+      .point { fill: #183b45; font: bold 22px sans-serif; }
+    </style>
+  </defs>
+  <rect width="1500" height="700" fill="#fff"/>
+  <text x="65" y="58" class="heading">ESP32-S3 PDM hangkimenet - szurt, csillapitott probajel</text>
+  <text x="65" y="93" class="note">CSAK RADIO NELKUL: MIC, PTT es radio GND nincs bekotve.</text>
+  <text x="65" y="159" class="small">Digitalis kimenet</text>
+  <text x="393" y="159" class="small">Ketfokozatu alulatereszto</text>
+  <text x="827" y="159" class="small">DC-blokk</text>
+  <text x="1075" y="159" class="small">Csillapitas / meres</text>
+
+  <circle cx="150" cy="280" r="7" class="part"/>
+  <text x="65" y="235" class="label">GPIO2</text>
+  <text x="65" y="261" class="small">PDM, 0-3,3 V</text>
+  <path class="wire" d="M157 280 H260 M340 280 H520 M600 280 H870 M900 280 H1060 M1140 280 H1390 V366"/>
+  <path class="part" d="M260 280 L270 269 L280 291 L290 269 L300 291 L310 269 L320 291 L330 269 L340 280"/>
+  <path class="part" d="M520 280 L530 269 L540 291 L550 269 L560 291 L570 269 L580 291 L590 269 L600 280"/>
+  <path class="part" d="M870 253 V307 M900 253 V307"/>
+  <path class="part" d="M1060 280 L1070 269 L1080 291 L1090 269 L1100 291 L1110 269 L1120 291 L1130 269 L1140 280"/>
+  <text x="256" y="232" class="label">R1 1 kΩ</text>
+  <text x="515" y="232" class="label">R2 1 kΩ</text>
+  <text x="830" y="232" class="label">C3 100 nF</text>
+  <text x="1050" y="232" class="label">R3 100 kΩ</text>
+  <circle cx="440" cy="280" r="5" class="dot"/>
+  <circle cx="700" cy="280" r="5" class="dot"/>
+  <circle cx="990" cy="280" r="5" class="dot"/>
+  <circle cx="1240" cy="280" r="5" class="dot"/>
+  <text x="429" y="204" class="point">A</text>
+  <text x="689" y="204" class="point">B</text>
+  <text x="979" y="204" class="point">C</text>
+  <text x="1229" y="204" class="point">D</text>
+
+  <path class="wire" d="M440 280 V375 M440 405 V560 M700 280 V375 M700 405 V560 M1240 280 V380 M1240 480 V560"/>
+  <path class="part" d="M416 375 H464 M416 405 H464 M676 375 H724 M676 405 H724"/>
+  <path class="part" d="M1240 380 L1229 390 L1251 400 L1229 410 L1251 420 L1229 430 L1251 440 L1229 450 L1251 460 L1240 480"/>
+  <text x="465" y="399" class="small">C1 10 nF</text>
+  <text x="725" y="399" class="small">C2 10 nF</text>
+  <text x="1258" y="430" class="small">R4 1 kΩ</text>
+  <text x="352" y="340" class="small">A: RC1</text>
+  <text x="610" y="340" class="small">B: DC ~1,65 V csendben</text>
+  <text x="1020" y="340" class="small">D: ~0 V DC, kis AC</text>
+
+  <path class="wire" d="M150 560 H1390 V454"/>
+  <circle cx="150" cy="560" r="7" class="part"/>
+  <circle cx="1390" cy="410" r="44" class="part"/>
+  <text x="1375" y="419" class="label">V</text>
+  <text x="1376" y="435" class="small">~</text>
+  <text x="1290" y="507" class="small">Nagy impedancias mero</text>
+  <circle cx="440" cy="560" r="5" class="dot"/>
+  <circle cx="700" cy="560" r="5" class="dot"/>
+  <circle cx="1240" cy="560" r="5" class="dot"/>
+  <path class="wire" d="M930 560 V585 M910 585 H950 M918 596 H942 M925 607 H935"/>
+  <text x="960" y="608" class="label">ESP GND</text>
+  <text x="65" y="548" class="small">ESP GND / mero referencia</text>
+
+  <text x="65" y="653" class="note">D csak meropont. Ne kosd a radio MIC-hez vagy foldjehez; a 470 Ω-os telefonkabel nem alkalmas ide.</text>
+</svg>

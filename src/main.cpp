@@ -6,13 +6,19 @@
 #include <atomic>
 #include <cJSON.h>
 #include "esp_adc/adc_continuous.h"
+#include "driver/i2s_pdm.h"
+#include "driver/i2s_std.h"
 
 constexpr uint32_t kSampleRate = 22050;
 constexpr int kAudioGpio = 1;
+constexpr gpio_num_t kSpeakerBclkGpio = GPIO_NUM_42;
+constexpr gpio_num_t kSpeakerLrcGpio = GPIO_NUM_41;
+constexpr gpio_num_t kSpeakerDataGpio = GPIO_NUM_48;
+constexpr gpio_num_t kPdmOutGpio = GPIO_NUM_2;
 constexpr int kEncoderClkGpio = 21;
 constexpr int kEncoderDtGpio = 47;
 constexpr int kEncoderSwGpio = 14;
-constexpr char kFirmwareVersion[] = "0.1.7";
+constexpr char kFirmwareVersion[] = "0.1.12";
 constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 constexpr size_t kDmaBufferSize = 4096;
 constexpr size_t kLiveFrameBytes = 1024;
@@ -27,6 +33,8 @@ QueueHandle_t liveFrames = nullptr;
 std::atomic<int> liveClient{-1};
 std::atomic<bool> liveCaptureFault{false};
 adc_continuous_handle_t adcHandle = nullptr;
+i2s_chan_handle_t speakerHandle = nullptr;
+i2s_chan_handle_t pdmHandle = nullptr;
 adc_channel_t audioChannel;
 TaskHandle_t recorderTask = nullptr;
 std::atomic<bool> stopRequested{false};
@@ -44,9 +52,18 @@ std::atomic<uint8_t> signalFault{0};
 enum class CaptureState { idle, starting, recording };
 std::atomic<CaptureState> captureState{CaptureState::idle};
 std::atomic<uint32_t> recordingStartedAt{0};
+enum class PlaybackState { idle, starting, playing };
+std::atomic<PlaybackState> playbackState{PlaybackState::idle};
+std::atomic<bool> playbackStopRequested{false};
+std::atomic<uint8_t> speakerVolume{25};
+std::atomic<uint8_t> speakerBoost{1};
+TaskHandle_t playbackTask = nullptr;
+char playbackPath[221] = {};
+char playbackError[80] = {};
 bool sdReady = false;
 std::atomic<bool> recordingsPresent{false};
 bool adcReady = false;
+bool speakerReady = false;
 bool wifiReady = false;
 uint8_t wifiTestPhase = 0;
 uint32_t wifiTestSince = 0;
@@ -113,14 +130,17 @@ main{padding-top:44px;padding-bottom:40px;border-bottom:1px solid var(--line)}h1
 .state{font-size:19px;font-weight:bold;margin:0 0 20px}.note{color:var(--muted);margin:20px 0 0;line-height:1.5}button{font:inherit;cursor:pointer;border:1px solid var(--ink);background:var(--ink);color:white;padding:12px 18px}
 button:hover,a:hover{opacity:.8}button:disabled{opacity:.45;cursor:default}#toggle.recording{background:var(--accent);border-color:var(--accent)}
 section{padding-top:34px;padding-bottom:34px}ol{padding:0;margin:0;list-style:none}li{border-top:1px solid var(--line);padding:16px 0;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start}
-.filename{display:block;font-weight:bold;overflow-wrap:anywhere}.size{display:block;color:var(--muted);font-size:13px;margin-top:4px}audio{display:block;width:min(100%,400px);height:42px;margin-top:12px}
+.filename{display:block;font-weight:bold;overflow-wrap:anywhere}.size{display:block;color:var(--muted);font-size:13px;margin-top:4px}audio{display:block;width:min(100%,400px);height:42px;margin-top:12px}.fileactions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
 a{color:#12604f;text-decoration:underline;text-underline-offset:3px}#more{margin-top:20px}footer{color:var(--muted);border-top:1px solid var(--line);font-size:13px}
 .signalbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.signalbar h2{margin:0}.signalvalues{color:var(--muted);margin:14px 0;font-variant-numeric:tabular-nums}
 #signalChart{width:100%;height:200px;display:block;background:#f8faf7;border:1px solid var(--line)}.legend{display:flex;gap:20px;color:var(--muted);font-size:13px;margin-top:10px}.legend b{font-weight:normal}
 .legend b:first-child{color:#12604f}.legend b:last-child{color:var(--accent)}
 .livecontrols{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}.livecontrols label{font-size:14px;color:var(--muted)}.livecontrols input{width:120px;accent-color:#12604f}
+.speaker-volume{width:min(100%,280px);margin:16px 0 20px}.speaker-volume label{display:block;font-size:14px;color:var(--muted);margin-bottom:6px}.speaker-volume input{width:100%;accent-color:#12604f}
+.speaker-volume-steps{display:flex;justify-content:space-between;align-items:center}.speaker-volume-steps button{width:40px;height:40px;padding:0;font-size:22px}.speaker-volume-steps output{min-width:4ch;text-align:center;font-variant-numeric:tabular-nums}
+.speaker-volume .boost-label{margin-top:16px}.speaker-volume select{font:inherit;padding:7px 10px;border:1px solid var(--line);background:#fff;color:var(--ink);width:100%}
 .filtercontrol{display:flex;align-items:center;gap:10px;margin-top:20px;cursor:pointer}.filtercontrol input{width:18px;height:18px;accent-color:#12604f}
-@media(max-width:560px){li{grid-template-columns:1fr}li a{justify-self:start}h1{font-size:30px}}
+@media(max-width:560px){li{grid-template-columns:1fr}.fileactions{justify-content:flex-start}h1{font-size:30px}}
 </style></head><body><header>RADIO RECORDER <span id="firmwareVersion">v?</span> <a href="/files">Fájlkezelő</a></header>
 <main><h1>Felvétel</h1><p class="state" id="state">Kapcsolódás...</p><button id="toggle" disabled>Felvétel indítása</button> <button id="wifiTest" disabled>Wi-Fi zajteszt</button><p class="note" id="message"></p>
 <label class="filtercontrol"><input id="lowpassToggle" type="checkbox">3,4 kHz-es zajszűrő</label>
@@ -131,18 +151,64 @@ a{color:#12604f;text-decoration:underline;text-underline-offset:3px}#more{margin
 <section><div class="signalbar"><h2>Élő hang</h2><button id="liveToggle" disabled>Hallgatás indítása</button></div>
 <div class="livecontrols"><label for="liveVolume">Hangerő</label><input id="liveVolume" type="range" min="0" max="100" value="50"><button id="liveTest">Hangpróba</button></div>
 <p id="liveStatus" class="note">Kikapcsolva</p></section>
-<section><h2>Mentett felvételek</h2><p id="empty">Betöltés...</p><ol id="files"></ol><button id="more" hidden>Továbbiak</button></section>
+<section><div class="signalbar"><h2>Mentett felvételek</h2><button id="speakerStop" disabled>ESP-lejátszás leállítása</button></div><p id="speakerStatus" class="note">ESP hangszóró: kikapcsolva</p>
+<div class="speaker-volume"><label for="speakerVolume">ESP hangszóró és próbajel hangereje</label><input id="speakerVolume" type="range" min="0" max="100" step="1" value="25"><div class="speaker-volume-steps"><button id="speakerDown" type="button" aria-label="Hangerő csökkentése 5%-kal" title="5%-kal halkabb">←</button><output id="speakerVolumeValue" for="speakerVolume">25%</output><button id="speakerUp" type="button" aria-label="Hangerő növelése 5%-kal" title="5%-kal hangosabb">→</button></div><label class="boost-label" for="speakerBoost">Lejátszási erősítés</label><select id="speakerBoost"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
+<p id="empty">Betöltés...</p><ol id="files"></ol><button id="more" hidden>Továbbiak</button></section>
 <footer>ESP32-S3 / microSD</footer>
 <script>
 const stateEl=document.querySelector('#state'),toggle=document.querySelector('#toggle'),wifiTest=document.querySelector('#wifiTest'),lowpassToggle=document.querySelector('#lowpassToggle'),message=document.querySelector('#message'),firmwareVersion=document.querySelector('#firmwareVersion');
 const files=document.querySelector('#files'),empty=document.querySelector('#empty'),more=document.querySelector('#more');
+const speakerStatus=document.querySelector('#speakerStatus'),speakerStop=document.querySelector('#speakerStop');
+const speakerVolume=document.querySelector('#speakerVolume'),speakerVolumeValue=document.querySelector('#speakerVolumeValue'),speakerBoost=document.querySelector('#speakerBoost');
 const signalToggle=document.querySelector('#signalToggle'),signalValues=document.querySelector('#signalValues');
 const signalPlot=document.querySelector('#signalPlot'),signalChart=document.querySelector('#signalChart'),signalHeading=document.querySelector('#signalHeading');
 const liveToggle=document.querySelector('#liveToggle'),liveStatus=document.querySelector('#liveStatus'),liveVolume=document.querySelector('#liveVolume'),liveTest=document.querySelector('#liveTest');
 let currentState='',nextOffset=null,loaded=false,listing=false;
 let meterRunning=false,meterGeneration=0,meterTimer=null,lastSignalSequence=-1;
 let liveSocket=null,audioContext=null,audioGain=null,nextAudioTime=0;
+let volumeQueued=null,volumeSending=false,boostUpdating=false;
 const signalHistory=[];
+async function sendSpeakerVolume(){
+ if(volumeSending)return;
+ volumeSending=true;
+ while(volumeQueued!==null){
+  const value=volumeQueued;volumeQueued=null;
+  try{const response=await fetch('/api/play/volume?value='+value,{method:'POST'});if(!response.ok)throw Error()}
+  catch{speakerStatus.textContent='A hangerő módosítása sikertelen.'}
+ }
+ volumeSending=false;
+}
+function setSpeakerVolume(value){
+ const volume=Math.max(0,Math.min(100,value));
+ speakerVolume.value=volume;speakerVolumeValue.textContent=volume+'%';
+ volumeQueued=volume;sendSpeakerVolume();
+}
+speakerVolume.addEventListener('input',()=>setSpeakerVolume(Number(speakerVolume.value)));
+document.querySelector('#speakerDown').addEventListener('click',()=>setSpeakerVolume(Number(speakerVolume.value)-5));
+document.querySelector('#speakerUp').addEventListener('click',()=>setSpeakerVolume(Number(speakerVolume.value)+5));
+speakerBoost.addEventListener('change',async()=>{
+ boostUpdating=true;speakerBoost.disabled=true;
+ let failed=false;
+ try{const response=await fetch('/api/play/boost?value='+speakerBoost.value,{method:'POST'});if(!response.ok)throw Error()}
+ catch{failed=true}
+ boostUpdating=false;await refresh();
+ if(failed)speakerStatus.textContent='Az erősítés módosítása sikertelen.';
+});
+async function playOnEsp(path){
+ try{
+  const response=await fetch('/api/play?path='+encodeURIComponent(path),{method:'POST'});
+  if(!response.ok)throw Error(await response.text());
+  await refresh();
+ }catch(error){speakerStatus.textContent=error.message||'ESP-lejátszás nem indult.'}
+}
+speakerStop.addEventListener('click',async()=>{
+ speakerStop.disabled=true;
+ try{
+  const response=await fetch('/api/play/stop',{method:'POST'});
+  if(!response.ok)throw Error(await response.text());
+ }catch(error){speakerStatus.textContent=error.message||'Leállítás sikertelen.'}
+ await refresh();
+});
 function stopLive(){
  const socket=liveSocket;liveSocket=null;
  if(socket)socket.close();
@@ -262,8 +328,11 @@ async function list(reset){
   title.className='filename';title.textContent=item.name;size.className='size';size.textContent=(item.bytes/1024).toFixed(0)+' kB';
   const audio=document.createElement('audio');audio.controls=true;audio.preload='none';audio.src='/file?name='+encodeURIComponent(item.name);
   info.append(title,size,audio);
+  const actions=document.createElement('div');actions.className='fileactions';
+  const espPlay=document.createElement('button');espPlay.type='button';espPlay.dataset.espPlay='/'+item.name;
+  espPlay.textContent='ESP-n lejátszás';espPlay.title='Lejátszás az ESP hangszóróján';espPlay.addEventListener('click',()=>playOnEsp('/'+item.name));
   const download=document.createElement('a');download.href=audio.src+'&download=1';download.download=item.name;download.textContent='Letöltés';
-  row.append(info,download);files.append(row);
+  actions.append(espPlay,download);row.append(info,actions);files.append(row);
  }
  nextOffset=data.next;more.hidden=nextOffset===null;empty.hidden=files.children.length>0;empty.textContent='Nincs mentett felvétel.';loaded=true;
  }finally{listing=false}
@@ -277,14 +346,21 @@ async function refresh(){
   signalHeading.textContent='GPIO'+data.audioGpio+' jel';
   signalChart.setAttribute('aria-label','GPIO'+data.audioGpio+' RMS és csúcs idősor');
   const busy=data.state!=='idle';
+  const playing=data.playback!=='idle';
   stateEl.textContent=!data.ready?'SD vagy ADC nem elérhető':busy?(data.state==='starting'?'Felvétel indul...':'Felvétel folyamatban'):(data.hasRecordings?'Van mentett felvétel':'Nincs mentett felvétel');
   toggle.textContent=busy?'Felvétel leállítása':'Felvétel indítása';toggle.classList.toggle('recording',busy);
-  toggle.disabled=!data.ready||data.state==='starting'||(busy&&data.stopping);
-  wifiTest.disabled=!data.ready||busy||!!liveSocket;
+  toggle.disabled=!data.ready||data.state==='starting'||(busy&&data.stopping)||playing;
+  wifiTest.disabled=!data.ready||busy||playing||!!liveSocket;
+  speakerStop.disabled=!playing;
+  speakerStatus.textContent=playing?'ESP hangszóró: '+(data.playback==='starting'?'indul...':data.playbackPath):data.playbackError||'ESP hangszóró: kikapcsolva';
+  if(!volumeSending){speakerVolume.value=data.speakerVolume;speakerVolumeValue.textContent=data.speakerVolume+'%'}
+  speakerBoost.disabled=!data.speakerReady||boostUpdating;
+  if(!boostUpdating)speakerBoost.value=String(data.speakerBoost);
   signalToggle.disabled=!data.meterReady&&!meterRunning;
-  liveToggle.disabled=!data.liveReady&&!liveSocket;
+  liveToggle.disabled=(!data.liveReady||playing)&&!liveSocket;
   message.textContent=data.error||'';
   if(!busy&&(!loaded||currentState!=='idle'))await list(true);
+  for(const button of files.querySelectorAll('[data-esp-play]'))button.disabled=busy||playing||!data.speakerReady||!!liveSocket;
   currentState=data.state;
  }catch{stateEl.textContent='A kapcsolat megszakadt';toggle.disabled=true}
 }
@@ -327,12 +403,17 @@ a{color:#12604f;text-underline-offset:3px}a:hover,button:hover{opacity:.8}.crumb
 .crumbs li:not(:last-child):after{content:"/";color:var(--muted);margin-left:8px}.toolbar{display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--ink);padding-bottom:12px;gap:12px}
 button{cursor:pointer;background:var(--ink);color:white;border:1px solid var(--ink);font:inherit;padding:9px 14px}button:disabled{opacity:.5;cursor:default}
 .items{padding:0;margin:0;list-style:none}.items li{padding:15px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
-.name{font-weight:700;overflow-wrap:anywhere}.meta{color:var(--muted);font-size:13px;margin:4px 0 0}.actions{display:flex;align-items:center;gap:16px;flex-shrink:0}audio{width:min(100%,400px);height:40px;display:block;margin-top:12px}
+.name{font-weight:700;overflow-wrap:anywhere}.meta{color:var(--muted);font-size:13px;margin:4px 0 0}.actions{display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}audio{width:min(100%,400px);height:40px;display:block;margin-top:12px}
+.speaker-volume{width:min(100%,280px);margin:16px 0 20px}.speaker-volume label{display:block;font-size:14px;color:var(--muted);margin-bottom:6px}.speaker-volume input{width:100%;accent-color:#12604f}
+.speaker-volume-steps{display:flex;justify-content:space-between;align-items:center}.speaker-volume-steps button{width:40px;height:40px;padding:0;font-size:22px}.speaker-volume-steps output{min-width:4ch;text-align:center;font-variant-numeric:tabular-nums}
+.speaker-volume .boost-label{margin-top:16px}.speaker-volume select{font:inherit;padding:7px 10px;border:1px solid var(--line);background:#fff;color:var(--ink);width:100%}
 #message{color:var(--muted);margin:20px 0;line-height:1.4}#more{margin-top:22px}footer{border-top:1px solid var(--line);color:var(--muted);font-size:13px}
-@media(max-width:520px){.items li{display:block}.actions{margin-top:12px}.toolbar{align-items:flex-start;flex-direction:column}h1{font-size:29px}}
+@media(max-width:520px){.items li{display:block}.actions{margin-top:12px;justify-content:flex-start}.toolbar{align-items:flex-start;flex-direction:column}h1{font-size:29px}}
 </style></head><body><header>RADIO RECORDER <span id="firmwareVersion">v?</span> <a href="/">Felvétel</a></header>
 <main><h1>Fájlkezelő</h1><ol id="crumbs" class="crumbs"></ol>
 <div class="toolbar"><strong id="location">microSD</strong><button id="reload" title="Lista frissítése">Frissítés</button></div>
+<div class="toolbar"><span id="speakerStatus">ESP hangszóró: kikapcsolva</span><button id="speakerStop" disabled>ESP-lejátszás leállítása</button></div>
+<div class="speaker-volume"><label for="speakerVolume">ESP hangszóró és próbajel hangereje</label><input id="speakerVolume" type="range" min="0" max="100" step="1" value="25"><div class="speaker-volume-steps"><button id="speakerDown" type="button" aria-label="Hangerő csökkentése 5%-kal" title="5%-kal halkabb">←</button><output id="speakerVolumeValue" for="speakerVolume">25%</output><button id="speakerUp" type="button" aria-label="Hangerő növelése 5%-kal" title="5%-kal hangosabb">→</button></div><label class="boost-label" for="speakerBoost">Lejátszási erősítés</label><select id="speakerBoost"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
 <p id="message">Betöltés...</p><ol id="items" class="items"></ol><button id="more" hidden>Továbbiak</button></main>
 <footer>Lejátszás a böngésző által támogatott hangformátumokkal.</footer>
 <script>
@@ -341,9 +422,65 @@ fetch('/api/status',{cache:'no-store'}).then(response=>response.json()).then(dat
  document.querySelector('#firmwareVersion').textContent='v'+data.version;
 }).catch(()=>{});
 const listEl=document.querySelector('#items'),message=document.querySelector('#message'),more=document.querySelector('#more');
+const speakerStatus=document.querySelector('#speakerStatus'),speakerStop=document.querySelector('#speakerStop');
+const speakerVolume=document.querySelector('#speakerVolume'),speakerVolumeValue=document.querySelector('#speakerVolumeValue'),speakerBoost=document.querySelector('#speakerBoost');
 let next=0,loading=false;
+let volumeQueued=null,volumeSending=false,boostUpdating=false;
 const sound=name=>/\.(wav|mp3|m4a|mp4|ogg|oga|opus|flac|aac|webm)$/i.test(name);
 const link=path=>'/files?dir='+encodeURIComponent(path);
+async function sendSpeakerVolume(){
+ if(volumeSending)return;
+ volumeSending=true;
+ while(volumeQueued!==null){
+  const value=volumeQueued;volumeQueued=null;
+  try{const response=await fetch('/api/play/volume?value='+value,{method:'POST'});if(!response.ok)throw Error()}
+  catch{speakerStatus.textContent='A hangerő módosítása sikertelen.'}
+ }
+ volumeSending=false;
+}
+function setSpeakerVolume(value){
+ const volume=Math.max(0,Math.min(100,value));
+ speakerVolume.value=volume;speakerVolumeValue.textContent=volume+'%';
+ volumeQueued=volume;sendSpeakerVolume();
+}
+speakerVolume.addEventListener('input',()=>setSpeakerVolume(Number(speakerVolume.value)));
+document.querySelector('#speakerDown').addEventListener('click',()=>setSpeakerVolume(Number(speakerVolume.value)-5));
+document.querySelector('#speakerUp').addEventListener('click',()=>setSpeakerVolume(Number(speakerVolume.value)+5));
+speakerBoost.addEventListener('change',async()=>{
+ boostUpdating=true;speakerBoost.disabled=true;
+ let failed=false;
+ try{const response=await fetch('/api/play/boost?value='+speakerBoost.value,{method:'POST'});if(!response.ok)throw Error()}
+ catch{failed=true}
+ boostUpdating=false;await refreshSpeaker();
+ if(failed)speakerStatus.textContent='Az erősítés módosítása sikertelen.';
+});
+async function refreshSpeaker(){
+ try{
+  const response=await fetch('/api/status',{cache:'no-store'});if(!response.ok)throw Error();
+  const data=await response.json(),playing=data.playback!=='idle';
+  speakerStop.disabled=!playing;
+  speakerStatus.textContent=playing?'ESP hangszóró: '+(data.playback==='starting'?'indul...':data.playbackPath):data.playbackError||'ESP hangszóró: kikapcsolva';
+  if(!volumeSending){speakerVolume.value=data.speakerVolume;speakerVolumeValue.textContent=data.speakerVolume+'%'}
+  speakerBoost.disabled=!data.speakerReady||boostUpdating;
+  if(!boostUpdating)speakerBoost.value=String(data.speakerBoost);
+  for(const button of listEl.querySelectorAll('[data-esp-play]'))button.disabled=playing||data.state!=='idle'||!data.speakerReady;
+ }catch{speakerStatus.textContent='ESP-lejátszás állapota nem elérhető.'}
+}
+async function playOnEsp(path){
+ try{
+  const response=await fetch('/api/play?path='+encodeURIComponent(path),{method:'POST'});
+  if(!response.ok)throw Error(await response.text());
+  await refreshSpeaker();
+ }catch(error){speakerStatus.textContent=error.message||'ESP-lejátszás nem indult.'}
+}
+speakerStop.addEventListener('click',async()=>{
+ speakerStop.disabled=true;
+ try{
+  const response=await fetch('/api/play/stop',{method:'POST'});
+  if(!response.ok)throw Error(await response.text());
+ }catch(error){speakerStatus.textContent=error.message||'Leállítás sikertelen.'}
+ await refreshSpeaker();
+});
 function breadcrumbs(){
  const crumbs=document.querySelector('#crumbs');let path='';
  const root=document.createElement('li'),rootLink=document.createElement('a');rootLink.href=link('/');rootLink.textContent='microSD';root.append(rootLink);crumbs.append(root);
@@ -368,6 +505,11 @@ function render(item){
     play.textContent='Bezárás';audio.play().catch(()=>{});
    });actions.append(play);
   }
+  if(/\.wav$/i.test(item.name)){
+   const espPlay=document.createElement('button');espPlay.type='button';espPlay.dataset.espPlay=item.path;
+   espPlay.textContent='ESP-n lejátszás';espPlay.title='Lejátszás az ESP hangszóróján';espPlay.addEventListener('click',()=>playOnEsp(item.path));
+   actions.append(espPlay);
+  }
   const download=document.createElement('a');download.href='/file?path='+encodeURIComponent(item.path)+'&download=1';
   download.download=item.name;download.textContent='Letöltés';actions.append(download);row.append(actions);
  }
@@ -379,13 +521,13 @@ async function load(reset=false){
  try{
   const response=await fetch('/api/files?dir='+encodeURIComponent(folder)+'&offset='+next,{cache:'no-store'});
   if(!response.ok)throw Error(response.status===409?'Felvétel alatt a fájlok nem olvashatók.':'A mappa nem elérhető.');
-  const data=await response.json();data.items.forEach(render);next=data.next;
+  const data=await response.json();data.items.forEach(render);next=data.next;refreshSpeaker();
   more.hidden=next===null;message.textContent=listEl.children.length?'':'Üres mappa.';
  }catch(error){message.textContent=error.message;more.hidden=true}
  finally{loading=false}
 }
 document.querySelector('#reload').addEventListener('click',()=>load(true));
-more.addEventListener('click',()=>load());breadcrumbs();load();
+more.addEventListener('click',()=>load());breadcrumbs();load();setInterval(refreshSpeaker,1500);
 </script></body></html>)FILES";
 
 void put16(uint8_t *destination, uint16_t value) {
@@ -405,7 +547,8 @@ void queueLiveAudio(const uint8_t *samples, size_t length) {
 
 void onAudioSocket(uint8_t client, WStype_t event, uint8_t *, size_t) {
   if (event == WStype_CONNECTED) {
-    if (!adcReady || recorderTask == nullptr || liveFrames == nullptr || liveClient.load() >= 0) {
+    if (!adcReady || recorderTask == nullptr || liveFrames == nullptr || liveClient.load() >= 0 ||
+        playbackState.load() != PlaybackState::idle) {
       audioSocket.disconnect(client);
       return;
     }
@@ -494,7 +637,8 @@ bool nextRecordingName() {
 }
 
 bool startRecording() {
-  if (!sdReady || !adcReady || recorderTask == nullptr || captureState.load() != CaptureState::idle) return false;
+  if (!sdReady || !adcReady || recorderTask == nullptr || captureState.load() != CaptureState::idle ||
+      playbackState.load() != PlaybackState::idle) return false;
   if (!nextRecordingName()) {
     snprintf(lastError, sizeof(lastError), "No free recording filename");
     return false;
@@ -605,6 +749,123 @@ bool hasRecordings() {
   return false;
 }
 
+uint16_t wav16(const uint8_t *bytes) {
+  return static_cast<uint16_t>(bytes[0]) | static_cast<uint16_t>(bytes[1]) << 8;
+}
+
+uint32_t wav32(const uint8_t *bytes) {
+  return static_cast<uint32_t>(wav16(bytes)) | static_cast<uint32_t>(wav16(bytes + 2)) << 16;
+}
+
+bool findPcmData(File &file, uint32_t &remaining) {
+  uint8_t header[16];
+  if (!file.seek(0) || file.read(header, 12) != 12 || memcmp(header, "RIFF", 4) != 0 ||
+      memcmp(header + 8, "WAVE", 4) != 0) return false;
+  uint64_t riffEnd = static_cast<uint64_t>(wav32(header + 4)) + 8;
+  if (riffEnd > file.size() || riffEnd > UINT32_MAX || riffEnd < 44) return false;
+  uint32_t dataOffset = 0;
+  uint32_t dataSize = 0;
+  bool pcmFormat = false;
+  while (static_cast<uint64_t>(file.position()) + 8 <= riffEnd) {
+    if (file.read(header, 8) != 8) return false;
+    uint32_t size = wav32(header + 4);
+    uint64_t end = static_cast<uint64_t>(file.position()) + size + (size & 1);
+    if (end > riffEnd) return false;
+    if (memcmp(header, "fmt ", 4) == 0 && size >= 16) {
+      if (file.read(header, 16) != 16) return false;
+      pcmFormat = wav16(header) == 1 && wav16(header + 2) == 1 && wav32(header + 4) == kSampleRate &&
+                  wav32(header + 8) == kSampleRate * 2 && wav16(header + 12) == 2 && wav16(header + 14) == 16;
+    } else if (memcmp(header, "data", 4) == 0) {
+      dataOffset = file.position();
+      dataSize = size;
+    }
+    if (!file.seek(static_cast<uint32_t>(end))) return false;
+  }
+  if (!pcmFormat || !dataOffset || !dataSize || (dataSize & 1)) return false;
+  remaining = dataSize;
+  return file.seek(dataOffset);
+}
+
+void speakerLoop(void *) {
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (playbackState.load() != PlaybackState::starting) continue;
+    File file = SD_MMC.open(playbackPath, FILE_READ);
+    uint32_t remaining = 0;
+    bool enabled = false;
+    bool pdmEnabled = false;
+    if (!file || !findPcmData(file, remaining)) {
+      snprintf(playbackError, sizeof(playbackError), "Cannot read PCM WAV");
+    } else if (!playbackStopRequested.load()) {
+      enabled = i2s_channel_enable(speakerHandle) == ESP_OK;
+      if (!enabled) {
+        snprintf(playbackError, sizeof(playbackError), "Cannot start speaker");
+      } else {
+        pdmEnabled = pdmHandle && i2s_channel_enable(pdmHandle) == ESP_OK;
+        if (pdmHandle && !pdmEnabled) Serial.println("Cannot start PDM test output");
+        playbackState.store(PlaybackState::playing);
+        uint8_t input[512];
+        int16_t output[512];
+        int16_t pdmOutput[256];
+        float appliedGain = 0;
+        while (remaining && !playbackStopRequested.load()) {
+          size_t count = file.read(input, min(static_cast<uint32_t>(sizeof(input)), remaining));
+          if (!count || (count & 1)) {
+            snprintf(playbackError, sizeof(playbackError), "WAV read failed");
+            break;
+          }
+          remaining -= count;
+          int32_t peak = 0;
+          for (size_t index = 0; index < count / 2; ++index) {
+            int32_t sample = static_cast<int16_t>(wav16(input + index * 2));
+            peak = max(peak, abs(sample));
+          }
+          float requestedGain = speakerVolume.load() * speakerBoost.load() / 100.0f;
+          float limitedGain = peak ? min(requestedGain, 32767.0f / peak) : requestedGain;
+          appliedGain = min(limitedGain, appliedGain + 0.1f);
+          for (size_t index = 0; index < count / 2; ++index) {
+            int16_t sample = constrain(static_cast<int32_t>(static_cast<int16_t>(wav16(input + index * 2)) * appliedGain),
+                                       -32767, 32767);
+            output[index * 2] = sample;
+            output[index * 2 + 1] = sample;
+            pdmOutput[index] = sample;
+          }
+          size_t written = 0;
+          if (i2s_channel_write(speakerHandle, output, count * 2, &written, 1000) != ESP_OK || written != count * 2) {
+            snprintf(playbackError, sizeof(playbackError), "Speaker output failed");
+            break;
+          }
+          if (pdmEnabled &&
+              (i2s_channel_write(pdmHandle, pdmOutput, count, &written, 1000) != ESP_OK || written != count)) {
+            Serial.println("PDM test output failed");
+            i2s_channel_disable(pdmHandle);
+            pdmEnabled = false;
+          }
+        }
+        if (!remaining && !playbackStopRequested.load() && !playbackError[0]) {
+          int16_t silence[512] = {};
+          for (int index = 0; index < 4; ++index) {
+            size_t written = 0;
+            if (i2s_channel_write(speakerHandle, silence, sizeof(silence), &written, 1000) != ESP_OK) break;
+          }
+          if (pdmEnabled) {
+            int16_t pdmSilence[256] = {};
+            for (int index = 0; index < 4; ++index) {
+              size_t written = 0;
+              if (i2s_channel_write(pdmHandle, pdmSilence, sizeof(pdmSilence), &written, 1000) != ESP_OK) break;
+            }
+          }
+          vTaskDelay(pdMS_TO_TICKS(30));
+        }
+      }
+    }
+    if (pdmEnabled) i2s_channel_disable(pdmHandle);
+    if (enabled) i2s_channel_disable(speakerHandle);
+    if (file) file.close();
+    playbackState.store(PlaybackState::idle);
+  }
+}
+
 void sendStatus() {
   CaptureState state = captureState.load();
   bool ready = sdReady && adcReady && recorderTask != nullptr;
@@ -615,6 +876,13 @@ void sendStatus() {
   json += ",\"meterReady\":" + String(adcReady && recorderTask ? "true" : "false");
   json += ",\"liveReady\":" + String(adcReady && recorderTask && liveFrames && wifiReady ? "true" : "false");
   json += ",\"state\":\"" + String(state == CaptureState::idle ? "idle" : state == CaptureState::starting ? "starting" : "recording") + "\"";
+  PlaybackState playback = playbackState.load();
+  json += ",\"speakerReady\":" + String(speakerReady && playbackTask ? "true" : "false");
+  json += ",\"speakerVolume\":" + String(speakerVolume.load());
+  json += ",\"speakerBoost\":" + String(speakerBoost.load());
+  json += ",\"playback\":\"" + String(playback == PlaybackState::idle ? "idle" : playback == PlaybackState::starting ? "starting" : "playing") + "\"";
+  json += ",\"playbackPath\":\"" + String(playback == PlaybackState::idle ? "" : playbackPath) + "\"";
+  json += ",\"playbackError\":\"" + String(playbackError) + "\"";
   json += ",\"stopping\":" + String(stopRequested.load() ? "true" : "false");
   json += ",\"hasRecordings\":" + String(ready && state == CaptureState::idle && recordingsPresent.load() ? "true" : "false");
   json += ",\"error\":\"" + String(state == CaptureState::idle ? lastError : "") + "\"}";
@@ -881,6 +1149,43 @@ void sendFile() {
   file.close();
 }
 
+void startSpeakerPlayback() {
+  if (!sdReady || !speakerReady || !playbackTask) {
+    server.send(503, "text/plain", "Speaker or SD unavailable");
+    return;
+  }
+  if (captureState.load() != CaptureState::idle || playbackState.load() != PlaybackState::idle || wifiTestPhase ||
+      liveClient.load() >= 0) {
+    server.send(409, "text/plain", "Stop recording, playback or live audio first");
+    return;
+  }
+  String path = server.arg("path");
+  String lowerPath = path;
+  lowerPath.toLowerCase();
+  if (!safeSdPath(path) || path == "/" || !lowerPath.endsWith(".wav")) {
+    server.send(400, "text/plain", "Invalid WAV path");
+    return;
+  }
+  File file = SD_MMC.open(path, FILE_READ);
+  if (!file || file.isDirectory()) {
+    server.send(404, "text/plain", "WAV not found");
+    return;
+  }
+  uint32_t remaining = 0;
+  bool supported = findPcmData(file, remaining);
+  file.close();
+  if (!supported) {
+    server.send(415, "text/plain", "Only mono 16-bit 22050 Hz PCM WAV is supported");
+    return;
+  }
+  path.toCharArray(playbackPath, sizeof(playbackPath));
+  playbackError[0] = '\0';
+  playbackStopRequested.store(false);
+  playbackState.store(PlaybackState::starting);
+  xTaskNotifyGive(playbackTask);
+  server.send(200, "text/plain", "Playing on ESP speaker");
+}
+
 void initWeb() {
   WiFi.mode(WIFI_AP);
   if (!WiFi.softAP("RadioRecorder")) {
@@ -896,6 +1201,44 @@ void initWeb() {
     server.send_P(200, "text/html; charset=utf-8", kFilesPage);
   });
   server.on("/api/status", HTTP_GET, sendStatus);
+  server.on("/api/play", HTTP_POST, startSpeakerPlayback);
+  server.on("/api/play/volume", HTTP_POST, []() {
+    String value = server.arg("value");
+    if (value.isEmpty() || value.length() > 3) {
+      server.send(400, "text/plain", "Volume must be 0-100");
+      return;
+    }
+    for (char digit : value) {
+      if (!isDigit(digit)) {
+        server.send(400, "text/plain", "Volume must be 0-100");
+        return;
+      }
+    }
+    int volume = value.toInt();
+    if (volume > 100) {
+      server.send(400, "text/plain", "Volume must be 0-100");
+      return;
+    }
+    speakerVolume.store(volume);
+    server.send(200, "text/plain", value);
+  });
+  server.on("/api/play/boost", HTTP_POST, []() {
+    String value = server.arg("value");
+    if (value != "1" && value != "2" && value != "4") {
+      server.send(400, "text/plain", "Boost must be 1, 2 or 4");
+      return;
+    }
+    speakerBoost.store(value.toInt());
+    server.send(200, "text/plain", value);
+  });
+  server.on("/api/play/stop", HTTP_POST, []() {
+    if (playbackState.load() == PlaybackState::idle) {
+      server.send(409, "text/plain", "Speaker is idle");
+      return;
+    }
+    playbackStopRequested.store(true);
+    server.send(200, "text/plain", "Stopping speaker");
+  });
   server.on("/api/filter/on", HTTP_POST, []() {
     audioLowpassEnabled.store(true);
     server.send(200, "text/plain", "Low-pass enabled");
@@ -1166,6 +1509,38 @@ bool initAdc() {
   return false;
 }
 
+bool initSpeaker() {
+  i2s_chan_config_t channel = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
+  if (i2s_new_channel(&channel, &speakerHandle, nullptr) != ESP_OK) return false;
+  i2s_std_config_t config = {};
+  config.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(kSampleRate);
+  config.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+  config.gpio_cfg.mclk = I2S_GPIO_UNUSED;
+  config.gpio_cfg.bclk = kSpeakerBclkGpio;
+  config.gpio_cfg.ws = kSpeakerLrcGpio;
+  config.gpio_cfg.dout = kSpeakerDataGpio;
+  config.gpio_cfg.din = I2S_GPIO_UNUSED;
+  if (i2s_channel_init_std_mode(speakerHandle, &config) == ESP_OK) return true;
+  i2s_del_channel(speakerHandle);
+  speakerHandle = nullptr;
+  return false;
+}
+
+bool initPdmOutput() {
+  i2s_chan_config_t channel = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+  if (i2s_new_channel(&channel, &pdmHandle, nullptr) != ESP_OK) return false;
+  i2s_pdm_tx_config_t config = {};
+  config.clk_cfg = I2S_PDM_TX_CLK_DAC_DEFAULT_CONFIG(kSampleRate);
+  config.slot_cfg = I2S_PDM_TX_SLOT_PCM_FMT_DAC_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+  config.gpio_cfg.clk = I2S_GPIO_UNUSED;
+  config.gpio_cfg.dout = kPdmOutGpio;
+  config.gpio_cfg.dout2 = I2S_GPIO_UNUSED;
+  if (i2s_channel_init_pdm_tx_mode(pdmHandle, &config) == ESP_OK) return true;
+  i2s_del_channel(pdmHandle);
+  pdmHandle = nullptr;
+  return false;
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("RadioRecorder setup starting");
@@ -1178,6 +1553,11 @@ void setup() {
   sdReady = SD_MMC.setPins(39, 38, 40) && SD_MMC.begin("/sdcard", true, false) && SD_MMC.cardType() != CARD_NONE;
   if (sdReady) recordingsPresent.store(hasRecordings());
   adcReady = initAdc();
+  speakerReady = initSpeaker();
+  if (speakerReady && !initPdmOutput()) Serial.println("PDM test output unavailable; speaker still works");
+  if (sdReady && speakerReady && xTaskCreatePinnedToCore(speakerLoop, "speaker", 12288, nullptr, 2, &playbackTask, 0) != pdPASS) {
+    Serial.println("Cannot create speaker task");
+  }
   if (adcReady && xTaskCreatePinnedToCore(recordLoop, "recorder", 8192, nullptr, 2, &recorderTask, 1) != pdPASS) {
     Serial.println("Cannot create recorder task");
   }

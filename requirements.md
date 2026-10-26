@@ -115,12 +115,13 @@ Az alábbi lista készlet- és ötletjegyzék, nem kötelező alkatrészlista.
 | ESP32-S3-N16R8 CAM, SD-kártya-foglalattal | [Termékoldal](https://www.hestore.eu/prod_10048970.html#) |
 | ROT-1AB forgó enkóder, AB+SW, 20 impulzus | [Termékoldal](https://www.hestore.eu/prod_10035572.html) |
 | MAX98357A I2S, D osztályú erősítőmodul | [Termékoldal](https://www.hestore.eu/prod_10045704.html) |
+| PCM5102A I2S DAC modul, rádió-mikrofonhanghoz; **beszerzendő** | [Gyártói termékoldal](https://www.ti.com/product/PCM5102A) |
 | INMP441-M I2S mikrofonmodul | [Termékoldal](https://www.hestore.eu/prod_10043182.html) |
 | DS3231+AT24C32 RTCM, felmerült elemes RTC-modul | [Termékoldal](https://www.hestore.hu/prod_10038042.html) |
 | D096-12864-I2C-GV-WH, 0,96 hüvelykes, 128×64-es I2C OLED, felmerült kijelző | [Termékoldal](https://www.hestore.hu/prod_10048304.html) |
 | TP4056-1A-USBC Li-ion/Li-Po töltőmodul | [Termékoldal](https://www.hestore.eu/prod_10042093.html) |
 | MAX4466-M elektretmikrofon-erősítő | [Keresés](https://www.hestore.eu/search.php?q=max4466-M) |
-| PAM8403-M, 2 × 3 W-os erősítőmodul | [Termékoldal](https://www.hestore.eu/prod_10042006.html) |
+| PAM8403-M / HW-104, 2 × 3 W-os analóg bemenetű hangszóró-erősítőmodul | [Termékoldal](https://www.hestore.eu/prod_10042006.html) |
 | HW-711 / TPA3116D2 audioerősítő | [Termékoldal](https://electronicsforyou.com/product/hw-711-mini-audio-amplifier-2x25w-tpa3116d2/) |
 | 18650 shield v9, négy cellához | [Termékoldal](https://www.aliexpress.com/item/1005005704037349.html) |
 

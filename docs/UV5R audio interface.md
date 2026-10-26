@@ -1,6 +1,6 @@
 Baofeng UV-5R ↔ Smartphone Audio Interface
 
-Figyelem: ez a telefonos kábel bekötési jegyzete, nem az ESP32 ADC-bemenetének rajza. A 2,5 mm-es tip/sleeve pár között vételkor mért 3,5-3,6 V DC miatt az itt szereplő sleeve->GND összekötést ne másold át az ESP-re. A [jelenlegi ADC-próba](radio-receive-adc.svg) kizárólag rádió nélkül használható.
+Figyelem: ez a telefonos kábel bekötési jegyzete, nem az ESP32 ADC-bemenetének vagy [PDM-próbakimenetének](../README.md#szűrt-próbakimenet-rádió-nélkül) rajza. A 2,5 mm-es tip/sleeve pár között vételkor mért 3,5-3,6 V DC miatt az itt szereplő sleeve->GND összekötést ne másold át az ESP-re. A [jelenlegi ADC-próba](radio-receive-adc.svg) kizárólag rádió nélkül használható. A telefonos 470 Ω-os bekötés nem szűri az ESP digitális kimenetét, és a 3,5 mm-es MIC érintkezőinek kiosztása/előfeszítése a konkrét rádión nincs ellenőrizve.
 
 
 
