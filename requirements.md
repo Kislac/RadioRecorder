@@ -26,7 +26,7 @@ A cél egy akár 10 napos airsoft LARP-rendezvény rádióforgalmazásának rög
 
 ### Idő és tárhely
 
-- Az időt hálózat nélkül is elemes RTC biztosítsa; telefonról lehessen az órát beállítani vagy szinkronizálni. Felmerült modul: [DS3231+AT24C32 RTCM](https://www.hestore.hu/prod_10038042.html) (RTC + EEPROM, I2C); kiválasztása még nem végleges.
+- Az időt hálózat nélkül is elemes RTC biztosítsa; telefonról lehessen az órát beállítani vagy szinkronizálni. Kiválasztott, még nem bekötött modul: [DS3231+AT24C32 RTCM](https://www.hestore.hu/prod_10038042.html) (RTC + EEPROM, I2C); tervezett bekötése az [eszközjegyzékben](docs/device-gpio-map.md) található.
 - A felvételek és a keresés időpontjai magyar helyi idő szerint jelenjenek meg (Europe/Budapest, óraátállítással).
 - Első becslésekhez 32 GB-os SD-kártyával számoljunk, de ez nem kötelező kártyaméret.
 - Ha az SD-kártya megtelik, weben választható működés legyen: új felvétel leállítása a meglévők megtartásával (alapértelmezés), vagy a legrégebbi felvételek törlése az újak számára. A tényleges hangfájlformátum a választott hardvertől és tesztektől függ.
@@ -117,7 +117,7 @@ Az alábbi lista készlet- és ötletjegyzék, nem kötelező alkatrészlista.
 | MAX98357A I2S, D osztályú erősítőmodul | [Termékoldal](https://www.hestore.eu/prod_10045704.html) |
 | PCM5102A I2S DAC modul, rádió-mikrofonhanghoz; **beszerzendő** | [Gyártói termékoldal](https://www.ti.com/product/PCM5102A) |
 | INMP441-M I2S mikrofonmodul | [Termékoldal](https://www.hestore.eu/prod_10043182.html) |
-| DS3231+AT24C32 RTCM, felmerült elemes RTC-modul | [Termékoldal](https://www.hestore.hu/prod_10038042.html) |
+| DS3231+AT24C32 RTCM, kiválasztott, még nem bekötött RTC+EEPROM modul | [Termékoldal](https://www.hestore.hu/prod_10038042.html) |
 | D096-12864-I2C-GV-WH, 0,96 hüvelykes, 128×64-es I2C OLED, felmerült kijelző | [Termékoldal](https://www.hestore.hu/prod_10048304.html) |
 | TP4056-1A-USBC Li-ion/Li-Po töltőmodul | [Termékoldal](https://www.hestore.eu/prod_10042093.html) |
 | MAX4466-M elektretmikrofon-erősítő | [Keresés](https://www.hestore.eu/search.php?q=max4466-M) |

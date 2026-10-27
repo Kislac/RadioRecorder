@@ -2,6 +2,8 @@
 
 ESP32-S3 prototípus kézi, mono WAV-felvételhez microSD-kártyára. Nyitott saját Wi-Fi hálózatán böngészőből indítható és állítható le; a lezárt felvételek visszahallgathatók és letölthetők.
 
+A jelenlegi és tervezett modulok GPIO-kiosztása az [eszközjegyzékben](docs/device-gpio-map.md) található.
+
 ## Első, rádió nélküli próba
 
 1. Ellenőrizd a saját panelen, hogy a [próbarajzon](docs/radio-receive-adc.svg) szereplő GPIO1 valóban ADC1_CH0, és az SD-foglalat lábai CMD=GPIO38, CLK=GPIO39, DATA0=GPIO40. A panelre vonatkozó [figyelmeztetések](docs/functional-hardware.md) továbbra is érvényesek.
