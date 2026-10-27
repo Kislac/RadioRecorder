@@ -77,6 +77,7 @@ void sendStatus() {
   bool ready = appSdReady() && recorderAdcReady() && recorderTaskReady();
   String json = "{\"ready\":" + String(ready ? "true" : "false");
   json += ",\"version\":\"" + appFirmwareVersion() + "\"";
+  json += ",\"demoSeconds\":" + String(appDemoTimeSeconds());
   json += ",\"audioGpio\":" + String(kAudioGpio);
   json += ",\"lowpass\":" + String(recorderLowpass() ? "true" : "false");
   json += ",\"meterReady\":" + String(recorderAdcReady() && recorderTaskReady() ? "true" : "false");

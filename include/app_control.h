@@ -12,3 +12,4 @@ bool appStartWifiTest();
 bool appWifiTestActive();
 void appPollWifiTest();
 String appFirmwareVersion();
+uint32_t appDemoTimeSeconds();

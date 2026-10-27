@@ -1,5 +1,9 @@
 #pragma once
 
+#include <stdint.h>
+
+enum class ButtonEvent { none, shortPress, longPress };
+
 void initControls();
-void pollEncoderRotation();
-void pollEncoderButton();
+int32_t takeEncoderSteps();
+ButtonEvent pollEncoderButton();

@@ -24,7 +24,7 @@ a{color:#12604f;text-decoration:underline;text-underline-offset:3px}#more{margin
 .filtercontrol{display:flex;align-items:center;gap:10px;margin-top:20px;cursor:pointer}.filtercontrol input{width:18px;height:18px;accent-color:#12604f}
 @media(max-width:560px){li{grid-template-columns:1fr}.fileactions{justify-content:flex-start}h1{font-size:30px}}
 </style></head><body><header>RADIO RECORDER <span id="firmwareVersion">v?</span> <a href="/files">Fájlkezelő</a></header>
-<main><h1>Felvétel</h1><p class="state" id="state">Kapcsolódás...</p><button id="toggle" disabled>Felvétel indítása</button> <button id="wifiTest" disabled>Wi-Fi zajteszt</button><p class="note" id="message"></p>
+<main><h1>Felvétel</h1><p class="note" id="demoClock">DEMO 13:54:22</p><p class="state" id="state">Kapcsolódás...</p><button id="toggle" disabled>Felvétel indítása</button> <button id="wifiTest" disabled>Wi-Fi zajteszt</button><p class="note" id="message"></p>
 <label class="filtercontrol"><input id="lowpassToggle" type="checkbox">3,4 kHz-es zajszűrő</label>
 <p class="note">Csak ellenőrzött, kis szintű tesztforrás. A rádiót még ne csatlakoztasd.</p></main>
 <section><div class="signalbar"><h2 id="signalHeading">ADC jel</h2><button id="signalToggle" disabled>Mérés bekapcsolása</button></div>
@@ -49,6 +49,12 @@ let currentState='',nextOffset=null,loaded=false,listing=false;
 let meterRunning=false,meterGeneration=0,meterTimer=null,lastSignalSequence=-1;
 let liveSocket=null,audioContext=null,audioGain=null,nextAudioTime=0;
 let volumeQueued=null,volumeSending=false,boostUpdating=false;
+let demoBase=13*3600+54*60+22,demoSyncedAt=performance.now();
+function renderDemoClock(){
+ const seconds=(demoBase+Math.floor((performance.now()-demoSyncedAt)/1000))%86400;
+ document.querySelector('#demoClock').textContent='DEMO '+[Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(value=>String(value).padStart(2,'0')).join(':');
+}
+setInterval(renderDemoClock,1000);
 const signalHistory=[];
 async function sendSpeakerVolume(){
  if(volumeSending)return;
@@ -224,6 +230,7 @@ async function refresh(){
   const response=await fetch('/api/status',{cache:'no-store'});if(!response.ok)throw Error();
   const data=await response.json();
   firmwareVersion.textContent='v'+data.version;
+    demoBase=data.demoSeconds;demoSyncedAt=performance.now();renderDemoClock();
   lowpassToggle.checked=data.lowpass;
   signalHeading.textContent='GPIO'+data.audioGpio+' jel';
   signalChart.setAttribute('aria-label','GPIO'+data.audioGpio+' RMS és csúcs idősor');
@@ -292,7 +299,7 @@ button{cursor:pointer;background:var(--ink);color:white;border:1px solid var(--i
 #message{color:var(--muted);margin:20px 0;line-height:1.4}#more{margin-top:22px}footer{border-top:1px solid var(--line);color:var(--muted);font-size:13px}
 @media(max-width:520px){.items li{display:block}.actions{margin-top:12px;justify-content:flex-start}.toolbar{align-items:flex-start;flex-direction:column}h1{font-size:29px}}
 </style></head><body><header>RADIO RECORDER <span id="firmwareVersion">v?</span> <a href="/">Felvétel</a></header>
-<main><h1>Fájlkezelő</h1><ol id="crumbs" class="crumbs"></ol>
+<main><h1>Fájlkezelő</h1><p id="demoClock">DEMO 13:54:22</p><ol id="crumbs" class="crumbs"></ol>
 <div class="toolbar"><strong id="location">microSD</strong><button id="reload" title="Lista frissítése">Frissítés</button></div>
 <div class="toolbar"><span id="speakerStatus">ESP hangszóró: kikapcsolva</span><button id="speakerStop" disabled>ESP-lejátszás leállítása</button></div>
 <div class="speaker-volume"><label for="speakerVolume">ESP hangszóró hangereje</label><input id="speakerVolume" type="range" min="0" max="100" step="1" value="25"><div class="speaker-volume-steps"><button id="speakerDown" type="button" aria-label="Hangerő csökkentése 5%-kal" title="5%-kal halkabb">←</button><output id="speakerVolumeValue" for="speakerVolume">25%</output><button id="speakerUp" type="button" aria-label="Hangerő növelése 5%-kal" title="5%-kal hangosabb">→</button></div><label class="boost-label" for="speakerBoost">Lejátszási erősítés</label><select id="speakerBoost"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
@@ -302,12 +309,19 @@ button{cursor:pointer;background:var(--ink);color:white;border:1px solid var(--i
 const folder=new URLSearchParams(location.search).get('dir')||'/';
 fetch('/api/status',{cache:'no-store'}).then(response=>response.json()).then(data=>{
  document.querySelector('#firmwareVersion').textContent='v'+data.version;
+ demoBase=data.demoSeconds;demoSyncedAt=performance.now();renderDemoClock();
 }).catch(()=>{});
 const listEl=document.querySelector('#items'),message=document.querySelector('#message'),more=document.querySelector('#more');
 const speakerStatus=document.querySelector('#speakerStatus'),speakerStop=document.querySelector('#speakerStop');
 const speakerVolume=document.querySelector('#speakerVolume'),speakerVolumeValue=document.querySelector('#speakerVolumeValue'),speakerBoost=document.querySelector('#speakerBoost');
 let next=0,loading=false;
 let volumeQueued=null,volumeSending=false,boostUpdating=false;
+let demoBase=13*3600+54*60+22,demoSyncedAt=performance.now();
+function renderDemoClock(){
+ const seconds=(demoBase+Math.floor((performance.now()-demoSyncedAt)/1000))%86400;
+ document.querySelector('#demoClock').textContent='DEMO '+[Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(value=>String(value).padStart(2,'0')).join(':');
+}
+setInterval(renderDemoClock,1000);
 const sound=name=>/\.(wav|mp3|m4a|mp4|ogg|oga|opus|flac|aac|webm)$/i.test(name);
 const link=path=>'/files?dir='+encodeURIComponent(path);
 async function sendSpeakerVolume(){
@@ -340,6 +354,7 @@ async function refreshSpeaker(){
  try{
   const response=await fetch('/api/status',{cache:'no-store'});if(!response.ok)throw Error();
   const data=await response.json(),playing=data.playback!=='idle';
+    demoBase=data.demoSeconds;demoSyncedAt=performance.now();renderDemoClock();
   speakerStop.disabled=!playing;
   speakerStatus.textContent=playing?'ESP hangszóró: '+(data.playback==='starting'?'indul...':data.playbackPath):data.playbackError||'ESP hangszóró: kikapcsolva';
   if(!volumeSending){speakerVolume.value=data.speakerVolume;speakerVolumeValue.textContent=data.speakerVolume+'%'}

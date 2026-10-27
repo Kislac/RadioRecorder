@@ -4,8 +4,9 @@
 #include "playback.h"
 #include "recorder.h"
 #include "web_server.h"
+#include <esp_timer.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.14";
+static constexpr char kFirmwareVersion[] = "0.1.23";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static bool sdReady = false;
 static uint8_t wifiTestPhase = 0;
@@ -17,6 +18,10 @@ bool appWifiTestActive() { return wifiTestPhase != 0; }
 
 String appFirmwareVersion() {
   return String(kFirmwareVersion) + "." + String(kFirmwareBuild);
+}
+
+uint32_t appDemoTimeSeconds() {
+  return (13UL * 3600 + 54UL * 60 + 22UL + esp_timer_get_time() / 1000000ULL) % 86400;
 }
 
 bool appStartRecording() {

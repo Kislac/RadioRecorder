@@ -5,6 +5,7 @@
 #include "app_control.h"
 #include "web_server.h"
 #include "controls.h"
+#include "display.h"
 #include <SD_MMC.h>
 #include <WiFi.h>
 
@@ -14,6 +15,7 @@ void printSetupStatus() {
   Serial.printf("SD card: %s\n", appSdReady() ? "ready" : "unavailable");
   Serial.printf("ADC GPIO%d: %s\n", kAudioGpio, recorderAdcReady() ? "ready" : "unavailable");
   Serial.printf("Recorder: %s\n", appSdReady() && recorderTaskReady() ? "ready" : "unavailable");
+  Serial.printf("OLED: %s\n", displayReady() ? "ready" : "unavailable (check GPIO4/5, 3V3, GND and I2C address)");
   if (webReady()) {
     Serial.print("Wi-Fi AP SSID: ");
     Serial.println(WiFi.softAPSSID());
@@ -37,13 +39,15 @@ void setup() {
   initRecorderTask();
   if (recorderTaskReady()) initLiveAudio();
   initWeb();
+  initDisplay();
   printSetupStatus();
 }
 
 void loop() {
-  pollEncoderRotation();
+  int32_t steps = takeEncoderSteps();
   pollSerialMeter();
-  pollEncoderButton();
+  ButtonEvent button = pollEncoderButton();
+  pollDisplay(steps, button);
   pollWeb();
   appPollWifiTest();
   if (Serial.available()) {

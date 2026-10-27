@@ -32,6 +32,8 @@ void recorderSetRecordingsPresent(bool present);
 bool recorderLowpass();
 void recorderSetLowpass(bool enabled);
 void recorderToggleSerialMeter();
+bool recorderSetSerialMeter(bool enabled);
+bool recorderSerialMeterEnabled();
 void pollSerialMeter();
 SignalStatus recorderSignalStatus();
 void recorderSetSignal(bool enabled);

@@ -34,7 +34,7 @@ static uint8_t pcmBuffer[kDmaBufferSize / 2];
 
 bool recorderAdcReady() { return adcReady; }
 bool recorderTaskReady() { return recorderTask != nullptr; }
-void recorderNotify() { xTaskNotifyGive(recorderTask); }
+void recorderNotify() { if (recorderTask) xTaskNotifyGive(recorderTask); }
 CaptureState recorderState() { return captureState.load(); }
 bool recorderStopping() { return stopRequested.load(); }
 const char *recorderName() { return recordingName; }
@@ -60,11 +60,12 @@ void recorderSetSignal(bool enabled) {
   recorderNotify();
 }
 
-void recorderToggleSerialMeter() {
-  bool enabled = !serialMeterEnabled.load();
+bool recorderSerialMeterEnabled() { return serialMeterEnabled.load(); }
+
+bool recorderSetSerialMeter(bool enabled) {
   if (enabled && (!adcReady || recorderTask == nullptr)) {
     Serial.println("ADC meres nem elerheto");
-    return;
+    return false;
   }
   serialMeterEnabled.store(enabled);
   if (enabled) {
@@ -72,7 +73,10 @@ void recorderToggleSerialMeter() {
     recorderNotify();
   }
   Serial.println(enabled ? "Soros ADC meres bekapcsolva" : "Soros ADC meres kikapcsolva");
+  return true;
 }
+
+void recorderToggleSerialMeter() { recorderSetSerialMeter(!recorderSerialMeterEnabled()); }
 
 struct AudioLowpass {
   float input1 = 0;

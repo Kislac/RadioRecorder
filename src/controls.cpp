@@ -1,8 +1,5 @@
 #include <Arduino.h>
 #include "controls.h"
-#include "app_control.h"
-#include "recorder.h"
-#include "web_server.h"
 
 static constexpr int kEncoderClkGpio = 21;
 static constexpr int kEncoderDtGpio = 47;
@@ -19,10 +16,10 @@ static void IRAM_ATTR onEncoderEdge() {
   encoderQuarterSteps += transitions[(encoderState << 2) | state];
   encoderState = state;
   if (encoderQuarterSteps >= 4) {
-    encoderSteps = encoderSteps + 1;
+    encoderSteps = encoderSteps - 1;
     encoderQuarterSteps = 0;
   } else if (encoderQuarterSteps <= -4) {
-    encoderSteps = encoderSteps - 1;
+    encoderSteps = encoderSteps + 1;
     encoderQuarterSteps = 0;
   }
   portEXIT_CRITICAL_ISR(&encoderMux);
@@ -37,38 +34,35 @@ void initControls() {
   attachInterrupt(digitalPinToInterrupt(kEncoderDtGpio), onEncoderEdge, CHANGE);
 }
 
-void pollEncoderRotation() {
-  static uint32_t nextActionAt = 0;
+int32_t takeEncoderSteps() {
   portENTER_CRITICAL(&encoderMux);
   int32_t steps = encoderSteps;
   encoderSteps = 0;
   portEXIT_CRITICAL(&encoderMux);
-  if (!steps || static_cast<int32_t>(millis() - nextActionAt) < 0) return;
-  nextActionAt = millis() + 300;
-  if (steps > 0) {
-    if (appWifiTestActive()) {
-      Serial.println("Zajteszt alatt a felvetel nem kapcsolhato");
-    } else if (recorderState() == CaptureState::idle) {
-      Serial.println(appStartRecording() ? String("Felvetel indul: ") + recorderName() : String("Felvetel nem indithato: ") + recorderError());
-    } else if (recorderStopping()) {
-      Serial.println("Felvetel leallitasa folyamatban");
-    } else {
-      Serial.println(appStopRecording() ? "Felvetel leallitasa kerese" : "Felvetel nem allithato le");
-    }
-  } else {
-    recorderToggleSerialMeter();
-  }
+  return steps;
 }
 
-void pollEncoderButton() {
+ButtonEvent pollEncoderButton() {
   static bool lastReading = HIGH;
   static bool stable = HIGH;
   static uint32_t changedAt = 0;
+  static uint32_t pressedAt = 0;
+  static bool longHandled = false;
   bool reading = digitalRead(kEncoderSwGpio);
   if (reading != lastReading) changedAt = millis();
   lastReading = reading;
   if (reading != stable && millis() - changedAt >= 30) {
     stable = reading;
-    if (stable == LOW) toggleWifi();
+    if (stable == LOW) {
+      pressedAt = millis();
+      longHandled = false;
+    } else if (!longHandled) {
+      return ButtonEvent::shortPress;
+    }
   }
+  if (stable == LOW && !longHandled && millis() - pressedAt >= 700) {
+    longHandled = true;
+    return ButtonEvent::longPress;
+  }
+  return ButtonEvent::none;
 }
