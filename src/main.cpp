@@ -59,6 +59,7 @@ void loop() {
     if (command == 'r' && !appStartRecording()) Serial.println("Cannot start recording");
     if (command == 's') Serial.println(appStopRecording() ? "Stop requested" : "Not recording");
     if (command == 'i') printSetupStatus();
+    if (command == 'm') recorderToggleSerialMeter();
     if (command == 'f') {
       bool enabled = !recorderLowpass();
       recorderSetLowpass(enabled);

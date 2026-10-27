@@ -1,12 +1,12 @@
 import sys
 import unittest
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from oled_viewer import FRAME_BYTES, body_pixels, parse_frame, pixel, read_frame
-from test_device import menu_state
-from test_wifi import wifi_profile
+from itertools import count
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
+
+from scripts.oled_viewer import FRAME_BYTES, KEY_COMMANDS, body_pixels, find_device, parse_frame, pixel, read_frame
+from scripts.test_device import menu_state, valid_signal
+from scripts.test_wifi import wifi_profile
 
 
 class FakeDevice:
@@ -18,10 +18,42 @@ class FakeDevice:
         self.commands.append(command)
 
     def readline(self):
-        return next(self.lines)
+        return next(self.lines, b"")
+
+    def close(self):
+        self.is_open = False
 
 
 class FrameTests(unittest.TestCase):
+    def test_signal_sample_must_be_in_adc_range(self):
+        self.assertEqual(valid_signal(["GPIO1 RMS: 12 | Csucs: 30 | DC-kozep: 2010 (ADC)"]), (12, 30, 2010))
+        for line in ("GPIO1 RMS: 31 | Csucs: 30 | DC-kozep: 2010 (ADC)",
+                     "GPIO1 RMS: 12 | Csucs: 30 | DC-kozep: 5000 (ADC)",
+                     "ADC meresi hiba (3)"):
+            with self.subTest(line=line), self.assertRaises(AssertionError):
+                valid_signal([line])
+
+    def test_auto_detect_skips_unresponsive_port(self):
+        other = FakeDevice(b"Other device\n")
+        other.is_open = True
+        esp = FakeDevice(b"Firmware: v0.1.24\n", b"Recorder: ready\n", b"Wi-Fi AP: unavailable\n")
+        esp.port = "COM8"
+        ticks = count()
+        with patch("serial.tools.list_ports.comports", return_value=[type("Port", (), {"device": "COM7"})(),
+                                          type("Port", (), {"device": "COM8"})()]), \
+             patch("scripts.oled_viewer.open_device", side_effect=[other, esp]), \
+             patch("scripts.oled_viewer.time.monotonic", side_effect=lambda: next(ticks) / 10):
+            self.assertIs(find_device(), esp)
+        self.assertFalse(other.is_open)
+        self.assertEqual(other.commands, [b"i"])
+        self.assertEqual(esp.commands, [b"i"])
+
+    def test_space_sends_long_press(self):
+        commands = dict(KEY_COMMANDS)
+        self.assertEqual(commands["<Return>"], "k")
+        self.assertEqual(commands["<space>"], "b")
+        self.assertEqual(commands["<Escape>"], "b")
+
     def test_decodes_u8g2_vertical_tiles(self):
         frame = bytearray(FRAME_BYTES)
         frame[0] = 1

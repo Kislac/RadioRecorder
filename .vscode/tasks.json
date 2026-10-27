@@ -1,0 +1,46 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "RadioRecorder: Device Test (read-only)",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.test_device"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "RadioRecorder: Device Test (record to SD)",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.test_device", "--record"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "RadioRecorder: OLED Viewer",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.oled_viewer"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "RadioRecorder: Wi-Fi API Test (read-only)",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.test_wifi"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "RadioRecorder: Offline Tests",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "unittest", "discover", "-s", "test", "-p", "test_*.py", "-v"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    }
+  ]
+}

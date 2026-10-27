@@ -8,6 +8,8 @@ import time
 WIDTH = 128
 HEIGHT = 64
 FRAME_BYTES = WIDTH * HEIGHT // 8
+KEY_COMMANDS = (("<Left>", "j"), ("<Right>", "l"), ("<Return>", "k"),
+                ("<space>", "b"), ("<Escape>", "b"))
 
 
 def parse_frame(line):
@@ -30,16 +32,46 @@ def body_pixels(frame):
     return tuple(pixel(frame, x, y) for y in range(11, 56) for x in range(WIDTH))
 
 
-def open_device(port):
+def open_device(port, timeout=1):
     import serial
 
-    device = serial.Serial(baudrate=115200, timeout=1, write_timeout=1)
+    device = serial.Serial(baudrate=115200, timeout=timeout, write_timeout=1)
     device.port = port
     device.dtr = False
     device.rts = False
     device.open()
     device.reset_input_buffer()
     return device
+
+
+def find_device(port=None):
+    import serial
+    from serial.tools import list_ports
+
+    candidates = [port] if port else [item.device for item in list_ports.comports()]
+    for candidate in candidates:
+        device = None
+        try:
+            device = open_device(candidate, timeout=0.1)
+            device.write(b"i")
+            firmware = False
+            recorder = False
+            wifi_status = False
+            deadline = time.monotonic() + 0.9
+            while time.monotonic() < deadline:
+                line = device.readline()
+                if line:
+                    firmware |= line.startswith(b"Firmware: v")
+                    recorder |= line.startswith(b"Recorder: ")
+                    wifi_status |= line.startswith(b"Wi-Fi AP IP:") or line.startswith(b"Wi-Fi AP: ")
+                elif firmware and recorder and wifi_status:
+                    device.timeout = 1
+                    return device
+            device.close()
+        except (serial.SerialException, OSError):
+            if device is not None and device.is_open:
+                device.close()
+    raise RuntimeError("RadioRecorder not found on available serial ports; close the serial monitor")
 
 
 def read_frame(device):
@@ -59,10 +91,10 @@ def main():
     from tkinter import filedialog, messagebox
 
     parser = argparse.ArgumentParser(description="Live 128x64 OLED viewer over serial")
-    parser.add_argument("--port", default="COM3", help="ESP serial port (default: COM3)")
+    parser.add_argument("--port", help="ESP serial port (default: auto-detect)")
     args = parser.parse_args()
     root = tk.Tk()
-    root.title("RadioRecorder OLED - " + args.port)
+    root.title("RadioRecorder OLED")
     root.resizable(False, False)
     canvas = tk.Canvas(root, width=WIDTH * 5, height=HEIGHT * 5, bg="#141a19", highlightthickness=0)
     canvas.pack(padx=12, pady=(12, 4))
@@ -71,10 +103,12 @@ def main():
     updates = queue.Queue(maxsize=2)
     stopped = threading.Event()
     last_frame = None
+    connected_port = None
 
     def worker():
         try:
-            with open_device(args.port) as device:
+            with find_device(args.port) as device:
+                updates.put((None, "Connected to " + device.port))
                 while not stopped.is_set():
                     while not commands.empty():
                         device.write(commands.get_nowait().encode("ascii"))
@@ -86,13 +120,17 @@ def main():
             updates.put((None, str(error)))
 
     def refresh():
-        nonlocal last_frame
+        nonlocal last_frame, connected_port
         while not updates.empty():
             frame, error = updates.get_nowait()
-            if error:
+            if error and not error.startswith("Connected to "):
                 status.config(text=error)
                 messagebox.showerror("OLED", error)
                 return
+            if error:
+                connected_port = error.removeprefix("Connected to ")
+                status.config(text=error)
+                continue
             last_frame = frame
             image = tk.PhotoImage(width=WIDTH, height=HEIGHT)
             for y in range(HEIGHT):
@@ -100,7 +138,7 @@ def main():
                 image.put("{" + " ".join(colors) + "}", to=(0, y))
             canvas.image = image.zoom(5, 5)
             canvas.itemconfigure(image_id, image=canvas.image)
-            status.config(text="OLED 128 x 64  |  " + args.port)
+            status.config(text="OLED 128 x 64  |  " + connected_port)
         root.after(80, refresh)
 
     def save_frame():
@@ -122,7 +160,7 @@ def main():
     tk.Button(toolbar, text="Kép mentése", command=save_frame).pack(side="left", padx=4)
     status = tk.Label(root, text="Kapcsolódás...", anchor="w")
     status.pack(fill="x", padx=12, pady=(0, 10))
-    for key, command in (("<Left>", "j"), ("<Right>", "l"), ("<Return>", "k"), ("<Escape>", "b")):
+    for key, command in KEY_COMMANDS:
         root.bind(key, lambda event, value=command: commands.put(value))
     root.protocol("WM_DELETE_WINDOW", lambda: (stopped.set(), root.destroy()))
     threading.Thread(target=worker, daemon=True).start()
