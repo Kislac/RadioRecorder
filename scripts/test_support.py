@@ -54,3 +54,8 @@ class TestRun:
         self.log(f"SUMMARY: {passed} passed, {failed} failed, {skipped} skipped")
         self.log(f"LOG: {self.log_path}")
         return failed == 0
+
+
+def firmware_at_least(version, minimum):
+    match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:\.|$)", version)
+    return bool(match) and tuple(map(int, match.groups())) >= minimum

@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 from scripts.oled_viewer import find_device
 from scripts.test_device import delete_test_recording
-from scripts.test_support import TestRun
+from scripts.test_support import TestRun, firmware_at_least
 
 
 def wifi_profile(ssid):
@@ -79,7 +79,7 @@ def test_api(base_url, args, report):
 def test_record_and_delete(base_url, status, report):
     if not status["ready"] or status["state"] != "idle":
         raise RuntimeError("Recorder not ready or already active; no recording started")
-    if not status["version"].startswith("0.1.26."):
+    if not firmware_at_least(status["version"], (0, 1, 26)):
         raise RuntimeError("record-and-delete requires firmware 0.1.26 or newer; found " + status["version"])
 
     with find_device() as serial_device:

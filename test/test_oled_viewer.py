@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 
 from scripts.oled_viewer import FRAME_BYTES, KEY_COMMANDS, body_pixels, find_device, parse_frame, pixel, read_frame
 from scripts.test_device import delete_test_recording, menu_state, valid_signal
-from scripts.test_support import TestRun
+from scripts.test_support import TestRun, firmware_at_least
 from scripts.test_wifi import wifi_profile
 
 
@@ -30,6 +30,12 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_firmware_version_requirement_accepts_optional_v_prefix(self):
+        self.assertTrue(firmware_at_least("v0.1.26.23", (0, 1, 26)))
+        self.assertTrue(firmware_at_least("0.1.27.1", (0, 1, 26)))
+        self.assertFalse(firmware_at_least("v0.1.25.99", (0, 1, 26)))
+        self.assertFalse(firmware_at_least("unknown", (0, 1, 26)))
+
     def test_test_recording_delete_uses_exact_filename(self):
         filename = "REC00042.wav"
         device = FakeDevice(b"Delete test WAV: send exact RECxxxxx.wav filename\n",

@@ -5,7 +5,7 @@ import re
 import time
 
 from scripts.oled_viewer import body_pixels, find_device, read_frame
-from scripts.test_support import TestRun
+from scripts.test_support import TestRun, firmware_at_least
 
 
 SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+) \(ADC\)")
@@ -118,7 +118,7 @@ def delete_test_recording(device, filename, report=None):
 
 
 def test_recording(device, report, firmware_version):
-    if not firmware_version.startswith("0.1.26."):
+    if not firmware_at_least(firmware_version, (0, 1, 26)):
         raise RuntimeError("record-and-delete requires firmware 0.1.26 or newer; found " + firmware_version)
     device.write(b"r")
     started = read_until(device, lambda line: line.startswith(("Recording started:", "Recording failed:",
