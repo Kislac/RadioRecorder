@@ -10,6 +10,14 @@
       "problemMatcher": []
     },
     {
+      "label": "RadioRecorder: Display Test",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.test_device", "--display-only"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
       "label": "RadioRecorder: Device Test (record to SD)",
       "type": "process",
       "command": "python",
@@ -40,6 +48,26 @@
       "command": "python",
       "args": ["-m", "unittest", "discover", "-s", "test", "-p", "test_*.py", "-v"],
       "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "RadioRecorder: Firmware Build",
+      "type": "process",
+      "command": "${env:USERPROFILE}\\.platformio\\penv\\Scripts\\platformio.exe",
+      "args": ["run", "-e", "esp32-s3-devkitc-1"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "RadioRecorder: All Tests (read-only)",
+      "dependsOn": [
+        "RadioRecorder: Offline Tests",
+        "RadioRecorder: Firmware Build",
+        "RadioRecorder: Device Test (read-only)",
+        "RadioRecorder: Display Test",
+        "RadioRecorder: Wi-Fi API Test (read-only)"
+      ],
+      "dependsOrder": "sequence",
       "problemMatcher": []
     }
   ]

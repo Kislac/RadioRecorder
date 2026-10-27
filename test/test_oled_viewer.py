@@ -9,7 +9,7 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 from scripts.oled_viewer import FRAME_BYTES, KEY_COMMANDS, body_pixels, find_device, parse_frame, pixel, read_frame
-from scripts.test_device import delete_test_recording, menu_state, valid_signal
+from scripts.test_device import delete_test_recording, menu_state, valid_signal, validate_display_frames
 from scripts.test_support import TestRun, firmware_at_least
 from scripts.test_wifi import wifi_profile
 
@@ -30,6 +30,18 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_display_frame_validation_requires_distinct_visible_views(self):
+        frames = []
+        for x in range(7):
+            frame = bytearray(FRAME_BYTES)
+            frame[2 * 128 + x] = 1
+            frames.append(bytes(frame))
+        self.assertIn("7 distinct", validate_display_frames(frames, 7, "main tiles"))
+        with self.assertRaisesRegex(AssertionError, "duplicate"):
+            validate_display_frames(frames[:1] * 2, 2, "settings rows")
+        with self.assertRaisesRegex(AssertionError, "blank"):
+            validate_display_frames([bytes(FRAME_BYTES)], 1, "main tiles")
+
     def test_firmware_version_requirement_accepts_optional_v_prefix(self):
         self.assertTrue(firmware_at_least("v0.1.26.23", (0, 1, 26)))
         self.assertTrue(firmware_at_least("0.1.27.1", (0, 1, 26)))

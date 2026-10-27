@@ -9,6 +9,8 @@ from scripts.test_support import TestRun, firmware_at_least
 
 
 SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+) \(ADC\)")
+DISPLAY_TILES = ("Felvetel", "Fajlok", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Beallitasok")
+SETTING_COUNT = 6
 
 
 def read_until(device, predicate, timeout=3, report=None):
@@ -25,7 +27,7 @@ def read_until(device, predicate, timeout=3, report=None):
     raise TimeoutError("Expected serial response not received: " + repr(lines))
 
 
-def status(device, report):
+def status(device, report, display_only=False):
     device.write(b"i")
     lines = []
     wifi_status_seen = False
@@ -42,7 +44,8 @@ def status(device, report):
         raise TimeoutError("Incomplete firmware status: " + repr(lines))
     if not any(line.startswith("Firmware: v") for line in lines):
         raise AssertionError("No firmware status from ESP")
-    for label in ("SD card", "ADC GPIO1", "Recorder", "OLED"):
+    required = ("OLED",) if display_only else ("SD card", "ADC GPIO1", "Recorder", "OLED")
+    for label in required:
         if not any(line.startswith(label + ": ready") for line in lines):
             raise AssertionError(label + " is not ready: " + repr(lines))
     if any(line.startswith("Recording:") for line in lines):
@@ -161,6 +164,80 @@ def menu_state(device):
     raise TimeoutError("No OLED menu state received")
 
 
+def validate_display_frames(frames, expected_count, description):
+    if len(frames) != expected_count:
+        raise AssertionError("Expected {} {}, got {}".format(expected_count, description, len(frames)))
+    signatures = []
+    for index, frame in enumerate(frames):
+        if len(frame) != 1024:
+            raise AssertionError("{} {} has invalid frame length {}".format(description, index, len(frame)))
+        body = body_pixels(frame)
+        if not any(body):
+            raise AssertionError("{} {} is blank".format(description, index))
+        signatures.append(body)
+    if len(set(signatures)) != expected_count:
+        raise AssertionError("{} contain duplicate or indistinguishable views".format(description))
+    return "{} distinct, non-blank {} views".format(expected_count, description)
+
+
+def test_display_all(device, report):
+    state = menu_state(device)
+    for _ in range(2):
+        if not state[2]:
+            break
+        device.write(b"b")
+        state = menu_state(device)
+    if state[2]:
+        raise AssertionError("Could not exit settings before display test")
+    original_tile = state[0]
+
+    try:
+        tile_frames = []
+        for target, name in enumerate(DISPLAY_TILES):
+            state = menu_state(device)
+            for _ in range((target - state[0]) % len(DISPLAY_TILES)):
+                device.write(b"l")
+                state = menu_state(device)
+            if state[0] != target or state[2]:
+                raise AssertionError("Could not select main tile {} ({})".format(target, name))
+            frame = read_frame(device)
+            tile_frames.append(frame)
+            report.detail("DISPLAY TILE {} {} bytes={}".format(target, name, len(frame)))
+        validate_display_frames(tile_frames, len(DISPLAY_TILES), "main tiles")
+
+        device.write(b"k")
+        state = menu_state(device)
+        if not state[2]:
+            raise AssertionError("Settings tile did not open settings")
+        setting_frames = []
+        for target in range(SETTING_COUNT):
+            state = menu_state(device)
+            for _ in range((target - state[1]) % SETTING_COUNT):
+                device.write(b"l")
+                state = menu_state(device)
+            if not state[2] or state[1] != target:
+                raise AssertionError("Could not select setting row {}".format(target))
+            frame = read_frame(device)
+            setting_frames.append(frame)
+            report.detail("DISPLAY SETTING {} bytes={}".format(target, len(frame)))
+        validate_display_frames(setting_frames, SETTING_COUNT, "settings rows")
+        return "all main tiles and settings rows rendered distinctly"
+    finally:
+        state = menu_state(device)
+        for _ in range(2):
+            if not state[2]:
+                break
+            device.write(b"b")
+            state = menu_state(device)
+        if state[2]:
+            raise AssertionError("Could not exit settings after display test")
+        for _ in range((original_tile - state[0]) % len(DISPLAY_TILES)):
+            device.write(b"l")
+            state = menu_state(device)
+        if state[0] != original_tile:
+            raise AssertionError("Could not restore original home tile")
+
+
 def test_oled_navigation(device):
     for _ in range(2):
         if not menu_state(device)[2]:
@@ -201,34 +278,42 @@ def main():
     parser = argparse.ArgumentParser(description="Check SD, ADC, OLED and serial encoder on RadioRecorder")
     parser.add_argument("--port", help="ESP serial port (default: auto-detect)")
     parser.add_argument("--record", action="store_true", help="Write and verify a brief WAV on the SD card")
+    parser.add_argument("--display-only", action="store_true", help="Test every OLED tile and setting row")
     args = parser.parse_args()
-    report = TestRun("device")
+    report = TestRun("display" if args.display_only else "device")
     successful = False
     try:
         connected, device = report.case("ESP serial connection", lambda: find_device(args.port))
         if connected:
             report.detail("Connected to " + device.port)
             with device:
-                ready, firmware_version = report.case("SD, ADC, recorder and OLED status",
-                                                       lambda: status(device, report))
+                readiness = "OLED status" if args.display_only else "SD, ADC, recorder and OLED status"
+                ready, firmware_version = report.case(readiness,
+                                                       lambda: status(device, report, display_only=args.display_only))
                 if ready:
-                    signal_ok, _ = report.case("Live ADC sample", lambda: test_signal(device, report))
-                    if signal_ok:
-                        oled_ok, _ = report.case("OLED and encoder controls", lambda: test_oled_navigation(device))
+                    if args.display_only:
+                        report.case("All OLED tiles and settings rows", lambda: test_display_all(device, report))
                     else:
-                        report.skip("OLED and encoder controls", "live ADC check failed")
-                        oled_ok = False
-                    if args.record and oled_ok:
-                        report.case("Record, verify and delete test WAV",
-                                    lambda: test_recording(device, report, firmware_version))
-                    elif args.record:
-                        report.skip("SD recording/deletion", "a previous check failed")
-                    else:
-                        report.skip("SD recording/deletion", "pass --record to opt in")
+                        signal_ok, _ = report.case("Live ADC sample", lambda: test_signal(device, report))
+                        if signal_ok:
+                            oled_ok, _ = report.case("OLED and encoder controls", lambda: test_oled_navigation(device))
+                        else:
+                            report.skip("OLED and encoder controls", "live ADC check failed")
+                            oled_ok = False
+                        if args.record and oled_ok:
+                            report.case("Record, verify and delete test WAV",
+                                        lambda: test_recording(device, report, firmware_version))
+                        elif args.record:
+                            report.skip("SD recording/deletion", "a previous check failed")
+                        else:
+                            report.skip("SD recording/deletion", "pass --record to opt in")
                 else:
-                    report.skip("Live ADC sample", "device readiness check failed")
-                    report.skip("OLED and encoder controls", "device readiness check failed")
-                    report.skip("SD recording/deletion", "device readiness check failed")
+                    if args.display_only:
+                        report.skip("All OLED tiles and settings rows", "OLED status check failed")
+                    else:
+                        report.skip("Live ADC sample", "device readiness check failed")
+                        report.skip("OLED and encoder controls", "device readiness check failed")
+                        report.skip("SD recording/deletion", "device readiness check failed")
         else:
             report.skip("Device checks", "ESP serial connection failed")
             report.skip("SD recording/deletion", "device checks did not run")
