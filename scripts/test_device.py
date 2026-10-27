@@ -5,24 +5,27 @@ import re
 import time
 
 from scripts.oled_viewer import body_pixels, find_device, read_frame
+from scripts.test_support import TestRun
 
 
 SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+) \(ADC\)")
 
 
-def read_until(device, predicate, timeout=3):
+def read_until(device, predicate, timeout=3, report=None):
     lines = []
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         line = device.readline().decode("utf-8", errors="replace").strip()
         if line:
             lines.append(line)
+            if report:
+                report.detail("SERIAL: " + line)
             if predicate(line):
                 return lines
     raise TimeoutError("Expected serial response not received: " + repr(lines))
 
 
-def status(device):
+def status(device, report):
     device.write(b"i")
     lines = []
     wifi_status_seen = False
@@ -31,6 +34,7 @@ def status(device):
         line = device.readline().decode("utf-8", errors="replace").strip()
         if line:
             lines.append(line)
+            report.detail("SERIAL: " + line)
             wifi_status_seen |= line.startswith("Wi-Fi AP IP:") or line == "Wi-Fi AP: unavailable"
         elif wifi_status_seen:
             break
@@ -43,8 +47,7 @@ def status(device):
             raise AssertionError(label + " is not ready: " + repr(lines))
     if any(line.startswith("Recording:") for line in lines):
         raise AssertionError("Stop the current recording before running device tests")
-    print("\n".join(lines))
-    return lines
+    return next(line.split(": ", 1)[1] for line in lines if line.startswith("Firmware: v"))
 
 
 def valid_signal(lines):
@@ -57,7 +60,7 @@ def valid_signal(lines):
     raise AssertionError("No valid ADC signal sample: " + repr(lines))
 
 
-def test_signal(device):
+def test_signal(device, report):
     state = menu_state(device)
     while state[2] or state[3]:
         device.write(b"b")
@@ -80,15 +83,18 @@ def test_signal(device):
     device.write(b"k")
     meter_enabled = False
     try:
-        lines = read_until(device, lambda line: "Soros ADC meres bekapcsolva" in line, timeout=3)
+        lines = read_until(device, lambda line: "Soros ADC meres bekapcsolva" in line,
+                           timeout=3, report=report)
         meter_enabled = True
-        lines.extend(read_until(device, lambda line: SIGNAL_PATTERN.search(line) is not None, timeout=4))
+        lines.extend(read_until(device, lambda line: SIGNAL_PATTERN.search(line) is not None,
+                                timeout=4, report=report))
         rms, peak, bias = valid_signal(lines)
-        print("PASS: ADC signal GPIO1 RMS={} peak={} bias={}".format(rms, peak, bias))
+        return "GPIO1 RMS={} peak={} bias={}".format(rms, peak, bias)
     finally:
         if meter_enabled:
             device.write(b"k")
-            read_until(device, lambda line: "Soros ADC meres kikapcsolva" in line, timeout=3)
+            read_until(device, lambda line: "Soros ADC meres kikapcsolva" in line,
+                       timeout=3, report=report)
         state = menu_state(device)
         if state[2]:
             device.write(b"b")
@@ -98,27 +104,48 @@ def test_signal(device):
             state = menu_state(device)
 
 
-def test_recording(device):
+def delete_test_recording(device, filename, report=None):
+    if not re.fullmatch(r"REC\d{5}\.wav", filename):
+        raise ValueError("Refusing non-recording filename: " + filename)
+    device.write(b"x")
+    read_until(device, lambda line: line.startswith("Delete test WAV:"), timeout=3, report=report)
+    device.write(filename.encode("ascii") + b"\n")
+    result = read_until(device, lambda line: line.startswith(("Test WAV deleted:", "Test WAV delete refused:")),
+                        timeout=3, report=report)[-1]
+    if result != "Test WAV deleted: " + filename:
+        raise AssertionError("Firmware refused to delete test recording: " + result)
+    return "removed " + filename
+
+
+def test_recording(device, report, firmware_version):
+    if not firmware_version.startswith("0.1.26."):
+        raise RuntimeError("record-and-delete requires firmware 0.1.26 or newer; found " + firmware_version)
     device.write(b"r")
     started = read_until(device, lambda line: line.startswith(("Recording started:", "Recording failed:",
-                                                               "Cannot start recording")), timeout=5)
+                                                               "Cannot start recording")), timeout=5, report=report)
     if not started[-1].startswith("Recording started:"):
         raise AssertionError("Recording could not start: " + repr(started))
     start_line = next(line for line in started if line.startswith("Recording started:"))
     filename = start_line.split(":", 1)[1].strip()
-    time.sleep(1)
-    device.write(b"s")
-    stopped = read_until(device, lambda line: line.startswith(("Recording stopped:", "Recording failed:")), timeout=8)
+    try:
+        time.sleep(1)
+    finally:
+        device.write(b"s")
+    stopped = read_until(device, lambda line: line.startswith(("Recording stopped:", "Recording failed:")),
+                         timeout=8, report=report)
     result = next(line for line in stopped if line.startswith(("Recording stopped:", "Recording failed:")))
     if not result.startswith("Recording stopped:") or filename not in result:
         raise AssertionError("Recording did not finalize successfully: " + result)
-    match = re.search(r"\((\d+) audio bytes\)", result)
-    if not match or int(match.group(1)) <= 0:
-        raise AssertionError("Recording contains no audio data: " + result)
-    errors = [line for line in stopped if line.startswith("Recording error:")]
-    if errors:
-        raise AssertionError("Recording reported errors: " + repr(errors))
-    print("PASS: SD recording started and stopped: " + result)
+    try:
+        errors = [line for line in stopped if line.startswith("Recording error:")]
+        if errors:
+            raise AssertionError("Recording reported errors: " + repr(errors))
+        match = re.search(r"\((\d+) audio bytes\)", result)
+        if not match or int(match.group(1)) <= 0:
+            raise AssertionError("Recording contains no audio data: " + result)
+    finally:
+        delete_test_recording(device, filename, report)
+    return result + "; test file deleted"
 
 
 def menu_state(device):
@@ -134,51 +161,80 @@ def menu_state(device):
     raise TimeoutError("No OLED menu state received")
 
 
+def test_oled_navigation(device):
+    for _ in range(2):
+        if not menu_state(device)[2]:
+            break
+        device.write(b"b")
+    original_tile = menu_state(device)[0]
+    initial = read_frame(device)
+    device.write(b"l")
+    moved = read_frame(device)
+    if menu_state(device)[0] != (original_tile + 1) % 7:
+        raise AssertionError("Right encoder command did not advance tile")
+    device.write(b"j")
+    restored = read_frame(device)
+    if menu_state(device)[0] != original_tile:
+        raise AssertionError("Left encoder command did not restore tile")
+    if body_pixels(initial) == body_pixels(moved):
+        raise AssertionError("Right encoder command did not change the OLED body")
+    if body_pixels(initial) != body_pixels(restored):
+        raise AssertionError("Left encoder command did not restore the OLED body")
+    for _ in range((6 - original_tile) % 7):
+        device.write(b"l")
+    if menu_state(device)[0] != 6:
+        raise AssertionError("Could not reach settings tile")
+    device.write(b"k")
+    if menu_state(device)[2] != 1:
+        raise AssertionError("Short press did not open settings")
+    device.write(b"b")
+    if menu_state(device)[2] != 0:
+        raise AssertionError("Long press did not close settings")
+    for _ in range((original_tile - 6) % 7):
+        device.write(b"l")
+    if menu_state(device)[0] != original_tile:
+        raise AssertionError("Could not restore original tile")
+    return "frame, left/right, short/long press and menu restoration"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Check SD, ADC, OLED and serial encoder on RadioRecorder")
     parser.add_argument("--port", help="ESP serial port (default: auto-detect)")
     parser.add_argument("--record", action="store_true", help="Write and verify a brief WAV on the SD card")
     args = parser.parse_args()
-    with find_device(args.port) as device:
-        print("Connected to " + device.port)
-        status(device)
-        print("PASS: SD card and recorder available")
-        test_signal(device)
-        for _ in range(2):
-            if not menu_state(device)[2]:
-                break
-            device.write(b"b")
-        original_tile = menu_state(device)[0]
-        initial = read_frame(device)
-        device.write(b"l")
-        moved = read_frame(device)
-        if menu_state(device)[0] != (original_tile + 1) % 7:
-            raise AssertionError("Right encoder command did not advance tile")
-        device.write(b"j")
-        restored = read_frame(device)
-        if menu_state(device)[0] != original_tile:
-            raise AssertionError("Left encoder command did not restore tile")
-        if body_pixels(initial) == body_pixels(moved):
-            raise AssertionError("Right encoder command did not change the OLED body")
-        if body_pixels(initial) != body_pixels(restored):
-            raise AssertionError("Left encoder command did not restore the OLED body")
-        for _ in range((6 - original_tile) % 7):
-            device.write(b"l")
-        if menu_state(device)[0] != 6:
-            raise AssertionError("Could not reach settings tile")
-        device.write(b"k")
-        if menu_state(device)[2] != 1:
-            raise AssertionError("Short press did not open settings")
-        device.write(b"b")
-        if menu_state(device)[2] != 0:
-            raise AssertionError("Long press did not close settings")
-        for _ in range((original_tile - 6) % 7):
-            device.write(b"l")
-        if menu_state(device)[0] != original_tile:
-            raise AssertionError("Could not restore original tile")
-        print("PASS: OLED frame, left/right, short/long press and menu restoration")
-        if args.record:
-            test_recording(device)
+    report = TestRun("device")
+    successful = False
+    try:
+        connected, device = report.case("ESP serial connection", lambda: find_device(args.port))
+        if connected:
+            report.detail("Connected to " + device.port)
+            with device:
+                ready, firmware_version = report.case("SD, ADC, recorder and OLED status",
+                                                       lambda: status(device, report))
+                if ready:
+                    signal_ok, _ = report.case("Live ADC sample", lambda: test_signal(device, report))
+                    if signal_ok:
+                        oled_ok, _ = report.case("OLED and encoder controls", lambda: test_oled_navigation(device))
+                    else:
+                        report.skip("OLED and encoder controls", "live ADC check failed")
+                        oled_ok = False
+                    if args.record and oled_ok:
+                        report.case("Record, verify and delete test WAV",
+                                    lambda: test_recording(device, report, firmware_version))
+                    elif args.record:
+                        report.skip("SD recording/deletion", "a previous check failed")
+                    else:
+                        report.skip("SD recording/deletion", "pass --record to opt in")
+                else:
+                    report.skip("Live ADC sample", "device readiness check failed")
+                    report.skip("OLED and encoder controls", "device readiness check failed")
+                    report.skip("SD recording/deletion", "device readiness check failed")
+        else:
+            report.skip("Device checks", "ESP serial connection failed")
+            report.skip("SD recording/deletion", "device checks did not run")
+    finally:
+        successful = report.summary()
+    return 0 if successful else 1
 
 
 if __name__ == "__main__":

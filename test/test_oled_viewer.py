@@ -1,11 +1,16 @@
 import sys
 import unittest
+from contextlib import redirect_stdout
 from itertools import count
+from io import StringIO
+from types import SimpleNamespace
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 from scripts.oled_viewer import FRAME_BYTES, KEY_COMMANDS, body_pixels, find_device, parse_frame, pixel, read_frame
-from scripts.test_device import menu_state, valid_signal
+from scripts.test_device import delete_test_recording, menu_state, valid_signal
+from scripts.test_support import TestRun
 from scripts.test_wifi import wifi_profile
 
 
@@ -25,6 +30,40 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_test_recording_delete_uses_exact_filename(self):
+        filename = "REC00042.wav"
+        device = FakeDevice(b"Delete test WAV: send exact RECxxxxx.wav filename\n",
+                            b"Test WAV deleted: REC00042.wav\n")
+        self.assertEqual(delete_test_recording(device, filename), "removed " + filename)
+        self.assertEqual(device.commands, [b"x", filename.encode() + b"\n"])
+
+    def test_test_recording_delete_rejects_unexpected_path(self):
+        device = FakeDevice()
+        with self.assertRaises(ValueError):
+            delete_test_recording(device, "../REC00042.wav")
+        self.assertEqual(device.commands, [])
+
+    def test_test_run_summary_is_saved_to_log(self):
+        with TemporaryDirectory() as directory, redirect_stdout(StringIO()):
+            run = TestRun("offline test", log_dir=directory)
+            self.assertTrue(run.case("frame check", lambda: "valid")[0])
+            self.assertTrue(run.case("serial connection", lambda: SimpleNamespace(port="COM3"))[0])
+            run.skip("recording", "opt-in")
+            self.assertTrue(run.summary())
+            log = run.log_path.read_text(encoding="utf-8")
+        self.assertIn("PASS: frame check - valid", log)
+        self.assertIn("PASS: serial connection - COM3", log)
+        self.assertIn("SUMMARY: 2 passed, 0 failed, 1 skipped", log)
+
+    def test_test_run_summary_marks_failures(self):
+        with TemporaryDirectory() as directory, redirect_stdout(StringIO()):
+            run = TestRun("offline test", log_dir=directory)
+            self.assertFalse(run.case("broken check", lambda: 1 / 0)[0])
+            self.assertFalse(run.summary())
+            log = run.log_path.read_text(encoding="utf-8")
+        self.assertIn("FAIL: broken check", log)
+        self.assertIn("SUMMARY: 0 passed, 1 failed, 0 skipped", log)
+
     def test_signal_sample_must_be_in_adc_range(self):
         self.assertEqual(valid_signal(["GPIO1 RMS: 12 | Csucs: 30 | DC-kozep: 2010 (ADC)"]), (12, 30, 2010))
         for line in ("GPIO1 RMS: 31 | Csucs: 30 | DC-kozep: 2010 (ADC)",

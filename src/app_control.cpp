@@ -6,7 +6,7 @@
 #include "web_server.h"
 #include <esp_timer.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.25";
+static constexpr char kFirmwareVersion[] = "0.1.26";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static bool sdReady = false;
 static uint8_t wifiTestPhase = 0;

@@ -27,6 +27,50 @@ void printSetupStatus() {
   if (recorderState() != CaptureState::idle) Serial.printf("Recording: %s\n", recorderName());
 }
 
+static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &button, bool &frameRequested) {
+  static char deleteFilename[13] = {};
+  static uint8_t deleteFilenameLength = 0;
+  static bool receivingDeleteFilename = false;
+  static bool deleteFilenameOverflow = false;
+
+  if (receivingDeleteFilename) {
+    if (command == '\r') return;
+    if (command == '\n') {
+      deleteFilename[deleteFilenameLength] = '\0';
+      bool deleted = !deleteFilenameOverflow && recorderDeleteRecording(deleteFilename);
+      Serial.printf(deleted ? "Test WAV deleted: %s\n" : "Test WAV delete refused: %s\n", deleteFilename);
+      receivingDeleteFilename = false;
+      return;
+    }
+    if (deleteFilenameLength < sizeof(deleteFilename) - 1) deleteFilename[deleteFilenameLength++] = command;
+    else deleteFilenameOverflow = true;
+    return;
+  }
+
+  if (command == 'x') {
+    deleteFilenameLength = 0;
+    deleteFilenameOverflow = false;
+    receivingDeleteFilename = true;
+    Serial.println("Delete test WAV: send exact RECxxxxx.wav filename");
+    return;
+  }
+  if (command == 'j') --steps;
+  if (command == 'l') ++steps;
+  if (command == 'k' && button == ButtonEvent::none) button = ButtonEvent::shortPress;
+  if (command == 'b' && button == ButtonEvent::none) button = ButtonEvent::longPress;
+  if (command == 'd') frameRequested = true;
+  if (command == 'p') printDisplayState();
+  if (command == 'r' && !appStartRecording()) Serial.println("Cannot start recording");
+  if (command == 's') Serial.println(appStopRecording() ? "Stop requested" : "Not recording");
+  if (command == 'i') printSetupStatus();
+  if (command == 'm') recorderToggleSerialMeter();
+  if (command == 'f') {
+    bool enabled = !recorderLowpass();
+    recorderSetLowpass(enabled);
+    Serial.println(enabled ? "3.4 kHz low-pass enabled" : "3.4 kHz low-pass disabled");
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("RadioRecorder setup starting");
@@ -48,24 +92,7 @@ void loop() {
   pollSerialMeter();
   ButtonEvent button = pollEncoderButton();
   bool frameRequested = false;
-  if (Serial.available()) {
-    char command = Serial.read();
-    if (command == 'j') --steps;
-    if (command == 'l') ++steps;
-    if (command == 'k' && button == ButtonEvent::none) button = ButtonEvent::shortPress;
-    if (command == 'b' && button == ButtonEvent::none) button = ButtonEvent::longPress;
-    if (command == 'd') frameRequested = true;
-    if (command == 'p') printDisplayState();
-    if (command == 'r' && !appStartRecording()) Serial.println("Cannot start recording");
-    if (command == 's') Serial.println(appStopRecording() ? "Stop requested" : "Not recording");
-    if (command == 'i') printSetupStatus();
-    if (command == 'm') recorderToggleSerialMeter();
-    if (command == 'f') {
-      bool enabled = !recorderLowpass();
-      recorderSetLowpass(enabled);
-      Serial.println(enabled ? "3.4 kHz low-pass enabled" : "3.4 kHz low-pass disabled");
-    }
-  }
+  if (Serial.available()) handleSerialCommand(Serial.read(), steps, button, frameRequested);
   pollDisplay(steps, button);
   if (frameRequested) printDisplayFrame();
   pollWeb();

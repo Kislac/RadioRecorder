@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SD_MMC.h>
 #include <atomic>
+#include <cstring>
 #include "esp_adc/adc_continuous.h"
 #include "live_audio.h"
 #include "wav.h"
@@ -41,6 +42,44 @@ const char *recorderName() { return recordingName; }
 const char *recorderError() { return lastError; }
 bool recorderHasRecordings() { return recordingsPresent.load(); }
 void recorderSetRecordingsPresent(bool present) { recordingsPresent.store(present); }
+
+static bool isRecordingName(const char *filename) {
+  if (!filename || strlen(filename) != 12 || strncmp(filename, "REC", 3) != 0 || strcmp(filename + 8, ".wav") != 0) {
+    return false;
+  }
+  for (uint8_t index = 3; index < 8; ++index) {
+    if (filename[index] < '0' || filename[index] > '9') return false;
+  }
+  return true;
+}
+
+static bool hasAnyRecording() {
+  File root = SD_MMC.open("/");
+  if (!root) return false;
+  bool found = false;
+  File entry;
+  while ((entry = root.openNextFile())) {
+    String name = entry.name();
+    name = name.substring(name.lastIndexOf('/') + 1);
+    found = !entry.isDirectory() && entry.size() >= 44 && isRecordingName(name.c_str());
+    entry.close();
+    if (found) break;
+  }
+  root.close();
+  return found;
+}
+
+bool recorderDeleteRecording(const char *filename) {
+  if (captureState.load() != CaptureState::idle || !isRecordingName(filename)) {
+    return false;
+  }
+  String path = String("/") + filename;
+  if (!SD_MMC.exists(path) || !SD_MMC.remove(path) || SD_MMC.exists(path)) return false;
+  recordingsPresent.store(hasAnyRecording());
+  if (strcmp(filename, recordingName) == 0) recordingName[0] = '\0';
+  return true;
+}
+
 bool recorderLowpass() { return audioLowpassEnabled.load(); }
 void recorderSetLowpass(bool enabled) { audioLowpassEnabled.store(enabled); }
 

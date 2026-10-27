@@ -4,3 +4,4 @@ PastRecordings/
 *.wav*
 __pycache__/
 *.pyc
+.test-logs/

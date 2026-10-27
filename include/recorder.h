@@ -29,6 +29,7 @@ const char *recorderName();
 const char *recorderError();
 bool recorderHasRecordings();
 void recorderSetRecordingsPresent(bool present);
+bool recorderDeleteRecording(const char *filename);
 bool recorderLowpass();
 void recorderSetLowpass(bool enabled);
 void recorderToggleSerialMeter();
