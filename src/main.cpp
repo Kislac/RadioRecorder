@@ -6,19 +6,17 @@
 #include <atomic>
 #include <cJSON.h>
 #include "esp_adc/adc_continuous.h"
-#include "driver/i2s_pdm.h"
 #include "driver/i2s_std.h"
 
 constexpr uint32_t kSampleRate = 22050;
 constexpr int kAudioGpio = 1;
 constexpr gpio_num_t kSpeakerBclkGpio = GPIO_NUM_42;
 constexpr gpio_num_t kSpeakerLrcGpio = GPIO_NUM_41;
-constexpr gpio_num_t kSpeakerDataGpio = GPIO_NUM_48;
-constexpr gpio_num_t kPdmOutGpio = GPIO_NUM_2;
+constexpr gpio_num_t kSpeakerDataGpio = GPIO_NUM_11;
 constexpr int kEncoderClkGpio = 21;
 constexpr int kEncoderDtGpio = 47;
 constexpr int kEncoderSwGpio = 14;
-constexpr char kFirmwareVersion[] = "0.1.12";
+constexpr char kFirmwareVersion[] = "0.1.13";
 constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 constexpr size_t kDmaBufferSize = 4096;
 constexpr size_t kLiveFrameBytes = 1024;
@@ -34,7 +32,6 @@ std::atomic<int> liveClient{-1};
 std::atomic<bool> liveCaptureFault{false};
 adc_continuous_handle_t adcHandle = nullptr;
 i2s_chan_handle_t speakerHandle = nullptr;
-i2s_chan_handle_t pdmHandle = nullptr;
 adc_channel_t audioChannel;
 TaskHandle_t recorderTask = nullptr;
 std::atomic<bool> stopRequested{false};
@@ -152,7 +149,7 @@ a{color:#12604f;text-decoration:underline;text-underline-offset:3px}#more{margin
 <div class="livecontrols"><label for="liveVolume">Hangerő</label><input id="liveVolume" type="range" min="0" max="100" value="50"><button id="liveTest">Hangpróba</button></div>
 <p id="liveStatus" class="note">Kikapcsolva</p></section>
 <section><div class="signalbar"><h2>Mentett felvételek</h2><button id="speakerStop" disabled>ESP-lejátszás leállítása</button></div><p id="speakerStatus" class="note">ESP hangszóró: kikapcsolva</p>
-<div class="speaker-volume"><label for="speakerVolume">ESP hangszóró és próbajel hangereje</label><input id="speakerVolume" type="range" min="0" max="100" step="1" value="25"><div class="speaker-volume-steps"><button id="speakerDown" type="button" aria-label="Hangerő csökkentése 5%-kal" title="5%-kal halkabb">←</button><output id="speakerVolumeValue" for="speakerVolume">25%</output><button id="speakerUp" type="button" aria-label="Hangerő növelése 5%-kal" title="5%-kal hangosabb">→</button></div><label class="boost-label" for="speakerBoost">Lejátszási erősítés</label><select id="speakerBoost"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
+<div class="speaker-volume"><label for="speakerVolume">ESP hangszóró hangereje</label><input id="speakerVolume" type="range" min="0" max="100" step="1" value="25"><div class="speaker-volume-steps"><button id="speakerDown" type="button" aria-label="Hangerő csökkentése 5%-kal" title="5%-kal halkabb">←</button><output id="speakerVolumeValue" for="speakerVolume">25%</output><button id="speakerUp" type="button" aria-label="Hangerő növelése 5%-kal" title="5%-kal hangosabb">→</button></div><label class="boost-label" for="speakerBoost">Lejátszási erősítés</label><select id="speakerBoost"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
 <p id="empty">Betöltés...</p><ol id="files"></ol><button id="more" hidden>Továbbiak</button></section>
 <footer>ESP32-S3 / microSD</footer>
 <script>
@@ -413,7 +410,7 @@ button{cursor:pointer;background:var(--ink);color:white;border:1px solid var(--i
 <main><h1>Fájlkezelő</h1><ol id="crumbs" class="crumbs"></ol>
 <div class="toolbar"><strong id="location">microSD</strong><button id="reload" title="Lista frissítése">Frissítés</button></div>
 <div class="toolbar"><span id="speakerStatus">ESP hangszóró: kikapcsolva</span><button id="speakerStop" disabled>ESP-lejátszás leállítása</button></div>
-<div class="speaker-volume"><label for="speakerVolume">ESP hangszóró és próbajel hangereje</label><input id="speakerVolume" type="range" min="0" max="100" step="1" value="25"><div class="speaker-volume-steps"><button id="speakerDown" type="button" aria-label="Hangerő csökkentése 5%-kal" title="5%-kal halkabb">←</button><output id="speakerVolumeValue" for="speakerVolume">25%</output><button id="speakerUp" type="button" aria-label="Hangerő növelése 5%-kal" title="5%-kal hangosabb">→</button></div><label class="boost-label" for="speakerBoost">Lejátszási erősítés</label><select id="speakerBoost"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
+<div class="speaker-volume"><label for="speakerVolume">ESP hangszóró hangereje</label><input id="speakerVolume" type="range" min="0" max="100" step="1" value="25"><div class="speaker-volume-steps"><button id="speakerDown" type="button" aria-label="Hangerő csökkentése 5%-kal" title="5%-kal halkabb">←</button><output id="speakerVolumeValue" for="speakerVolume">25%</output><button id="speakerUp" type="button" aria-label="Hangerő növelése 5%-kal" title="5%-kal hangosabb">→</button></div><label class="boost-label" for="speakerBoost">Lejátszási erősítés</label><select id="speakerBoost"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
 <p id="message">Betöltés...</p><ol id="items" class="items"></ol><button id="more" hidden>Továbbiak</button></main>
 <footer>Lejátszás a böngésző által támogatott hangformátumokkal.</footer>
 <script>
@@ -793,7 +790,6 @@ void speakerLoop(void *) {
     File file = SD_MMC.open(playbackPath, FILE_READ);
     uint32_t remaining = 0;
     bool enabled = false;
-    bool pdmEnabled = false;
     if (!file || !findPcmData(file, remaining)) {
       snprintf(playbackError, sizeof(playbackError), "Cannot read PCM WAV");
     } else if (!playbackStopRequested.load()) {
@@ -801,12 +797,9 @@ void speakerLoop(void *) {
       if (!enabled) {
         snprintf(playbackError, sizeof(playbackError), "Cannot start speaker");
       } else {
-        pdmEnabled = pdmHandle && i2s_channel_enable(pdmHandle) == ESP_OK;
-        if (pdmHandle && !pdmEnabled) Serial.println("Cannot start PDM test output");
         playbackState.store(PlaybackState::playing);
         uint8_t input[512];
         int16_t output[512];
-        int16_t pdmOutput[256];
         float appliedGain = 0;
         while (remaining && !playbackStopRequested.load()) {
           size_t count = file.read(input, min(static_cast<uint32_t>(sizeof(input)), remaining));
@@ -828,18 +821,11 @@ void speakerLoop(void *) {
                                        -32767, 32767);
             output[index * 2] = sample;
             output[index * 2 + 1] = sample;
-            pdmOutput[index] = sample;
           }
           size_t written = 0;
           if (i2s_channel_write(speakerHandle, output, count * 2, &written, 1000) != ESP_OK || written != count * 2) {
             snprintf(playbackError, sizeof(playbackError), "Speaker output failed");
             break;
-          }
-          if (pdmEnabled &&
-              (i2s_channel_write(pdmHandle, pdmOutput, count, &written, 1000) != ESP_OK || written != count)) {
-            Serial.println("PDM test output failed");
-            i2s_channel_disable(pdmHandle);
-            pdmEnabled = false;
           }
         }
         if (!remaining && !playbackStopRequested.load() && !playbackError[0]) {
@@ -848,18 +834,10 @@ void speakerLoop(void *) {
             size_t written = 0;
             if (i2s_channel_write(speakerHandle, silence, sizeof(silence), &written, 1000) != ESP_OK) break;
           }
-          if (pdmEnabled) {
-            int16_t pdmSilence[256] = {};
-            for (int index = 0; index < 4; ++index) {
-              size_t written = 0;
-              if (i2s_channel_write(pdmHandle, pdmSilence, sizeof(pdmSilence), &written, 1000) != ESP_OK) break;
-            }
-          }
           vTaskDelay(pdMS_TO_TICKS(30));
         }
       }
     }
-    if (pdmEnabled) i2s_channel_disable(pdmHandle);
     if (enabled) i2s_channel_disable(speakerHandle);
     if (file) file.close();
     playbackState.store(PlaybackState::idle);
@@ -1526,21 +1504,6 @@ bool initSpeaker() {
   return false;
 }
 
-bool initPdmOutput() {
-  i2s_chan_config_t channel = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-  if (i2s_new_channel(&channel, &pdmHandle, nullptr) != ESP_OK) return false;
-  i2s_pdm_tx_config_t config = {};
-  config.clk_cfg = I2S_PDM_TX_CLK_DAC_DEFAULT_CONFIG(kSampleRate);
-  config.slot_cfg = I2S_PDM_TX_SLOT_PCM_FMT_DAC_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
-  config.gpio_cfg.clk = I2S_GPIO_UNUSED;
-  config.gpio_cfg.dout = kPdmOutGpio;
-  config.gpio_cfg.dout2 = I2S_GPIO_UNUSED;
-  if (i2s_channel_init_pdm_tx_mode(pdmHandle, &config) == ESP_OK) return true;
-  i2s_del_channel(pdmHandle);
-  pdmHandle = nullptr;
-  return false;
-}
-
 void setup() {
   Serial.begin(115200);
   Serial.println("RadioRecorder setup starting");
@@ -1554,7 +1517,6 @@ void setup() {
   if (sdReady) recordingsPresent.store(hasRecordings());
   adcReady = initAdc();
   speakerReady = initSpeaker();
-  if (speakerReady && !initPdmOutput()) Serial.println("PDM test output unavailable; speaker still works");
   if (sdReady && speakerReady && xTaskCreatePinnedToCore(speakerLoop, "speaker", 12288, nullptr, 2, &playbackTask, 0) != pdPASS) {
     Serial.println("Cannot create speaker task");
   }
