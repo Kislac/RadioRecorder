@@ -6,3 +6,5 @@
 void initDisplay();
 bool displayReady();
 void pollDisplay(int32_t steps, ButtonEvent button);
+void printDisplayFrame();
+void printDisplayState();

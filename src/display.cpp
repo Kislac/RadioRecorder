@@ -194,6 +194,34 @@ void initDisplay() {
 
 bool displayReady() { return ready; }
 
+void printDisplayState() {
+  if (!ready) {
+    Serial.println("OLED_ERROR unavailable");
+    return;
+  }
+  Serial.printf("OLED_STATE %u %u %u %u\n", tile, setting, inSettings, editing);
+}
+
+void printDisplayFrame() {
+  if (!ready) {
+    Serial.println("OLED_ERROR unavailable");
+    return;
+  }
+  static const char digits[] = "0123456789ABCDEF";
+  const uint8_t *buffer = oled.getBufferPtr();
+  Serial.print("OLED_FRAME 128 64 ");
+  for (size_t offset = 0; offset < 1024; offset += 32) {
+    char hex[64];
+    for (size_t index = 0; index < 32; ++index) {
+      uint8_t value = buffer[offset + index];
+      hex[index * 2] = digits[value >> 4];
+      hex[index * 2 + 1] = digits[value & 15];
+    }
+    Serial.write(reinterpret_cast<const uint8_t *>(hex), sizeof(hex));
+  }
+  Serial.println();
+}
+
 void pollDisplay(int32_t steps, ButtonEvent button) {
   if (!ready) return;
   bool redraw = false;

@@ -47,11 +47,15 @@ void loop() {
   int32_t steps = takeEncoderSteps();
   pollSerialMeter();
   ButtonEvent button = pollEncoderButton();
-  pollDisplay(steps, button);
-  pollWeb();
-  appPollWifiTest();
+  bool frameRequested = false;
   if (Serial.available()) {
     char command = Serial.read();
+    if (command == 'j') --steps;
+    if (command == 'l') ++steps;
+    if (command == 'k' && button == ButtonEvent::none) button = ButtonEvent::shortPress;
+    if (command == 'b' && button == ButtonEvent::none) button = ButtonEvent::longPress;
+    if (command == 'd') frameRequested = true;
+    if (command == 'p') printDisplayState();
     if (command == 'r' && !appStartRecording()) Serial.println("Cannot start recording");
     if (command == 's') Serial.println(appStopRecording() ? "Stop requested" : "Not recording");
     if (command == 'i') printSetupStatus();
@@ -61,5 +65,9 @@ void loop() {
       Serial.println(enabled ? "3.4 kHz low-pass enabled" : "3.4 kHz low-pass disabled");
     }
   }
+  pollDisplay(steps, button);
+  if (frameRequested) printDisplayFrame();
+  pollWeb();
+  appPollWifiTest();
   delay(10);
 }
