@@ -2,7 +2,8 @@
 
 bool hasRecordings();
 void initWeb();
+void webStartServices();
+void webStopServices();
 void pollWeb();
-void toggleWifi();
 bool webReady();
 bool webDisableForNoiseTest();

@@ -9,8 +9,8 @@ from scripts.test_support import TestRun, firmware_at_least
 
 
 SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+) \(ADC\)")
-DISPLAY_TILES = ("Felvetel", "Fajlok", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Beallitasok")
-SETTING_COUNT = 7
+DISPLAY_TILES = ("Felvetel", "Fajlok", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Wi-Fi", "Beallitasok")
+SETTING_COUNT = 8
 
 
 def read_until(device, predicate, timeout=3, report=None):
@@ -37,7 +37,7 @@ def status(device, report, display_only=False):
         if line:
             lines.append(line)
             report.detail("SERIAL: " + line)
-            wifi_status_seen |= line.startswith("Wi-Fi AP IP:") or line == "Wi-Fi AP: unavailable"
+            wifi_status_seen |= line.startswith("Wi-Fi IP:")
         elif wifi_status_seen:
             break
     if not wifi_status_seen:
@@ -53,6 +53,9 @@ def status(device, report, display_only=False):
     timeout_line = next((line for line in lines if line.startswith("OLED screen off: ")), None)
     if timeout_line is None or not 0 <= int(timeout_line.split(": ", 1)[1].split()[0]) <= 999:
         raise AssertionError("Invalid OLED screen timeout status: " + repr(lines))
+    wifi_timeout_line = next((line for line in lines if line.startswith("Wi-Fi auto-off: ")), None)
+    if wifi_timeout_line is None or not 0 <= int(wifi_timeout_line.split(": ", 1)[1].split()[0]) <= 999:
+        raise AssertionError("Invalid Wi-Fi auto-off status: " + repr(lines))
     if any(line.startswith("Recording:") for line in lines):
         raise AssertionError("Stop the current recording before running device tests")
     return next(line.split(": ", 1)[1] for line in lines if line.startswith("Firmware: v"))
@@ -74,16 +77,17 @@ def test_signal(device, report):
         device.write(b"b")
         state = menu_state(device)
     original_tile = state[0]
-    for _ in range((6 - state[0]) % 7):
+    settings_tile = len(DISPLAY_TILES) - 1
+    for _ in range((settings_tile - state[0]) % len(DISPLAY_TILES)):
         device.write(b"l")
         state = menu_state(device)
-    if state[0] != 6:
+    if state[0] != settings_tile:
         raise AssertionError("Could not reach settings tile to enable serial ADC meter")
     device.write(b"k")
     state = menu_state(device)
     if not state[2]:
         raise AssertionError("Short press did not open settings")
-    for _ in range((1 - state[1]) % 6):
+    for _ in range((1 - state[1]) % SETTING_COUNT):
         device.write(b"l")
         state = menu_state(device)
     if state[1] != 1:
@@ -107,7 +111,7 @@ def test_signal(device, report):
         if state[2]:
             device.write(b"b")
             state = menu_state(device)
-        for _ in range((original_tile - state[0]) % 7):
+        for _ in range((original_tile - state[0]) % len(DISPLAY_TILES)):
             device.write(b"l")
             state = menu_state(device)
 
@@ -270,13 +274,17 @@ def test_wake_input(device):
         state = menu_state(device)
         if state[0] != 6:
             raise AssertionError("Second encoder input did not navigate")
+        device.write(b"l")
+        state = menu_state(device)
+        if state[0] != len(DISPLAY_TILES) - 1:
+            raise AssertionError("Could not reach Settings tile for button wake test")
 
         device.write(b"o")
         if not menu_state(device)[4]:
             raise AssertionError("Test sleep command did not put OLED to sleep")
         device.write(b"k")
         state = menu_state(device)
-        if state[4] or state[2] or state[0] != 6:
+        if state[4] or state[2] or state[0] != len(DISPLAY_TILES) - 1:
             raise AssertionError("First button input did more than wake OLED")
         device.write(b"k")
         state = menu_state(device)
@@ -312,7 +320,7 @@ def test_oled_navigation(device):
     initial = read_frame(device)
     device.write(b"l")
     moved = read_frame(device)
-    if menu_state(device)[0] != (original_tile + 1) % 7:
+    if menu_state(device)[0] != (original_tile + 1) % len(DISPLAY_TILES):
         raise AssertionError("Right encoder command did not advance tile")
     device.write(b"j")
     restored = read_frame(device)
@@ -322,9 +330,10 @@ def test_oled_navigation(device):
         raise AssertionError("Right encoder command did not change the OLED body")
     if body_pixels(initial) != body_pixels(restored):
         raise AssertionError("Left encoder command did not restore the OLED body")
-    for _ in range((6 - original_tile) % 7):
+    settings_tile = len(DISPLAY_TILES) - 1
+    for _ in range((settings_tile - original_tile) % len(DISPLAY_TILES)):
         device.write(b"l")
-    if menu_state(device)[0] != 6:
+    if menu_state(device)[0] != settings_tile:
         raise AssertionError("Could not reach settings tile")
     device.write(b"k")
     if menu_state(device)[2] != 1:
@@ -332,7 +341,7 @@ def test_oled_navigation(device):
     device.write(b"b")
     if menu_state(device)[2] != 0:
         raise AssertionError("Long press did not close settings")
-    for _ in range((original_tile - 6) % 7):
+    for _ in range((original_tile - settings_tile) % len(DISPLAY_TILES)):
         device.write(b"l")
     if menu_state(device)[0] != original_tile:
         raise AssertionError("Could not restore original tile")

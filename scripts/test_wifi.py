@@ -67,10 +67,30 @@ def test_api(base_url, args, report):
     assert status["version"] and status["state"] in ("idle", "starting", "recording")
     assert isinstance(status["meterReady"], bool)
     assert 0 <= status["screenOffMinutes"] <= 999
+    wifi = json.loads(request(base_url, "/api/wifi/status"))
+    assert wifi["mode"] in ("OFF", "AP", "CONNECTING", "STA", "AP+STA")
+    assert wifi["ip"] and 0 <= wifi["autoOffMinutes"] <= 999
+    assert "password" not in wifi
+    scan = json.loads(request(base_url, "/api/wifi/scan"))
+    assert scan["state"] in ("idle", "scanning", "failed", "complete")
+    wifi = json.loads(request(base_url, "/api/wifi/status"))
+    assert wifi["mode"] in ("OFF", "AP", "CONNECTING", "STA", "AP+STA")
+    assert 0 <= wifi["autoOffMinutes"] <= 999
+    assert "password" not in wifi
+    wifi = json.loads(request(base_url, "/api/wifi/status"))
+    assert wifi["mode"] in ("OFF", "AP", "CONNECTING", "STA", "AP+STA")
+    assert 0 <= wifi["autoOffMinutes"] <= 999
+    assert "password" not in wifi
     signal = json.loads(request(base_url, "/api/signal"))
     assert isinstance(signal["rms"], int) and isinstance(signal["enabled"], bool)
     settings = json.loads(request(base_url, "/api/settings"))
     assert 0 <= settings["screenOffMinutes"] <= 999
+    assert 0 <= settings["wifiAutoOffMinutes"] <= 999
+    assert settings["wifi"]["mode"] in ("OFF", "AP", "CONNECTING", "STA", "AP+STA")
+    assert 0 <= settings["wifiAutoOffMinutes"] <= 999
+    assert settings["wifi"]["mode"] in ("OFF", "AP", "CONNECTING", "STA", "AP+STA")
+    assert 0 <= settings["wifiAutoOffMinutes"] <= 999
+    assert settings["wifi"]["mode"] in ("OFF", "AP", "CONNECTING", "STA", "AP+STA")
     pages = (request(base_url, "/"), request(base_url, "/files"), request(base_url, "/settings"))
     page_lengths = tuple(map(len, pages))
     assert all(length > 0 for length in page_lengths)
@@ -78,6 +98,10 @@ def test_api(base_url, args, report):
     assert b'href="/"' in pages[2]
     report.detail("HTTP /api/status " + json.dumps(status, sort_keys=True))
     report.detail("HTTP /api/settings " + json.dumps(settings, sort_keys=True))
+    report.detail("HTTP /api/wifi/status " + json.dumps(wifi, sort_keys=True))
+    report.detail("HTTP /api/wifi/scan " + json.dumps(scan, sort_keys=True))
+    report.detail("HTTP /api/wifi/status " + json.dumps(wifi, sort_keys=True))
+    report.detail("HTTP /api/wifi/status " + json.dumps(wifi, sort_keys=True))
     report.detail("HTTP /api/signal " + json.dumps(signal, sort_keys=True))
     report.detail("HTTP pages: /={} bytes, /files={} bytes, /settings={} bytes".format(*page_lengths))
     return status

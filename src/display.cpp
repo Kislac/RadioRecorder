@@ -8,6 +8,7 @@
 #include "playback.h"
 #include "recorder.h"
 #include "web_server.h"
+#include "wifi_manager.h"
 
 #ifndef RADIORECORDER_OLED_ENABLED
 #define RADIORECORDER_OLED_ENABLED 0
@@ -16,9 +17,9 @@
 namespace {
 constexpr int kSdaGpio = 4;
 constexpr int kSclGpio = 5;
-constexpr uint8_t kTileCount = 7;
-constexpr uint8_t kSettingsCount = 7;
-const char *const kTileNames[kTileCount] = {"Felvetel", "Fajlok", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Beallitasok"};
+constexpr uint8_t kTileCount = 8;
+constexpr uint8_t kSettingsCount = 8;
+const char *const kTileNames[kTileCount] = {"Felvetel", "Fajlok", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Wi-Fi", "Beallitasok"};
 
 U8G2_SH1106_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, kSclGpio, kSdaGpio);
 bool ready = false;
@@ -99,6 +100,14 @@ void drawSettings() {
         drawSettingValue(y, value);
         break;
       }
+      case 6: oled.drawStr(9, y, "Wi-Fi ido"); {
+        char value[10];
+        uint16_t minutes = wifiManagerAutoOffMinutes();
+        if (minutes == 0) snprintf(value, sizeof(value), "0 min");
+        else snprintf(value, sizeof(value), "%u min", minutes);
+        drawSettingValue(y, value);
+        break;
+      }
       default: oled.drawStr(9, y, "Vissza"); break;
     }
   }
@@ -136,6 +145,16 @@ void drawBody(bool fullUpdate = true) {
     oled.drawStr(0, 48, firmware);
     oled.drawStr(0, 56, buildTime.c_str());
   } else if (tile == 6) {
+    char mode[22];
+    char ssid[22];
+    char ip[22];
+    snprintf(mode, sizeof(mode), "Mod: %s", wifiManagerModeName().c_str());
+    snprintf(ssid, sizeof(ssid), "SSID: %.15s", wifiManagerSSID().c_str());
+    snprintf(ip, sizeof(ip), "IP: %s", wifiManagerIPAddress().c_str());
+    oled.drawStr(0, 34, mode);
+    oled.drawStr(0, 43, ssid);
+    oled.drawStr(0, 52, ip);
+  } else if (tile == 7) {
     oled.drawStr(0, 37, "Nyomas = beallitasok");
   } else {
     oled.drawStr(0, 38, tile == 5 ? "Nincs radio HW" : "Fajlkezelo kesobb");
@@ -157,11 +176,12 @@ void drawBody(bool fullUpdate = true) {
 void onPress() {
   if (inSettings) {
     if (editing) { editing = false; return; }
-    if (setting == 6) { inSettings = false; return; }
-    if (setting == 0) { if (appWifiTestActive()) setMessage("Wi-Fi zajteszt aktiv"); else toggleWifi(); return; }
+    if (setting == 7) { inSettings = false; return; }
+    if (setting == 0) { if (appWifiTestActive()) setMessage("Wi-Fi zajteszt aktiv"); else if (!wifiManagerToggle()) setMessage("Wi-Fi valtas sikertelen"); return; }
     if (setting == 1) { if (!recorderSetSerialMeter(!recorderSerialMeterEnabled())) setMessage("ADC nem elerheto"); return; }
     if (setting == 4) { recorderSetLowpass(!recorderLowpass()); return; }
     if (setting == 5) { editing = true; return; }
+    if (setting == 6) { editing = true; return; }
     editing = true;
   } else if (tile == 0) {
     if (appWifiTestActive()) setMessage("Zajteszt aktiv");
@@ -173,9 +193,15 @@ void onPress() {
   } else if (tile == 3) {
     if (!recorderAdcReady() || !recorderTaskReady()) setMessage("ADC nem elerheto");
     else recorderSetSignal(!recorderSignalStatus().enabled);
-  } else if (tile == 6) {
+  } else if (tile == 7) {
     inSettings = true;
     setting = 0;
+  } else if (tile == 6) {
+    if (wifiManagerHasCredentials()) {
+      if (!wifiManagerForget()) setMessage("Wi-Fi elfelejtes sikertelen");
+    } else {
+      setMessage("Nincs mentett Wi-Fi");
+    }
   } else if (tile == 5) {
     setMessage("Radio HW nem elerheto");
   }
@@ -296,6 +322,10 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
         int32_t minutes = static_cast<int32_t>(appScreenOffMinutes()) + steps;
         minutes = constrain(minutes, 0L, 999L);
         if (!appSetScreenOffMinutes(static_cast<uint16_t>(minutes))) setMessage("NVS mentesi hiba");
+      } else if (editing && setting == 6) {
+        int32_t minutes = static_cast<int32_t>(wifiManagerAutoOffMinutes()) + steps;
+        minutes = constrain(minutes, 0L, 999L);
+        if (!wifiManagerSetAutoOffMinutes(static_cast<uint16_t>(minutes))) setMessage("NVS mentesi hiba");
       } else {
         setting = (setting + (steps % kSettingsCount) + kSettingsCount) % kSettingsCount;
       }
@@ -315,7 +345,7 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   if (redraw) {
     lastSecond = second;
     drawBody();
-  } else if (!inSettings && (tile == 0 || tile == 3) && now - lastBodyAt >= 500) {
+  } else if (!inSettings && (tile == 0 || tile == 3 || tile == 6) && now - lastBodyAt >= 500) {
     bool secondChanged = second != lastSecond;
     lastSecond = second;
     drawBody(false);

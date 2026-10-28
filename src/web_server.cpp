@@ -12,14 +12,17 @@
 #include "live_audio.h"
 #include "app_control.h"
 #include "display.h"
+#include "wifi_manager.h"
 
 static WebServer server(80);
 static WebSocketsServer audioSocket(81);
 static bool wifiReady = false;
+static bool routesReady = false;
 
 bool webReady() { return wifiReady; }
 
 static void onAudioSocket(uint8_t client, WStype_t event, uint8_t *, size_t) {
+  wifiManagerNotifyActivity();
   if (event == WStype_CONNECTED) {
     if (!recorderAdcReady() || !recorderTaskReady() || !liveAudioReady() || liveAudioClient() >= 0 ||
       !appCanConnectLiveAudio() || !connectLiveAudio(client)) {
@@ -74,11 +77,13 @@ bool hasRecordings() {
 }
 
 void sendStatus() {
+  wifiManagerNotifyActivity();
   CaptureState state = recorderState();
   bool ready = appSdReady() && recorderAdcReady() && recorderTaskReady();
   String json = "{\"ready\":" + String(ready ? "true" : "false");
   json += ",\"version\":\"" + appFirmwareVersion() + "\"";
   json += ",\"screenOffMinutes\":" + String(appScreenOffMinutes());
+  json += ",\"wifi\":" + wifiManagerStatusJson();
   json += ",\"demoSeconds\":" + String(appDemoTimeSeconds());
   json += ",\"audioGpio\":" + String(kAudioGpio);
   json += ",\"lowpass\":" + String(recorderLowpass() ? "true" : "false");
@@ -101,37 +106,50 @@ void sendStatus() {
 }
 
 void sendSettings() {
+  wifiManagerNotifyActivity();
   server.sendHeader("Cache-Control", "no-store");
-  server.send(200, "application/json", "{\"screenOffMinutes\":" + String(appScreenOffMinutes()) + "}");
+  String json = "{\"screenOffMinutes\":" + String(appScreenOffMinutes());
+  json += ",\"wifiAutoOffMinutes\":" + String(wifiManagerAutoOffMinutes());
+  json += ",\"wifi\":" + wifiManagerStatusJson() + "}";
+  server.send(200, "application/json", json);
 }
 
 void saveSettings() {
-  String value = server.arg("screenOffMinutes");
-  if (value.isEmpty() || value.length() > 3) {
+  wifiManagerNotifyActivity();
+  auto parseMinutes = [](const String &value, uint16_t &minutes) {
+    if (value.isEmpty() || value.length() > 3) return false;
+    for (char digit : value) if (!isDigit(digit)) return false;
+    minutes = static_cast<uint16_t>(value.toInt());
+    return minutes <= 999;
+  };
+  uint16_t screenMinutes = 0;
+  if (!parseMinutes(server.arg("screenOffMinutes"), screenMinutes)) {
     server.send(400, "text/plain", "screenOffMinutes must be an integer from 0 to 999");
     return;
   }
-  for (char digit : value) {
-    if (!isDigit(digit)) {
-      server.send(400, "text/plain", "screenOffMinutes must be an integer from 0 to 999");
-      return;
-    }
-  }
-  uint16_t minutes = static_cast<uint16_t>(value.toInt());
-  if (minutes > 999) {
-    server.send(400, "text/plain", "screenOffMinutes must be an integer from 0 to 999");
+  String wifiValue = server.arg("wifiAutoOffMinutes");
+  uint16_t wifiMinutes = wifiManagerAutoOffMinutes();
+  if (!wifiValue.isEmpty() && !parseMinutes(wifiValue, wifiMinutes)) {
+    server.send(400, "text/plain", "wifiAutoOffMinutes must be an integer from 0 to 999");
     return;
   }
-  if (!appSetScreenOffMinutes(minutes)) {
-    server.send(500, "text/plain", "Could not save settings to NVS");
+  if (!appSetScreenOffMinutes(screenMinutes)) {
+    server.send(500, "text/plain", "Could not save screen settings to NVS");
+    return;
+  }
+  if (!wifiValue.isEmpty() && !wifiManagerSetAutoOffMinutes(wifiMinutes)) {
+    server.send(500, "text/plain", "Could not save Wi-Fi settings to NVS");
     return;
   }
   displayWake();
   server.sendHeader("Cache-Control", "no-store");
-  server.send(200, "application/json", "{\"screenOffMinutes\":" + String(appScreenOffMinutes()) + "}");
+  String json = "{\"screenOffMinutes\":" + String(appScreenOffMinutes());
+  json += ",\"wifiAutoOffMinutes\":" + String(wifiManagerAutoOffMinutes()) + "}";
+  server.send(200, "application/json", json);
 }
 
 void sendRecordings() {
+  wifiManagerNotifyActivity();
   if (!appSdReady() || recorderState() != CaptureState::idle) {
     server.send(409, "text/plain", "SD unavailable or recording in progress");
     return;
@@ -206,6 +224,7 @@ bool safeSdPath(const String &path) {
 }
 
 void sendFiles() {
+  wifiManagerNotifyActivity();
   if (!appSdReady() || recorderState() != CaptureState::idle) {
     server.send(409, "text/plain", "SD unavailable or recording in progress");
     return;
@@ -266,6 +285,7 @@ void sendFiles() {
 }
 
 void sendSignal() {
+  wifiManagerNotifyActivity();
   SignalStatus signal = recorderSignalStatus();
   String json = "{\"enabled\":" + String(signal.enabled ? "true" : "false");
   json += ",\"active\":" + String(signal.active ? "true" : "false");
@@ -313,6 +333,7 @@ const char *audioMime(const String &name) {
 }
 
 void sendFile() {
+  wifiManagerNotifyActivity();
   String path = server.hasArg("path") ? server.arg("path") : String("/") + server.arg("name");
   if (!appSdReady() || recorderState() != CaptureState::idle) {
     server.send(409, "text/plain", "Recording in progress or SD unavailable");
@@ -385,6 +406,7 @@ void sendFile() {
 }
 
 void startSpeakerPlayback() {
+  wifiManagerNotifyActivity();
   if (!appSdReady() || !playbackStatus().ready) {
     server.send(503, "text/plain", "Speaker or SD unavailable");
     return;
@@ -417,26 +439,63 @@ void startSpeakerPlayback() {
 }
 
 void initWeb() {
-  WiFi.mode(WIFI_AP);
-  if (!WiFi.softAP("RadioRecorder")) {
-    Serial.println("Cannot start Wi-Fi AP");
-    return;
-  }
   server.on("/", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
     server.sendHeader("Cache-Control", "no-store");
     server.send_P(200, "text/html; charset=utf-8", kPage);
   });
   server.on("/files", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
     server.sendHeader("Cache-Control", "no-store");
     server.send_P(200, "text/html; charset=utf-8", kFilesPage);
   });
   server.on("/settings", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
     server.sendHeader("Cache-Control", "no-store");
     server.send_P(200, "text/html; charset=utf-8", kSettingsPage);
   });
   server.on("/api/settings", HTTP_GET, sendSettings);
   server.on("/api/settings", HTTP_POST, saveSettings);
+  server.on("/api/wifi/status", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", wifiManagerStatusJson());
+  });
+  server.on("/api/wifi/scan", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (!wifiManagerRequestScan()) {
+      server.send(409, "text/plain", "Wi-Fi scan could not start");
+      return;
+    }
+    server.send(202, "application/json", "{\"state\":\"scanning\"}");
+  });
+  server.on("/api/wifi/scan", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", wifiManagerScanJson());
+  });
+  server.on("/api/wifi/connect", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    String ssid = server.arg("ssid");
+    String password = server.arg("password");
+    String keepApValue = server.arg("keepApHost");
+    bool keepApHost = keepApValue == "1" || keepApValue == "true" || keepApValue == "on";
+    if (!wifiManagerConnect(ssid, password, keepApHost)) {
+      server.send(400, "text/plain", "Invalid SSID or Wi-Fi change unavailable");
+      return;
+    }
+    server.send(202, "application/json", "{\"state\":\"connecting\"}");
+  });
+  server.on("/api/wifi/forget", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (!wifiManagerForget()) {
+      server.send(500, "text/plain", "Could not forget saved Wi-Fi network");
+      return;
+    }
+    server.send(200, "application/json", "{\"state\":\"ap\"}");
+  });
   server.on("/api/display/wake", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
     if (!displayReady()) {
       server.send(503, "text/plain", "OLED unavailable");
       return;
@@ -447,6 +506,7 @@ void initWeb() {
   server.on("/api/status", HTTP_GET, sendStatus);
   server.on("/api/play", HTTP_POST, startSpeakerPlayback);
   server.on("/api/play/volume", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
     String value = server.arg("value");
     if (value.isEmpty() || value.length() > 3) {
       server.send(400, "text/plain", "Volume must be 0-100");
@@ -467,6 +527,7 @@ void initWeb() {
     server.send(200, "text/plain", value);
   });
   server.on("/api/play/boost", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
     String value = server.arg("value");
     if (value != "1" && value != "2" && value != "4") {
       server.send(400, "text/plain", "Boost must be 1, 2 or 4");
@@ -476,6 +537,7 @@ void initWeb() {
     server.send(200, "text/plain", value);
   });
   server.on("/api/play/stop", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
     if (!playbackStop()) {
       server.send(409, "text/plain", "Speaker is idle");
       return;
@@ -483,24 +545,28 @@ void initWeb() {
     server.send(200, "text/plain", "Stopping speaker");
   });
   server.on("/api/filter/on", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
     recorderSetLowpass(true);
     server.send(200, "text/plain", "Low-pass enabled");
   });
   server.on("/api/filter/off", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
     recorderSetLowpass(false);
     server.send(200, "text/plain", "Low-pass disabled");
   });
   server.on("/api/recordings", HTTP_GET, sendRecordings);
   server.on("/api/files", HTTP_GET, sendFiles);
   server.on("/api/signal", HTTP_GET, sendSignal);
-  server.on("/api/signal/on", HTTP_POST, []() { setSignal(true); });
-  server.on("/api/signal/off", HTTP_POST, []() { setSignal(false); });
+  server.on("/api/signal/off", HTTP_POST, []() { wifiManagerNotifyActivity(); setSignal(false); });
+  server.on("/api/signal/on", HTTP_POST, []() { wifiManagerNotifyActivity(); setSignal(true); });
   server.on("/file", HTTP_GET, sendFile);
   server.on("/api/start", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
     if (appStartRecording()) server.send(200, "text/plain", recorderName());
     else server.send(409, "text/plain", recorderError()[0] ? recorderError() : "SD, ADC or recorder unavailable");
   });
   server.on("/api/wifi-test", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
     if (!appStartWifiTest()) {
       server.send(409, "text/plain", "Stop live audio and other recordings first");
       return;
@@ -508,50 +574,35 @@ void initWeb() {
     server.send(200, "text/plain", recorderName());
   });
   server.on("/api/stop", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
     if (appStopRecording()) server.send(200, "text/plain", "Stopping");
     else server.send(409, "text/plain", "Not recording");
   });
-  server.onNotFound([]() { server.send(404, "text/plain", "Not found"); });
+  server.onNotFound([]() { wifiManagerNotifyActivity(); server.send(404, "text/plain", "Not found"); });
   const char *headers[] = {"Range"};
   server.collectHeaders(headers, 1);
-  server.begin();
   audioSocket.onEvent(onAudioSocket);
+  routesReady = true;
+}
+
+void webStartServices() {
+  if (!routesReady || wifiReady) return;
+  server.begin();
   audioSocket.begin();
   wifiReady = true;
 }
 
-void toggleWifi() {
-  if (appWifiTestActive()) {
-    Serial.println("Wi-Fi zajteszt alatt nem kapcsolhato");
-    return;
-  }
-  if (wifiReady) {
-    server.close();
-    audioSocket.close();
-    resetLiveAudio();
-    if (!WiFi.mode(WIFI_OFF)) {
-      server.begin();
-      audioSocket.begin();
-      Serial.println("Wi-Fi kikapcsolasa sikertelen");
-      return;
-    }
-    wifiReady = false;
-    Serial.println("Wi-Fi kikapcsolva; a felvetel folytatodik");
-  } else if (WiFi.mode(WIFI_AP) && WiFi.softAP("RadioRecorder")) {
-    server.begin();
-    audioSocket.begin();
-    wifiReady = true;
-    Serial.print("Wi-Fi bekapcsolva: http://");
-    Serial.println(WiFi.softAPIP());
-  } else {
-    WiFi.mode(WIFI_OFF);
-    Serial.println("Wi-Fi bekapcsolasa sikertelen");
-  }
+void webStopServices() {
+  if (!wifiReady) return;
+  server.close();
+  audioSocket.close();
+  resetLiveAudio();
+  wifiReady = false;
 }
 
 bool webDisableForNoiseTest() {
+  webStopServices();
   if (!WiFi.mode(WIFI_OFF)) return false;
-  wifiReady = false;
   return true;
 }
 

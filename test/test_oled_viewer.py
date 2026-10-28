@@ -31,6 +31,29 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_wifi_boot_connect_fallback_and_keep_ap_contract(self):
+        root = Path(__file__).resolve().parents[1]
+        wifi_source = (root / "src" / "wifi_manager.cpp").read_text(encoding="utf-8")
+        page_source = (root / "src" / "web_pages.cpp").read_text(encoding="utf-8")
+        server_source = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        main_source = (root / "src" / "main.cpp").read_text(encoding="utf-8")
+        self.assertIn('kDefaultTimeoutMinutes = 5', wifi_source)
+        self.assertIn('Serial.printf("Wi-Fi auto-off: %u min\\n", wifiManagerAutoOffMinutes())', main_source)
+        self.assertIn('kConnectTimeoutMs = 15000', wifi_source)
+        self.assertIn('preferences.getBool(kKeepApKey, false)', wifi_source)
+        self.assertIn('if (savedSsid.isEmpty())', wifi_source)
+        self.assertIn('startAp(false)', wifi_source)
+        self.assertIn('WiFi.mode(WIFI_AP_STA)', wifi_source)
+        self.assertIn('WiFi.mode(WIFI_STA)', wifi_source)
+        self.assertIn('fallbackToAp("connection timed out after 15 seconds")', wifi_source)
+        self.assertIn('passwordBytes == password.length()', wifi_source)
+        self.assertNotIn('cJSON_AddStringToObject(root, "password"', wifi_source)
+        self.assertIn('server.on("/api/wifi/scan", HTTP_POST', server_source)
+        self.assertIn('server.on("/api/wifi/connect", HTTP_POST', server_source)
+        self.assertIn('server.on("/api/wifi/forget", HTTP_POST', server_source)
+        self.assertIn('id="keepApHost" type="checkbox"', page_source)
+        self.assertNotIn('id="keepApHost" type="checkbox" checked', page_source)
+
     def test_watchdog_monitors_idle_cores_and_feeds_active_tasks(self):
         root = Path(__file__).resolve().parents[1]
         watchdog = (root / "src" / "watchdog.cpp").read_text(encoding="utf-8")
@@ -62,13 +85,16 @@ class FrameTests(unittest.TestCase):
         playback_source = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
         recorder_source = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
         startup_image = (root / "include" / "startup_image.h").read_text(encoding="utf-8")
+        wifi_source = (root / "src" / "wifi_manager.cpp").read_text(encoding="utf-8")
+        wifi_source = (root / "src" / "wifi_manager.cpp").read_text(encoding="utf-8")
         self.assertIn('href="/settings"', page_source)
         self.assertIn('href="/"', page_source)
         self.assertIn('type="number" min="0" max="999" step="1"', page_source)
         self.assertIn('server.on("/api/settings", HTTP_GET, sendSettings)', server_source)
         self.assertIn('server.on("/api/settings", HTTP_POST, saveSettings)', server_source)
         self.assertIn('if (value.isEmpty() || value.length() > 3)', server_source)
-        self.assertIn('if (minutes > 999)', server_source)
+        self.assertIn('auto parseMinutes = [](const String &value, uint16_t &minutes)', server_source)
+        self.assertIn('return minutes <= 999;', server_source)
         self.assertIn('server.on("/api/display/wake", HTTP_POST', server_source)
         self.assertIn('server.send(503, "text/plain", "OLED unavailable")', server_source)
         self.assertIn('kDefaultScreenOffMinutes = 5', app_source)
@@ -98,6 +124,33 @@ class FrameTests(unittest.TestCase):
         self.assertIn('String(__DATE__) + " " + String(__TIME__)', app_source)
         self.assertIn('Serial.printf("Build time: %s\\n"', (root / "src" / "main.cpp").read_text(encoding="utf-8"))
         self.assertIn('appFirmwareBuildDateTime()', display_source)
+        self.assertIn('kWifiTimeoutKey[] = "wifiOffMin"', wifi_source)
+        self.assertIn('kDefaultTimeoutMinutes = 5', wifi_source)
+        self.assertIn('kConnectTimeoutMs = 15000', wifi_source)
+        self.assertIn('preferences.getBool(kKeepApKey, false)', wifi_source)
+        self.assertIn('WiFi.mode(WIFI_AP_STA)', wifi_source)
+        self.assertIn('WiFi.mode(WIFI_STA)', wifi_source)
+        self.assertIn('fallbackToAp("connection timed out after 15 seconds")', wifi_source)
+        self.assertNotIn('cJSON_AddStringToObject(root, "password"', wifi_source)
+        self.assertIn('server.on("/api/wifi/scan", HTTP_POST', server_source)
+        self.assertIn('server.on("/api/wifi/connect", HTTP_POST', server_source)
+        self.assertIn('server.on("/api/wifi/forget", HTTP_POST', server_source)
+        self.assertIn('id="keepApHost" type="checkbox"', page_source)
+        self.assertNotIn('id="keepApHost" type="checkbox" checked', page_source)
+        self.assertIn('"Wi-Fi", "Beallitasok"', display_source)
+        self.assertIn('kWifiTimeoutKey[] = "wifiOffMin"', wifi_source)
+        self.assertIn('kDefaultTimeoutMinutes = 5', wifi_source)
+        self.assertIn('kConnectTimeoutMs = 15000', wifi_source)
+        self.assertIn('preferences.getBool(kKeepApKey, false)', wifi_source)
+        self.assertIn('WiFi.mode(WIFI_AP_STA)', wifi_source)
+        self.assertIn('WiFi.mode(WIFI_STA)', wifi_source)
+        self.assertIn('fallbackToAp("connection timed out after 15 seconds")', wifi_source)
+        self.assertNotIn('cJSON_AddStringToObject(root, "password"', wifi_source)
+        self.assertIn('server.on("/api/wifi/scan", HTTP_POST', server_source)
+        self.assertIn('server.on("/api/wifi/connect", HTTP_POST', server_source)
+        self.assertIn('server.on("/api/wifi/forget", HTTP_POST', server_source)
+        self.assertIn('id="keepApHost" type="checkbox"', page_source)
+        self.assertNotIn('id="keepApHost" type="checkbox" checked', page_source)
 
     def test_display_frame_validation_requires_distinct_visible_views(self):
         frames = []
@@ -162,7 +215,7 @@ class FrameTests(unittest.TestCase):
     def test_auto_detect_skips_unresponsive_port(self):
         other = FakeDevice(b"Other device\n")
         other.is_open = True
-        esp = FakeDevice(b"Firmware: v0.1.24\n", b"Recorder: ready\n", b"Wi-Fi AP: unavailable\n")
+        esp = FakeDevice(b"Firmware: v0.1.24\n", b"Recorder: ready\n", b"Wi-Fi IP: 0.0.0.0\n")
         esp.port = "COM8"
         ticks = count()
         with patch("serial.tools.list_ports.comports", return_value=[type("Port", (), {"device": "COM7"})(),

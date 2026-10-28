@@ -63,7 +63,7 @@ def find_device(port=None):
                 if line:
                     firmware |= line.startswith(b"Firmware: v")
                     recorder |= line.startswith(b"Recorder: ")
-                    wifi_status |= line.startswith(b"Wi-Fi AP IP:") or line.startswith(b"Wi-Fi AP: ")
+                    wifi_status |= line.startswith(b"Wi-Fi IP:")
                 elif firmware and recorder and wifi_status:
                     device.timeout = 1
                     return device
