@@ -6,3 +6,4 @@
 - Follow `docs/testing.md` for offline, serial hardware, display, and Wi-Fi checks. Keep the OLED frame format and serial commands documented if they change.
 - Increment `kFirmwareVersion` in `src/app_control.cpp` for firmware changes. Do not edit `firmware-build.txt` manually; the upload hook owns that counter.
 - Keep the 10-second ESP-IDF task watchdog enabled: monitor both core idle tasks and feed the main loop plus active recorder/speaker tasks. Do not subscribe a worker while it is normally blocked waiting for work.
+- Every new feature must add or update a concise high-level entry in `README.md` or its linked project documentation in the same change. Keep the README feature overview current; put operational steps and test details in the appropriate docs page.
