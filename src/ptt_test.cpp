@@ -1,6 +1,7 @@
 #include "ptt_test.h"
 
 #include <Arduino.h>
+#include <driver/gpio.h>
 #include <esp_timer.h>
 #include <atomic>
 
@@ -16,8 +17,9 @@ esp_timer_handle_t pulseTimer = nullptr;
 }
 
 void initPttTest() {
-  digitalWrite(kRelayGpio, kRelayIdleLevel);
+  gpio_set_level(static_cast<gpio_num_t>(kRelayGpio), kRelayIdleLevel);
   pinMode(kRelayGpio, OUTPUT);
+  digitalWrite(kRelayGpio, kRelayIdleLevel);
   active = false;
   esp_timer_create_args_t timerArgs = {};
   timerArgs.callback = [](void *) {

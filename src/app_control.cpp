@@ -7,7 +7,7 @@
 #include <Preferences.h>
 #include <esp_timer.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.40";
+static constexpr char kFirmwareVersion[] = "0.1.41";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;

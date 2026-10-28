@@ -49,8 +49,10 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("kRelayGpio = 10", relay)
         self.assertIn("kRelayActiveLevel = LOW", relay)
         self.assertIn("kRelayIdleLevel = HIGH", relay)
-        self.assertLess(relay.index("digitalWrite(kRelayGpio, kRelayIdleLevel);"),
-                        relay.index("pinMode(kRelayGpio, OUTPUT);"))
+        self.assertLess(relay.index("gpio_set_level(static_cast<gpio_num_t>(kRelayGpio), kRelayIdleLevel);"),
+                relay.index("pinMode(kRelayGpio, OUTPUT);"))
+        self.assertLess(relay.index("pinMode(kRelayGpio, OUTPUT);"),
+                relay.index("digitalWrite(kRelayGpio, kRelayIdleLevel);"))
         self.assertIn("if (active && !latched && static_cast<uint32_t>(millis() - startedAt) >= kPttTestPulseMs) stopPttTest();", relay)
         self.assertIn("esp_timer_create(&timerArgs, &pulseTimer) == ESP_OK", relay)
         self.assertIn("esp_timer_start_once(pulseTimer, static_cast<uint64_t>(kPttTestPulseMs) * 1000)", relay)
