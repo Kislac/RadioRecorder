@@ -80,8 +80,8 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
 }
 
 void setup() {
-  Serial.begin(115200);
   initPttTest();
+  Serial.begin(115200);
   Serial.println("RadioRecorder setup starting");
   if (!initSystemWatchdog()) {
     Serial.println("Watchdog initialization failed; restarting");

@@ -51,21 +51,25 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("kRelayIdleLevel = HIGH", relay)
         self.assertLess(relay.index("digitalWrite(kRelayGpio, kRelayIdleLevel);"),
                         relay.index("pinMode(kRelayGpio, OUTPUT);"))
-        self.assertIn("if (active && static_cast<uint32_t>(millis() - startedAt) >= kPttTestPulseMs) stopPttTest();", relay)
+        self.assertIn("if (active && !latched && static_cast<uint32_t>(millis() - startedAt) >= kPttTestPulseMs) stopPttTest();", relay)
         self.assertIn("esp_timer_create(&timerArgs, &pulseTimer) == ESP_OK", relay)
         self.assertIn("esp_timer_start_once(pulseTimer, static_cast<uint64_t>(kPttTestPulseMs) * 1000)", relay)
         self.assertIn("timerArgs.dispatch_method = ESP_TIMER_TASK", relay)
         self.assertIn("digitalWrite(kRelayGpio, kRelayIdleLevel);\n    active = false;", relay)
         self.assertIn("if (!initialized || active) return false;", relay)
         self.assertIn("initPttTest();", main)
+        self.assertLess(main.index("initPttTest();", main.index("void setup()")),
+                main.index("Serial.begin(115200);", main.index("void setup()")))
+        self.assertIn("if (!initialized || active) return false;\n  latched = true;", relay)
         self.assertIn("pollPttTest();", main)
         self.assertIn("if (!startPttTest())", display)
         self.assertIn('server.on("/api/ptt-test/on", HTTP_POST', server)
+        self.assertIn('server.on("/api/ptt-test/latch", HTTP_POST', server)
         self.assertIn('server.on("/api/ptt-test/off", HTTP_POST', server)
         test_page = (WEB_ROOT / "test.html").read_text(encoding="utf-8")
         test_script = (WEB_ROOT / "test.js").read_text(encoding="utf-8")
         self.assertIn('id="pttToggle" type="button" aria-pressed="false"', test_page)
-        self.assertIn('pttActive ? "/api/ptt-test/off" : "/api/ptt-test/on"', test_script)
+        self.assertIn('pttActive ? "/api/ptt-test/off" : "/api/ptt-test/latch"', test_script)
         self.assertIn('pttToggle.setAttribute("aria-pressed", String(state.active))', test_script)
 
     def test_platformio_hook_generates_header_without_building_firmware(self):
@@ -235,6 +239,22 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/ptt-test/on', 'POST')[0], 200)
         self.assertEqual(self.request('/api/ptt-test/off', 'POST')[0], 200)
         self.assertFalse(status()["active"])
+
+    def test_ptt_latch_stays_on_until_explicitly_switched_off(self):
+        status = lambda: json.loads(self.request('/api/ptt-test')[1])
+        self.assertEqual(self.request('/api/ptt-test/latch')[0], 404)
+        self.assertEqual(self.request('/api/ptt-test/on', 'POST')[0], 200)
+        self.assertEqual(self.request('/api/ptt-test/latch', 'POST')[0], 409)
+        self.assertEqual(self.request('/api/ptt-test/off', 'POST')[0], 200)
+        self.assertEqual(self.request('/api/ptt-test/latch', 'POST')[0], 200)
+        self.assertTrue(status()['active'])
+        self.assertEqual(self.request('/api/ptt-test/latch', 'POST')[0], 409)
+        self.assertEqual(self.request('/api/ptt-test/on', 'POST')[0], 409)
+        self.server.device.ptt_until = time.monotonic() - 2
+        self.assertTrue(status()['active'])
+        self.assertEqual(self.request('/api/ptt-test/off', 'POST')[0], 200)
+        self.assertFalse(status()['active'])
+        self.assertEqual(self.request('/api/ptt-test/off', 'POST')[0], 200)
 
     def test_signal_and_network_operations(self):
         self.assertEqual(self.request('/api/signal/on', 'POST')[0], 200)

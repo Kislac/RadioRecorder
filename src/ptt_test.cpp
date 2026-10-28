@@ -10,6 +10,7 @@ constexpr uint8_t kRelayActiveLevel = LOW;
 constexpr uint8_t kRelayIdleLevel = HIGH;
 bool initialized = false;
 std::atomic<bool> active{false};
+std::atomic<bool> latched{false};
 uint32_t startedAt = 0;
 esp_timer_handle_t pulseTimer = nullptr;
 }
@@ -31,12 +32,13 @@ void initPttTest() {
 
 void stopPttTest() {
   active = false;
+  latched = false;
   if (initialized) digitalWrite(kRelayGpio, kRelayIdleLevel);
   if (pulseTimer) esp_timer_stop(pulseTimer);
 }
 
 void pollPttTest() {
-  if (active && static_cast<uint32_t>(millis() - startedAt) >= kPttTestPulseMs) stopPttTest();
+  if (active && !latched && static_cast<uint32_t>(millis() - startedAt) >= kPttTestPulseMs) stopPttTest();
 }
 
 bool pttTestActive() {
@@ -54,5 +56,14 @@ bool startPttTest() {
     stopPttTest();
     return false;
   }
+  return true;
+}
+
+bool latchPttTest() {
+  pollPttTest();
+  if (!initialized || active) return false;
+  latched = true;
+  active = true;
+  digitalWrite(kRelayGpio, kRelayActiveLevel);
   return true;
 }

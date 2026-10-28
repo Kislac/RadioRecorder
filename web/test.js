@@ -33,7 +33,7 @@ pttOn.addEventListener("click", async () => {
 pttToggle.addEventListener("click", async () => {
   pttToggle.disabled = true;
   try {
-    const response = await fetch(pttActive ? "/api/ptt-test/off" : "/api/ptt-test/on", { method: "POST" });
+    const response = await fetch(pttActive ? "/api/ptt-test/off" : "/api/ptt-test/latch", { method: "POST" });
     if (!response.ok) throw Error();
     await refreshPtt();
   } catch {

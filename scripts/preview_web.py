@@ -57,6 +57,7 @@ class PreviewDevice:
         self.play_until = 0
         self.auto_stop_at = 0
         self.ptt_until = 0
+        self.ptt_latched = False
         self.scan_started = None
         self.pending_network = None
         self.wifi = {"mode": "AP", "ssid": "RadioRecorder", "ip": "192.168.4.1", "apIp": "192.168.4.1",
@@ -102,7 +103,7 @@ class PreviewDevice:
         elapsed = time.monotonic() - self.started_at
         if method == "GET":
             if path == "/api/ptt-test":
-                return 200, {"active": bool(self.ptt_until), "pulseMs": 1000}
+                return 200, {"active": bool(self.ptt_until or self.ptt_latched), "pulseMs": 1000}
             if path == "/api/status":
                 return 200, {"version": "preview", "ready": self.sd_ready, "micReady": self.sd_ready,
                              "recordSource": self.record_source, "meterReady": True,
@@ -154,12 +155,18 @@ class PreviewDevice:
                 return 200, {"items": items[offset:offset + 20], "next": None}
         if method == "POST":
             if path == "/api/ptt-test/on":
-                if self.ptt_until:
+                if self.ptt_until or self.ptt_latched:
                     return 409, "PTT test already active"
                 self.ptt_until = time.monotonic() + 1
                 return 200, "PTT test pulse started"
+            if path == "/api/ptt-test/latch":
+                if self.ptt_until or self.ptt_latched:
+                    return 409, "PTT already active"
+                self.ptt_latched = True
+                return 200, "PTT relay on"
             if path == "/api/ptt-test/off":
                 self.ptt_until = 0
+                self.ptt_latched = False
                 return 200, "PTT test off"
             if path in ("/api/start", "/api/mic/start", "/api/wifi-test"):
                 if not self.sd_ready or self.recording or self.playing:

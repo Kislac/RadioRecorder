@@ -505,6 +505,11 @@ void initWeb() {
     if (!startPttTest()) { server.send(409, "text/plain", "PTT test already active"); return; }
     server.send(200, "text/plain", "PTT test pulse started");
   });
+  server.on("/api/ptt-test/latch", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (!latchPttTest()) { server.send(409, "text/plain", "PTT already active"); return; }
+    server.send(200, "text/plain", "PTT relay on");
+  });
   server.on("/api/ptt-test/off", HTTP_POST, []() {
     wifiManagerNotifyActivity();
     stopPttTest();
