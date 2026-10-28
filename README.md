@@ -14,7 +14,7 @@ A jelenlegi és tervezett modulok GPIO-kiosztása az [eszközjegyzékben](docs/d
 - Beállítások NVS-mentése, OLED képernyő-timeout és ébresztés, firmware-verzió/buildidő kijelzése, valamint kétmagos ESP-IDF task watchdog.
 - Böngészős felvétel- és fájlkezelés, valamint PC-s OLED nézet, soros enkóder-emuláció és offline/hardveres/Wi-Fi tesztek.
 - ESP nélküli webes előnézet szimulált felvétellel, jelméréssel, hanggal és Wi-Fi-állapotokkal; a felület külön HTML/CSS/JS forrásokból szerkeszthető. Részletek: [webes fejlesztés](docs/web-development.md).
-- Rádió nélküli PTT-relé teszt az OLED Rádió csempéjén és a webes `/test` oldalon: legfeljebb 1 másodperces GPIO10-impulzus, webes azonnali leállítással. Biztonságos próba: [tesztelés](docs/testing.md).
+- Rádió nélküli, aktív LOW PTT-relé teszt az OLED Rádió csempéjén és a webes `/test` oldalon: legfeljebb 1 másodperces GPIO10-impulzus, webes kapcsológombbal és azonnali leállítással. Biztonságos próba: [tesztelés](docs/testing.md).
 
 **A relé COM/NO és a rádió MIC-bemenete nincs a rádióhoz kötve; rádiós adás nincs engedélyezve.** A tesztimpulzus elektromos polaritását és a GPIO10 tényleges bekötését a konkrét panelen még ellenőrizni kell. Az akkumulátoros üzemidőhöz a kijelző és a Wi-Fi automatikus kikapcsolása van megvalósítva; az ESP32 teljes mélyalvása nincs.
 

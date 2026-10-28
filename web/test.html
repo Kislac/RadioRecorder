@@ -15,10 +15,11 @@
       <h1>Hardver teszt</h1>
       <section class="ptt-test">
         <h2>PTT relé</h2>
-        <p>Csak leválasztott rádióval, ellenőrzött GPIO10 és aktív magas relémodullal. A relé legfeljebb 1 másodpercig kapcsol.</p>
+        <p>Csak leválasztott rádióval, ellenőrzött GPIO10 és aktív alacsony relémodullal. A relé legfeljebb 1 másodpercig kapcsol.</p>
         <p id="pttStatus" role="status" aria-live="polite">Állapot betöltése...</p>
         <div class="ptt-actions">
           <button id="pttOn" type="button" disabled>1 mp tesztimpulzus</button>
+          <button id="pttToggle" type="button" aria-pressed="false" disabled>Relé bekapcsolása</button>
           <button id="pttOff" type="button">Azonnali kikapcsolás</button>
         </div>
       </section>

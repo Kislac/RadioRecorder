@@ -13,7 +13,7 @@ Ez a jegyzék a jelenlegi firmware ([src/main.cpp](../src/main.cpp)) lábkioszt�
 | ROT-1AB forgó enkóder | GPIO21 = CLK, GPIO47 = DT, GPIO14 = SW | + = 3V3, GND = ESP GND; SW a kijelző menügombja. |
 | Soros monitor | GPIO43 = UART0 TX, GPIO44 = UART0 RX | Panelen lévő USB-soros kapcsolat; nem új külső modul. |
 | Beépített Wi-Fi | nincs külső GPIO | ESP32-S3 saját perifériája. |
-| RELC-1CH-5V-UNI teszt-PTT relé | GPIO10 = kimenet, LOW nyugalom / HIGH legfeljebb 1 másodperc | 5 V-os modultáp; a modul jumperének aktív magas állását, a 3,3 V-os vezérlőjel elfogadását és a GPIO10 tényleges bekötését a konkrét példányon ellenőrizni kell. COM/NO nincs rádióra kötve. |
+| RELC-1CH-5V-UNI teszt-PTT relé | GPIO10 = kimenet, HIGH nyugalom / LOW legfeljebb 1 másodperc | 5 V-os modultáp; a modul aktív alacsony állását, a 3,3 V-os HIGH jelű nyugalmi kikapcsolást és a GPIO10 tényleges bekötését a konkrét példányon ellenőrizni kell. COM/NO nincs rádióra kötve. |
 | INMP441-M I2S mikrofon | GPIO6 = BCLK, GPIO7 = WS, GPIO8 = SD (I2S0 RX) | L/R = GND (bal csatorna), VDD = 3V3, közös GND. A firmware 22 050 Hz-es sztereó 32 bites I2S-keret bal csatornájából ment 16 bites mono WAV-ot és méri a webes szintet; a tényleges hangút még nincs hardveresen igazolva. |
 
 ## Tervezett modulok, firmware-támogatás nélkül

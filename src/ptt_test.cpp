@@ -6,8 +6,8 @@
 
 namespace {
 constexpr uint8_t kRelayGpio = 10;
-constexpr uint8_t kRelayActiveLevel = HIGH;
-constexpr uint8_t kRelayIdleLevel = LOW;
+constexpr uint8_t kRelayActiveLevel = LOW;
+constexpr uint8_t kRelayIdleLevel = HIGH;
 bool initialized = false;
 std::atomic<bool> active{false};
 uint32_t startedAt = 0;

@@ -47,7 +47,8 @@ class WebAssetTests(unittest.TestCase):
         server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
         self.assertIn("kPttTestPulseMs = 1000", header)
         self.assertIn("kRelayGpio = 10", relay)
-        self.assertIn("kRelayActiveLevel = HIGH", relay)
+        self.assertIn("kRelayActiveLevel = LOW", relay)
+        self.assertIn("kRelayIdleLevel = HIGH", relay)
         self.assertLess(relay.index("digitalWrite(kRelayGpio, kRelayIdleLevel);"),
                         relay.index("pinMode(kRelayGpio, OUTPUT);"))
         self.assertIn("if (active && static_cast<uint32_t>(millis() - startedAt) >= kPttTestPulseMs) stopPttTest();", relay)
@@ -61,6 +62,11 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn("if (!startPttTest())", display)
         self.assertIn('server.on("/api/ptt-test/on", HTTP_POST', server)
         self.assertIn('server.on("/api/ptt-test/off", HTTP_POST', server)
+        test_page = (WEB_ROOT / "test.html").read_text(encoding="utf-8")
+        test_script = (WEB_ROOT / "test.js").read_text(encoding="utf-8")
+        self.assertIn('id="pttToggle" type="button" aria-pressed="false"', test_page)
+        self.assertIn('pttActive ? "/api/ptt-test/off" : "/api/ptt-test/on"', test_script)
+        self.assertIn('pttToggle.setAttribute("aria-pressed", String(state.active))', test_script)
 
     def test_platformio_hook_generates_header_without_building_firmware(self):
         class FakeEnvironment:
