@@ -2,6 +2,15 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "RadioRecorder: Web Preview (offline)",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.preview_web", "--scenario", "${input:webPreviewScenario}"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
       "label": "RadioRecorder: Device Test (read-only)",
       "type": "process",
       "command": "python",
@@ -77,6 +86,15 @@
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "webPreviewScenario",
+      "type": "pickString",
+      "description": "Offline web preview scenario (no hardware access)",
+      "options": ["ready", "missing-sd", "recording", "wifi-failure"],
+      "default": "ready"
     }
   ]
 }

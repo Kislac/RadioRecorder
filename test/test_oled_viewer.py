@@ -13,6 +13,7 @@ from scripts.oled_viewer import FRAME_BYTES, KEY_COMMANDS, body_pixels, find_dev
 from scripts.test_device import delete_test_recording, menu_state, valid_signal, validate_display_frames
 from scripts.test_support import TestRun, firmware_at_least
 from scripts.test_wifi import wifi_profile
+from scripts.web_assets import PAGES, render_page
 
 
 class FakeDevice:
@@ -34,7 +35,7 @@ class FrameTests(unittest.TestCase):
     def test_wifi_boot_connect_fallback_and_keep_ap_contract(self):
         root = Path(__file__).resolve().parents[1]
         wifi_source = (root / "src" / "wifi_manager.cpp").read_text(encoding="utf-8")
-        page_source = (root / "src" / "web_pages.cpp").read_text(encoding="utf-8")
+        page_source = " ".join("\n".join(render_page(name) for name in PAGES).split())
         server_source = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
         main_source = (root / "src" / "main.cpp").read_text(encoding="utf-8")
         self.assertIn('kDefaultTimeoutMinutes = 5', wifi_source)
@@ -78,7 +79,7 @@ class FrameTests(unittest.TestCase):
 
     def test_persistent_screen_timeout_web_settings_contract(self):
         root = Path(__file__).resolve().parents[1]
-        page_source = (root / "src" / "web_pages.cpp").read_text(encoding="utf-8")
+        page_source = " ".join("\n".join(render_page(name) for name in PAGES).split())
         server_source = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
         app_source = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
         display_source = (root / "src" / "display.cpp").read_text(encoding="utf-8")

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Radio Recorder</title>
+    <link rel="stylesheet" href="/index.css" />
+  </head>
+  <body>
+    <header>
+      RADIO RECORDER <span id="firmwareVersion">v?</span>
+      <a href="/settings">Beállítások</a> <a href="/files">Fájlkezelő</a>
+    </header>
+    <main>
+      <h1>Felvétel</h1>
+      <p class="note" id="demoClock">DEMO 13:54:22</p>
+      <p class="state" id="state">Kapcsolódás...</p>
+      <button id="toggle" disabled>Felvétel indítása</button>
+      <button id="wifiTest" disabled>Wi-Fi zajteszt</button>
+      <p class="note" id="message"></p>
+      <label class="filtercontrol"
+        ><input id="lowpassToggle" type="checkbox" />3,4 kHz-es zajszűrő</label
+      >
+      <p class="note">
+        Csak ellenőrzött, kis szintű tesztforrás. A rádiót még ne csatlakoztasd.
+      </p>
+    </main>
+    <section>
+      <div class="signalbar">
+        <h2 id="signalHeading">ADC jel</h2>
+        <button id="signalToggle" disabled>Mérés bekapcsolása</button>
+      </div>
+      <p id="signalValues" class="signalvalues">Kikapcsolva</p>
+      <div id="signalPlot" hidden>
+        <canvas
+          id="signalChart"
+          aria-label="ADC RMS és csúcs idősor"
+          role="img"
+        ></canvas>
+        <div class="legend">
+          <b>RMS</b><b>Csúcs</b><span>ADC egység / 30 s</span>
+        </div>
+      </div>
+    </section>
+    <section>
+      <div class="signalbar">
+        <h2>Élő hang</h2>
+        <button id="liveToggle" disabled>Hallgatás indítása</button>
+      </div>
+      <div class="livecontrols">
+        <label for="liveVolume">Hangerő</label
+        ><input
+          id="liveVolume"
+          type="range"
+          min="0"
+          max="100"
+          value="50"
+        /><button id="liveTest">Hangpróba</button>
+      </div>
+      <p id="liveStatus" class="note">Kikapcsolva</p>
+    </section>
+    <section>
+      <div class="signalbar">
+        <h2>Mentett felvételek</h2>
+        <button id="speakerStop" disabled>ESP-lejátszás leállítása</button>
+      </div>
+      <p id="speakerStatus" class="note">ESP hangszóró: kikapcsolva</p>
+      <div class="speaker-volume">
+        <label for="speakerVolume">ESP hangszóró hangereje</label
+        ><input
+          id="speakerVolume"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value="25"
+        />
+        <div class="speaker-volume-steps">
+          <button
+            id="speakerDown"
+            type="button"
+            aria-label="Hangerő csökkentése 5%-kal"
+            title="5%-kal halkabb"
+          >
+            ←</button
+          ><output id="speakerVolumeValue" for="speakerVolume">25%</output
+          ><button
+            id="speakerUp"
+            type="button"
+            aria-label="Hangerő növelése 5%-kal"
+            title="5%-kal hangosabb"
+          >
+            →
+          </button>
+        </div>
+        <label class="boost-label" for="speakerBoost">Lejátszási erősítés</label
+        ><select id="speakerBoost">
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </div>
+      <p id="empty">Betöltés...</p>
+      <ol id="files"></ol>
+      <button id="more" hidden>Továbbiak</button>
+    </section>
+    <footer>ESP32-S3 / microSD</footer>
+    <script src="/index.js"></script>
+  </body>
+</html>

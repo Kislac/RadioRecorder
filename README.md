@@ -12,6 +12,7 @@ A jelenlegi és tervezett modulok GPIO-kiosztása az [eszközjegyzékben](docs/d
 - Nyílt `RadioRecorder` AP alapmód; mentett külső Wi-Fi-hez csatlakozás AP-fallbackkel, opcionális AP+STA móddal, webes scan/connect/forget kezeléssel és Wi-Fi auto-off időzítővel.
 - Beállítások NVS-mentése, OLED képernyő-timeout és ébresztés, firmware-verzió/buildidő kijelzése, valamint kétmagos ESP-IDF task watchdog.
 - Böngészős felvétel- és fájlkezelés, valamint PC-s OLED nézet, soros enkóder-emuláció és offline/hardveres/Wi-Fi tesztek.
+- ESP nélküli webes előnézet szimulált felvétellel, jelméréssel, hanggal és Wi-Fi-állapotokkal; a felület külön HTML/CSS/JS forrásokból szerkeszthető. Részletek: [webes fejlesztés](docs/web-development.md).
 
 **Rádiós PTT és a rádió MIC-bemenete nincs bekötve vagy engedélyezve.** A firmware hangot vesz fel és játszik le; rádión adást nem végez. Az akkumulátoros üzemidőhöz a kijelző és a Wi-Fi automatikus kikapcsolása van megvalósítva; az ESP32 teljes mélyalvása nincs.
 
@@ -30,6 +31,8 @@ A főoldal és a fájlkezelő fejlécében is a futó firmware verziója látszi
 Az OLED-támogatás **engedélyezve van** (`RADIORECORDER_OLED_ENABLED=1`). A 128x64-es kijelzőt a firmware SH1106-ként kezeli; 3,3 V-os I2C lába SDA=GPIO4, SCL=GPIO5. A soros monitor induláskor jelzi a 0x3C/0x3D címek I2C-próbáját és az `OLED: ready` állapotot. Ha nincs válasz, ellenőrizd az SDA/SCL felcserélését, a 3V3/GND tápot, a felhúzásokat és a panel GPIO4/5 kiosztását; az enkóder nem hajt végre rejtett gyorsparancsokat. Működő kijelzővel a forgatás csempét vagy beállítási sort választ, a rövid gombnyomás műveletet indít, a hosszú kilép. A felvétel, jelmérés, Wi-Fi mód, hangerő, erősítés és szűrő kezelése, valamint a NVS-be mentett időzítők elérhetők; a fájlok OLED-es böngészése és a felvétel alatti ESP-hangszórós lejátszás még nem. A rádiós adás kijelzése tiltott: nincs bekötött/igazolt PTT- vagy DAC-út. A weboldalak és az OLED 13:54:22-ről induló, újraindításonként újrakezdődő **DEMO** időt mutatnak, nem RTC-időt vagy valódi felvételi időbélyeget.
 
 A kijelző PC-s megjelenítéséhez és az automatikus hardver-/Wi-Fi-tesztekhez lásd a [tesztelési útmutatót](docs/testing.md).
+
+A webes felület szerkesztési forrása a `web/` könyvtár. A PlatformIO a fordítás előtt automatikusan beágyazza az oldalakat és asseteket a firmware-be; az ESP-nek ehhez továbbra sem kell SD-n tárolt webfájl. A `src/web_pages.cpp` már csak a generált oldalak betöltője.
 
 A `src/main.cpp` az inicializálás és a fő ciklus belépési pontja. A `src/recorder.cpp` kezeli az ADC-t, a felvételt és a jelmérést; a `src/playback.cpp` az I2S WAV-lejátszást és a firmware-be épített hangjelzéseket. A `src/live_audio.cpp` a felvevő és a WebSocket közös PCM-sorát, a `src/wav.cpp` a WAV-formátumot kezeli. A `src/web_server.cpp` birtokolja a HTTP-útvonalakat, a fájlkezelést és a WebSocketet; a `src/wifi_manager.cpp` a STA/AP+STA/AP módokat, csatlakozást, scan-t, fallbacket és Wi-Fi auto-offot. A beágyazott weboldalak a `src/web_pages.cpp` fájlban vannak, SD-kártyás webes erőforrások nélkül. Az OLED/enkóder logika a `src/display.cpp` és `src/controls.cpp` fájlokban, a tartós beállítások és a watchdog pedig az `src/app_control.cpp`, illetve `src/watchdog.cpp` modulokban találhatók.
 

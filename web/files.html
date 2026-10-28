@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Fájlkezelő - Radio Recorder</title>
+    <link rel="stylesheet" href="/files.css" />
+  </head>
+  <body>
+    <header>
+      RADIO RECORDER <span id="firmwareVersion">v?</span>
+      <a href="/">Felvétel</a>
+    </header>
+    <main>
+      <h1>Fájlkezelő</h1>
+      <p id="demoClock">DEMO 13:54:22</p>
+      <ol id="crumbs" class="crumbs"></ol>
+      <div class="toolbar">
+        <strong id="location">microSD</strong
+        ><button id="reload" title="Lista frissítése">Frissítés</button>
+      </div>
+      <div class="toolbar">
+        <span id="speakerStatus">ESP hangszóró: kikapcsolva</span
+        ><button id="speakerStop" disabled>ESP-lejátszás leállítása</button>
+      </div>
+      <div class="speaker-volume">
+        <label for="speakerVolume">ESP hangszóró hangereje</label
+        ><input
+          id="speakerVolume"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value="25"
+        />
+        <div class="speaker-volume-steps">
+          <button
+            id="speakerDown"
+            type="button"
+            aria-label="Hangerő csökkentése 5%-kal"
+            title="5%-kal halkabb"
+          >
+            ←</button
+          ><output id="speakerVolumeValue" for="speakerVolume">25%</output
+          ><button
+            id="speakerUp"
+            type="button"
+            aria-label="Hangerő növelése 5%-kal"
+            title="5%-kal hangosabb"
+          >
+            →
+          </button>
+        </div>
+        <label class="boost-label" for="speakerBoost">Lejátszási erősítés</label
+        ><select id="speakerBoost">
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </div>
+      <p id="message">Betöltés...</p>
+      <ol id="items" class="items"></ol>
+      <button id="more" hidden>Továbbiak</button>
+    </main>
+    <footer>Lejátszás a böngésző által támogatott hangformátumokkal.</footer>
+    <script src="/files.js"></script>
+  </body>
+</html>

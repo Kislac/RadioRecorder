@@ -2,6 +2,8 @@
 
 ## Offline
 
+ESP nélküli webes tervezéshez használd a `RadioRecorder: Web Preview (offline)` taskot. A külön HTML/CSS/JS forrásokat és a szimulált API-t a [webes fejlesztési útmutató](web-development.md) ismerteti. A standard offline tesztcsomag localhost HTTP-tesztekkel ellenőrzi ezt; nincs szüksége csatlakoztatott eszközre.
+
 Install the PC serial dependency with `python -m pip install -r scripts/requirements-test.txt`. Tkinter is included with the Windows Python installation used for the viewer.
 
 Run `python -m unittest discover -s test -p 'test_*.py' -v` and `pio run -e esp32-s3-devkitc-1`. Offline tests verify the 128x64 U8g2 framebuffer encoding, pixel addressing, and image comparisons. The build verifies the firmware; neither proves physical hardware behavior.

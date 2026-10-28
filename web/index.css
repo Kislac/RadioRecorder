@@ -1,0 +1,260 @@
+:root {
+  color-scheme: light;
+  --ink: #24302d;
+  --line: #c8d0ca;
+  --accent: #ad3d34;
+  --muted: #52635a;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: repeating-linear-gradient(0deg, #f3f5f2 0 39px, #e9eee9 40px);
+  color: var(--ink);
+  font:
+    16px "Trebuchet MS",
+    sans-serif;
+}
+header,
+main,
+section,
+footer {
+  padding: 20px max(20px, calc((100vw - 760px) / 2));
+}
+header {
+  background: #24302d;
+  color: #f6f5ed;
+  font:
+    700 18px Georgia,
+    serif;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+header a {
+  color: inherit;
+  font:
+    16px "Trebuchet MS",
+    sans-serif;
+}
+main {
+  padding-top: 44px;
+  padding-bottom: 40px;
+  border-bottom: 1px solid var(--line);
+}
+h1 {
+  font:
+    normal 36px Georgia,
+    serif;
+  margin: 0 0 16px;
+}
+h2 {
+  font:
+    normal 25px Georgia,
+    serif;
+  margin: 0 0 20px;
+}
+.state {
+  font-size: 19px;
+  font-weight: bold;
+  margin: 0 0 20px;
+}
+.note {
+  color: var(--muted);
+  margin: 20px 0 0;
+  line-height: 1.5;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: white;
+  padding: 12px 18px;
+}
+button:hover,
+a:hover {
+  opacity: 0.8;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+#toggle.recording {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+section {
+  padding-top: 34px;
+  padding-bottom: 34px;
+}
+ol {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+li {
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: start;
+}
+.filename {
+  display: block;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}
+.size {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+audio {
+  display: block;
+  width: min(100%, 400px);
+  height: 42px;
+  margin-top: 12px;
+}
+.fileactions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+a {
+  color: #12604f;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+#more {
+  margin-top: 20px;
+}
+footer {
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.signalbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.signalbar h2 {
+  margin: 0;
+}
+.signalvalues {
+  color: var(--muted);
+  margin: 14px 0;
+  font-variant-numeric: tabular-nums;
+}
+#signalChart {
+  width: 100%;
+  height: 200px;
+  display: block;
+  background: #f8faf7;
+  border: 1px solid var(--line);
+}
+.legend {
+  display: flex;
+  gap: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 10px;
+}
+.legend b {
+  font-weight: normal;
+}
+.legend b:first-child {
+  color: #12604f;
+}
+.legend b:last-child {
+  color: var(--accent);
+}
+.livecontrols {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.livecontrols label {
+  font-size: 14px;
+  color: var(--muted);
+}
+.livecontrols input {
+  width: 120px;
+  accent-color: #12604f;
+}
+.speaker-volume {
+  width: min(100%, 280px);
+  margin: 16px 0 20px;
+}
+.speaker-volume label {
+  display: block;
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.speaker-volume input {
+  width: 100%;
+  accent-color: #12604f;
+}
+.speaker-volume-steps {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.speaker-volume-steps button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 22px;
+}
+.speaker-volume-steps output {
+  min-width: 4ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.speaker-volume .boost-label {
+  margin-top: 16px;
+}
+.speaker-volume select {
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+}
+.filtercontrol {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  cursor: pointer;
+}
+.filtercontrol input {
+  width: 18px;
+  height: 18px;
+  accent-color: #12604f;
+}
+@media (max-width: 560px) {
+  li {
+    grid-template-columns: 1fr;
+  }
+  .fileactions {
+    justify-content: flex-start;
+  }
+  h1 {
+    font-size: 30px;
+  }
+}

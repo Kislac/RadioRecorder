@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Beállítások - Radio Recorder</title>
+    <link rel="stylesheet" href="/settings.css" />
+  </head>
+  <body>
+    <header>
+      RADIO RECORDER
+      <nav><a href="/">Főoldal</a> · <a href="/files">Fájlkezelő</a></nav>
+    </header>
+    <main>
+      <h1>Beállítások</h1>
+      <form id="settingsForm">
+        <div class="setting">
+          <label for="screenOffMinutes">Képernyő kikapcsolása</label>
+          <div class="value">
+            <input
+              id="screenOffMinutes"
+              type="number"
+              min="0"
+              max="999"
+              step="1"
+              required
+            /><span>perc</span>
+          </div>
+        </div>
+        <div class="setting">
+          <label for="wifiAutoOffMinutes"
+            >Wi-Fi kikapcsolása inaktivitáskor</label
+          >
+          <div class="value">
+            <input
+              id="wifiAutoOffMinutes"
+              type="number"
+              min="0"
+              max="999"
+              step="1"
+              required
+            /><span>perc</span>
+          </div>
+        </div>
+        <button id="save" type="submit" disabled>Mentés</button
+        ><button id="wakeDisplay" type="button">Kijelző felébresztése</button>
+        <p id="result" role="status" aria-live="polite">Betöltés...</p>
+      </form>
+      <section class="wifi-settings">
+        <h2>Wi-Fi hálózat</h2>
+        <p id="wifiStatus" role="status">Állapot betöltése...</p>
+        <div class="wifi-actions">
+          <button id="scanNetworks" type="button">Hálózatok keresése</button
+          ><button id="forgetNetwork" type="button" disabled>
+            Hálózat elfelejtése
+          </button>
+        </div>
+        <div id="networks" class="networks"></div>
+        <form id="connectForm" class="wifi-connect">
+          <label for="wifiSsid"
+            >SSID<input
+              id="wifiSsid"
+              type="text"
+              maxlength="32"
+              autocomplete="off"
+              required /></label
+          ><label for="wifiPassword"
+            >Jelszó<input
+              id="wifiPassword"
+              type="password"
+              maxlength="64"
+              autocomplete="new-password" /></label
+          ><label class="keep-ap"
+            ><input id="keepApHost" type="checkbox" />Keep AP host</label
+          ><button id="connectWifi" type="submit">Csatlakozás</button>
+        </form>
+      </section>
+    </main>
+    <footer>ESP32-S3 / Radio Recorder</footer>
+    <script src="/settings.js"></script>
+  </body>
+</html>
