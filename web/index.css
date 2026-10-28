@@ -83,7 +83,8 @@ button:disabled {
   opacity: 0.45;
   cursor: default;
 }
-#toggle.recording {
+#toggle.recording,
+#micToggle.recording {
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -156,7 +157,8 @@ footer {
   margin: 14px 0;
   font-variant-numeric: tabular-nums;
 }
-#signalChart {
+#signalChart,
+#micSignalChart {
   width: 100%;
   height: 200px;
   display: block;

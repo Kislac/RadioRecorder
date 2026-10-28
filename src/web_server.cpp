@@ -89,6 +89,8 @@ void sendStatus() {
   json += ",\"audioGpio\":" + String(kAudioGpio);
   json += ",\"lowpass\":" + String(recorderLowpass() ? "true" : "false");
   json += ",\"meterReady\":" + String(recorderAdcReady() && recorderTaskReady() ? "true" : "false");
+  json += ",\"micReady\":" + String(appSdReady() && recorderMicReady() && recorderTaskReady() ? "true" : "false");
+  json += ",\"recordSource\":\"" + String(recorderSource() == CaptureSource::microphone ? "microphone" : "adc") + "\"";
   json += ",\"liveReady\":" + String(recorderAdcReady() && recorderTaskReady() && liveAudioReady() && wifiReady ? "true" : "false");
   json += ",\"state\":\"" + String(state == CaptureState::idle ? "idle" : state == CaptureState::starting ? "starting" : "recording") + "\"";
   PlaybackStatus speaker = playbackStatus();
@@ -304,7 +306,37 @@ void setSignal(bool enabled) {
     server.send(503, "text/plain", "ADC unavailable");
     return;
   }
+  if (enabled && recorderMicSignalStatus().enabled) {
+    server.send(409, "text/plain", "Microphone monitoring active");
+    return;
+  }
   recorderSetSignal(enabled);
+  server.send(200, "text/plain", enabled ? "Monitoring" : "Stopped");
+}
+
+void sendMicSignal() {
+  wifiManagerNotifyActivity();
+  SignalStatus signal = recorderMicSignalStatus();
+  String json = "{\"enabled\":" + String(signal.enabled ? "true" : "false");
+  json += ",\"active\":" + String(signal.active ? "true" : "false");
+  json += ",\"sequence\":" + String(signal.sequence);
+  json += ",\"rms\":" + String(signal.rms);
+  json += ",\"peak\":" + String(signal.peak);
+  json += ",\"fault\":" + String(signal.fault) + "}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", json);
+}
+
+void setMicSignal(bool enabled) {
+  wifiManagerNotifyActivity();
+  if (!recorderMicReady() || !recorderTaskReady()) {
+    server.send(503, "text/plain", "Microphone unavailable");
+    return;
+  }
+  if (!recorderSetMicSignal(enabled)) {
+    server.send(409, "text/plain", "Audio monitoring busy");
+    return;
+  }
   server.send(200, "text/plain", enabled ? "Monitoring" : "Stopped");
 }
 
@@ -581,11 +613,19 @@ void initWeb() {
   server.on("/api/signal", HTTP_GET, sendSignal);
   server.on("/api/signal/off", HTTP_POST, []() { wifiManagerNotifyActivity(); setSignal(false); });
   server.on("/api/signal/on", HTTP_POST, []() { wifiManagerNotifyActivity(); setSignal(true); });
+  server.on("/api/mic/signal", HTTP_GET, sendMicSignal);
+  server.on("/api/mic/signal/off", HTTP_POST, []() { setMicSignal(false); });
+  server.on("/api/mic/signal/on", HTTP_POST, []() { setMicSignal(true); });
   server.on("/file", HTTP_GET, sendFile);
   server.on("/api/start", HTTP_POST, []() {
     wifiManagerNotifyActivity();
     if (appStartRecording()) server.send(200, "text/plain", recorderName());
     else server.send(409, "text/plain", recorderError()[0] ? recorderError() : "SD, ADC or recorder unavailable");
+  });
+  server.on("/api/mic/start", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (appStartMicRecording()) server.send(200, "text/plain", recorderName());
+    else server.send(409, "text/plain", "SD, I2S microphone or recorder unavailable, or audio busy");
   });
   server.on("/api/wifi-test", HTTP_POST, []() {
     wifiManagerNotifyActivity();

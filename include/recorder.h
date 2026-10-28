@@ -5,6 +5,7 @@
 constexpr int kAudioGpio = 1;
 
 enum class CaptureState { idle, starting, recording };
+enum class CaptureSource { adc, microphone };
 
 struct SignalStatus {
   bool enabled;
@@ -17,13 +18,16 @@ struct SignalStatus {
 };
 
 bool initRecorderAdc();
+bool initRecorderMic();
 void initRecorderTask();
 bool recorderAdcReady();
+bool recorderMicReady();
 bool recorderTaskReady();
 void recorderNotify();
-bool recorderStart(bool sdAvailable);
+bool recorderStart(bool sdAvailable, CaptureSource source = CaptureSource::adc);
 bool stopRecording();
 CaptureState recorderState();
+CaptureSource recorderSource();
 bool recorderStopping();
 const char *recorderName();
 const char *recorderError();
@@ -38,3 +42,5 @@ bool recorderSerialMeterEnabled();
 void pollSerialMeter();
 SignalStatus recorderSignalStatus();
 void recorderSetSignal(bool enabled);
+SignalStatus recorderMicSignalStatus();
+bool recorderSetMicSignal(bool enabled);

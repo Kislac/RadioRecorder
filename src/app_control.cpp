@@ -7,7 +7,7 @@
 #include <Preferences.h>
 #include <esp_timer.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.36";
+static constexpr char kFirmwareVersion[] = "0.1.38";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -58,6 +58,11 @@ bool appSetScreenOffMinutes(uint16_t minutes) {
 
 bool appStartRecording() {
   return playbackGetState() == PlaybackState::idle && recorderStart(sdReady);
+}
+
+bool appStartMicRecording() {
+  return playbackGetState() == PlaybackState::idle && liveAudioClient() < 0 && !appWifiTestActive() &&
+         recorderStart(sdReady, CaptureSource::microphone);
 }
 
 bool appStopRecording() { return stopRecording(); }

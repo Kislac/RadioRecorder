@@ -14,6 +14,30 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_microphone_firmware_capture_contract(self):
+        root = WEB_ROOT.parent
+        recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
+        control = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
+        display = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        self.assertIn("I2S_NUM_0", recorder)
+        self.assertIn("GPIO_NUM_6", recorder)
+        self.assertIn("GPIO_NUM_7", recorder)
+        self.assertIn("GPIO_NUM_8", recorder)
+        self.assertIn("I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO", recorder)
+        self.assertIn("gpio_set_pull_mode(GPIO_NUM_8, GPIO_PULLDOWN_ONLY)", recorder)
+        self.assertIn("i2s_channel_read(micHandle", recorder)
+        self.assertIn("put16(pcmBuffer + pcmLength, static_cast<uint16_t>(pcm))", recorder)
+        self.assertIn("memcpy(&sample, dmaBuffer + offset, sizeof(sample))", recorder)
+        self.assertNotIn("energy[1] > energy[0]", recorder)
+        self.assertIn("addMicSignalSample(window, pcm)", recorder)
+        self.assertIn("if (enabled && micSignalEnabled.load()) return;", recorder)
+        self.assertIn("writeWavHeader(file, dataBytes)", recorder)
+        self.assertIn("liveAudioClient() < 0", control)
+        self.assertIn("appStartMicRecording()", display)
+        self.assertIn('server.on("/api/mic/start", HTTP_POST', server)
+        self.assertIn('server.on("/api/mic/signal", HTTP_GET', server)
+
     def test_ptt_firmware_has_bounded_idle_first_control_path(self):
         root = WEB_ROOT.parent
         relay = (root / "src" / "ptt_test.cpp").read_text(encoding="utf-8")
@@ -146,6 +170,42 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(audio[:4], b'RIFF')
         self.assertIn('Content-Range', headers)
         self.assertEqual(self.request('/file?name=' + name.decode(), headers={"Range": "bytes=999999-"})[0], 416)
+
+    def test_microphone_recording_uses_same_wav_and_excludes_adc(self):
+        self.assertTrue(json.loads(self.request('/api/status')[1])["micReady"])
+        status, name, _ = self.request('/api/mic/start', 'POST')
+        self.assertEqual(status, 200)
+        state = json.loads(self.request('/api/status')[1])
+        self.assertEqual((state["state"], state["recordSource"]), ("recording", "microphone"))
+        self.assertEqual(self.request('/api/start', 'POST')[0], 409)
+        self.assertEqual(self.request('/api/mic/start', 'POST')[0], 409)
+        self.assertEqual(self.request('/api/stop', 'POST')[0], 200)
+        self.assertEqual(json.loads(self.request('/api/recordings')[1])["files"][0]["name"], name.decode())
+        self.assertEqual(self.request('/file?name=' + name.decode())[1][:4], b'RIFF')
+        self.server.device = PreviewDevice("missing-sd")
+        self.assertFalse(json.loads(self.request('/api/status')[1])["micReady"])
+        self.assertEqual(self.request('/api/mic/start', 'POST')[0], 409)
+
+    def test_microphone_meter_idle_recording_and_shutdown(self):
+        files_before = dict(self.server.device.files)
+        self.assertEqual(self.request('/api/mic/signal/on', 'POST')[0], 200)
+        meter = json.loads(self.request('/api/mic/signal')[1])
+        self.assertTrue(meter['enabled'] and meter['active'])
+        self.assertGreater(meter['peak'], meter['rms'])
+        self.assertEqual(self.server.device.files, files_before)
+        self.assertEqual(self.request('/api/signal/on', 'POST')[0], 409)
+        self.assertEqual(self.request('/api/mic/start', 'POST')[0], 200)
+        self.assertTrue(json.loads(self.request('/api/mic/signal')[1])['active'])
+        self.assertEqual(self.request('/api/mic/signal/off', 'POST')[0], 200)
+        self.assertFalse(json.loads(self.request('/api/mic/signal')[1])['enabled'])
+        self.assertEqual(self.request('/api/stop', 'POST')[0], 200)
+        self.assertEqual(self.request('/api/mic/signal/on', 'POST')[0], 200)
+        self.server.device.mic_signal_polled_at -= 5
+        self.assertFalse(json.loads(self.request('/api/mic/signal')[1])['enabled'])
+        self.assertEqual(self.request('/api/signal/on', 'POST')[0], 200)
+        self.assertEqual(self.request('/api/mic/signal/on', 'POST')[0], 409)
+        self.server.device = PreviewDevice('missing-sd')
+        self.assertEqual(self.request('/api/mic/signal/on', 'POST')[0], 503)
 
     def test_settings_validate_before_mutation(self):
         self.assertEqual(self.request('/api/settings', 'POST', {"screenOffMinutes": "0", "wifiAutoOffMinutes": "999"})[0], 200)

@@ -1,5 +1,6 @@
 const stateEl = document.querySelector("#state"),
   toggle = document.querySelector("#toggle"),
+  micToggle = document.querySelector("#micToggle"),
   wifiTest = document.querySelector("#wifiTest"),
   lowpassToggle = document.querySelector("#lowpassToggle"),
   message = document.querySelector("#message"),
@@ -17,6 +18,10 @@ const signalToggle = document.querySelector("#signalToggle"),
 const signalPlot = document.querySelector("#signalPlot"),
   signalChart = document.querySelector("#signalChart"),
   signalHeading = document.querySelector("#signalHeading");
+const micSignalToggle = document.querySelector("#micSignalToggle"),
+  micSignalValues = document.querySelector("#micSignalValues"),
+  micSignalPlot = document.querySelector("#micSignalPlot"),
+  micSignalChart = document.querySelector("#micSignalChart");
 const liveToggle = document.querySelector("#liveToggle"),
   liveStatus = document.querySelector("#liveStatus"),
   liveVolume = document.querySelector("#liveVolume"),
@@ -29,6 +34,10 @@ let meterRunning = false,
   meterGeneration = 0,
   meterTimer = null,
   lastSignalSequence = -1;
+let micMeterRunning = false,
+  micMeterGeneration = 0,
+  micMeterTimer = null,
+  lastMicSequence = -1;
 let liveSocket = null,
   audioContext = null,
   audioGain = null,
@@ -49,6 +58,7 @@ function renderDemoClock() {
 }
 setInterval(renderDemoClock, 1000);
 const signalHistory = [];
+const micSignalHistory = [];
 async function sendSpeakerVolume() {
   if (volumeSending) return;
   volumeSending = true;
@@ -254,13 +264,13 @@ liveTest.addEventListener("click", async () => {
   }
 });
 addEventListener("pagehide", stopLive);
-function drawSignal() {
-  const width = signalChart.clientWidth,
+function drawSignal(chart = signalChart, history = signalHistory, ceiling = 4096) {
+  const width = chart.clientWidth,
     height = 200,
     ratio = devicePixelRatio || 1,
-    context = signalChart.getContext("2d");
-  signalChart.width = Math.round(width * ratio);
-  signalChart.height = Math.round(height * ratio);
+    context = chart.getContext("2d");
+  chart.width = Math.round(width * ratio);
+  chart.height = Math.round(height * ratio);
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, width, height);
   const left = 42,
@@ -268,13 +278,13 @@ function drawSignal() {
     top = 15,
     bottom = height - 28;
   const maximum = Math.min(
-    4096,
+    ceiling,
     Math.max(
       128,
       2 **
         Math.ceil(
           Math.log2(
-            Math.max(1, ...signalHistory.map((point) => point.peak)) * 1.2,
+            Math.max(1, ...history.map((point) => point.peak)) * 1.2,
           ),
         ),
     ),
@@ -303,9 +313,9 @@ function drawSignal() {
     context.strokeStyle = color;
     context.lineWidth = 2;
     context.beginPath();
-    signalHistory.forEach((point, index) => {
+    history.forEach((point, index) => {
       const x =
-        right - ((signalHistory.length - 1 - index) * (right - left)) / 119;
+        right - ((history.length - 1 - index) * (right - left)) / 119;
       const y =
         bottom - (Math.min(maximum, point[key]) * (bottom - top)) / maximum;
       if (index) context.lineTo(x, y);
@@ -389,11 +399,74 @@ signalToggle.addEventListener("click", async () => {
   }
   signalToggle.disabled = false;
 });
+async function pollMicSignal(generation) {
+  if (!micMeterRunning || generation !== micMeterGeneration) return;
+  try {
+    const response = await fetch("/api/mic/signal", { cache: "no-store" });
+    if (!response.ok) throw Error();
+    const data = await response.json();
+    if (generation !== micMeterGeneration) return;
+    if (!data.enabled) {
+      micMeterRunning = false;
+      micSignalPlot.hidden = true;
+      micSignalToggle.textContent = "Mérés bekapcsolása";
+      micSignalValues.textContent = data.fault
+        ? "Mikrofon mérési hiba (" + data.fault + ")"
+        : "Kikapcsolva";
+      return;
+    }
+    micSignalToggle.textContent = "Mérés kikapcsolása";
+    micSignalPlot.hidden = false;
+    if (data.active && data.sequence > 0 && data.sequence !== lastMicSequence) {
+      lastMicSequence = data.sequence;
+      micSignalHistory.push({ rms: data.rms, peak: data.peak });
+      if (micSignalHistory.length > 120) micSignalHistory.shift();
+      drawSignal(micSignalChart, micSignalHistory, 32768);
+    }
+    micSignalValues.textContent = data.active && data.sequence > 0
+      ? "RMS: " + data.rms + " | Csúcs: " + data.peak + " (PCM)"
+      : "Mérés indul...";
+  } catch {
+    micSignalValues.textContent = "A mikrofonmérés nem elérhető.";
+  } finally {
+    if (micMeterRunning && generation === micMeterGeneration)
+      micMeterTimer = setTimeout(() => pollMicSignal(generation), 250);
+  }
+}
+micSignalToggle.addEventListener("click", async () => {
+  micSignalToggle.disabled = true;
+  const turnOn = !micMeterRunning,
+    previous = micMeterRunning;
+  ++micMeterGeneration;
+  clearTimeout(micMeterTimer);
+  try {
+    const response = await fetch(turnOn ? "/api/mic/signal/on" : "/api/mic/signal/off", { method: "POST" });
+    if (!response.ok) throw Error();
+    micMeterRunning = turnOn;
+    if (turnOn) {
+      micSignalHistory.length = 0;
+      lastMicSequence = -1;
+      micSignalPlot.hidden = false;
+      drawSignal(micSignalChart, micSignalHistory, 32768);
+      pollMicSignal(micMeterGeneration);
+    } else {
+      micSignalPlot.hidden = true;
+      micSignalValues.textContent = "Kikapcsolva";
+      micSignalToggle.textContent = "Mérés bekapcsolása";
+    }
+  } catch {
+    micMeterRunning = previous;
+    micSignalValues.textContent = "A mikrofonmérés kapcsolása sikertelen.";
+  }
+  micSignalToggle.disabled = false;
+});
 addEventListener("pagehide", () => {
   if (meterRunning) navigator.sendBeacon("/api/signal/off");
+  if (micMeterRunning) navigator.sendBeacon("/api/mic/signal/off");
 });
 addEventListener("resize", () => {
   if (meterRunning) drawSignal();
+  if (micMeterRunning) drawSignal(micSignalChart, micSignalHistory, 32768);
 });
 async function list(reset) {
   if (listing) return;
@@ -466,22 +539,31 @@ async function refresh() {
     );
     const busy = data.state !== "idle";
     const playing = data.playback !== "idle";
-    stateEl.textContent = !data.ready
-      ? "SD vagy ADC nem elérhető"
+    stateEl.textContent = !data.ready && !data.micReady
+      ? "SD vagy hangbemenet nem elérhető"
       : busy
         ? data.state === "starting"
           ? "Felvétel indul..."
-          : "Felvétel folyamatban"
+          : data.recordSource === "microphone" ? "Mikrofonfelvétel folyamatban" : "ADC-felvétel folyamatban"
         : data.hasRecordings
           ? "Van mentett felvétel"
           : "Nincs mentett felvétel";
-    toggle.textContent = busy ? "Felvétel leállítása" : "Felvétel indítása";
-    toggle.classList.toggle("recording", busy);
+    toggle.textContent = busy && data.recordSource === "adc" ? "Felvétel leállítása" : "Felvétel indítása";
+    micToggle.textContent = busy && data.recordSource === "microphone" ? "Mikrofonfelvétel leállítása" : "Mikrofonfelvétel indítása";
+    toggle.classList.toggle("recording", busy && data.recordSource === "adc");
+    micToggle.classList.toggle("recording", busy && data.recordSource === "microphone");
     toggle.disabled =
-      !data.ready ||
+      (!data.ready && !busy) ||
+      (busy && data.recordSource !== "adc") ||
       data.state === "starting" ||
       (busy && data.stopping) ||
       playing;
+    micToggle.disabled =
+      (!data.micReady && !busy) ||
+      (busy && data.recordSource !== "microphone") ||
+      data.state === "starting" ||
+      (busy && data.stopping) ||
+      playing || (!busy && !!liveSocket);
     wifiTest.disabled = !data.ready || busy || playing || !!liveSocket;
     speakerStop.disabled = !playing;
     speakerStatus.textContent = playing
@@ -494,7 +576,8 @@ async function refresh() {
     }
     speakerBoost.disabled = !data.speakerReady || boostUpdating;
     if (!boostUpdating) speakerBoost.value = String(data.speakerBoost);
-    signalToggle.disabled = !data.meterReady && !meterRunning;
+    signalToggle.disabled = (!data.meterReady || micMeterRunning) && !meterRunning;
+    micSignalToggle.disabled = (!data.micReady || meterRunning || !!liveSocket) && !micMeterRunning;
     liveToggle.disabled = (!data.liveReady || playing) && !liveSocket;
     message.textContent = data.error || "";
     if (!busy && (!loaded || currentState !== "idle")) await list(true);
@@ -516,6 +599,16 @@ toggle.addEventListener("click", async () => {
     if (!response.ok) message.textContent = await response.text();
   } catch {
     message.textContent = "A kérés nem sikerült.";
+  }
+  await refresh();
+});
+micToggle.addEventListener("click", async () => {
+  micToggle.disabled = true;
+  try {
+    const response = await fetch(currentState === "idle" ? "/api/mic/start" : "/api/stop", { method: "POST" });
+    if (!response.ok) message.textContent = await response.text();
+  } catch {
+    message.textContent = "A mikrofonkérés nem sikerült.";
   }
   await refresh();
 });
@@ -556,6 +649,17 @@ fetch("/api/signal", { cache: "no-store" })
       signalToggle.textContent = "Mérés kikapcsolása";
       signalPlot.hidden = false;
       pollSignal(meterGeneration);
+    }
+  })
+  .catch(() => {});
+fetch("/api/mic/signal", { cache: "no-store" })
+  .then((response) => response.json())
+  .then((data) => {
+    if (data.enabled) {
+      micMeterRunning = true;
+      micSignalToggle.textContent = "Mérés kikapcsolása";
+      micSignalPlot.hidden = false;
+      pollMicSignal(micMeterGeneration);
     }
   })
   .catch(() => {});

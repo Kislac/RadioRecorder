@@ -20,7 +20,7 @@ constexpr int kSdaGpio = 4;
 constexpr int kSclGpio = 5;
 constexpr uint8_t kTileCount = 8;
 constexpr uint8_t kSettingsCount = 8;
-const char *const kTileNames[kTileCount] = {"Felvetel", "Fajlok", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Wi-Fi", "Beallitasok"};
+const char *const kTileNames[kTileCount] = {"Felvetel", "Mikrofon", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Wi-Fi", "Beallitasok"};
 
 U8G2_SH1106_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, kSclGpio, kSdaGpio);
 bool ready = false;
@@ -124,9 +124,11 @@ void drawBody(bool fullUpdate = true) {
     drawSettings();
   } else if (tile == 0) {
     CaptureState state = recorderState();
-    oled.drawStr(0, 34, state == CaptureState::idle ? "All: nyomas = indit" :
-                 recorderStopping() ? "Lezaras..." : state == CaptureState::starting ? "Indulas..." : "REC: nyomas = stop");
-    if (state != CaptureState::idle) oled.drawStr(0, 44, recorderName());
+    bool adcRecording = state != CaptureState::idle && recorderSource() == CaptureSource::adc;
+    oled.drawStr(0, 34, state == CaptureState::idle ? "ADC: nyomas = indit" :
+                 !adcRecording ? "MIC felvetel aktiv" : recorderStopping() ? "Lezaras..." :
+                 state == CaptureState::starting ? "Indulas..." : "ADC REC: nyomas = stop");
+    if (adcRecording) oled.drawStr(0, 44, recorderName());
   } else if (tile == 2) {
     PlaybackStatus playback = playbackStatus();
     oled.drawStr(0, 35, playback.state == PlaybackState::idle ? "Nincs lejatszas" : "Lejatszas folyamatban");
@@ -157,6 +159,13 @@ void drawBody(bool fullUpdate = true) {
     oled.drawStr(0, 52, ip);
   } else if (tile == 7) {
     oled.drawStr(0, 37, "Nyomas = beallitasok");
+  } else if (tile == 1) {
+    CaptureState state = recorderState();
+    bool micRecording = state != CaptureState::idle && recorderSource() == CaptureSource::microphone;
+    oled.drawStr(0, 35, !recorderMicReady() ? "I2S nem elerheto" :
+                 micRecording ? (recorderStopping() ? "Lezaras..." : "MIC REC: nyomas = stop") :
+                 state != CaptureState::idle ? "Masik felvetel aktiv" : "Nyomas = MIC indit");
+    if (micRecording) oled.drawStr(0, 46, recorderName());
   } else if (tile == 5) {
     oled.drawStr(0, 36, "PTT teszt / GPIO10");
     oled.drawStr(0, 48, pttTestActive() ? "AKTIV (max 1 mp)" : "Nyomas = 1 mp impulzus");
@@ -191,9 +200,13 @@ void onPress() {
     if (appWifiTestActive()) setMessage("Zajteszt aktiv");
     else if (recorderState() == CaptureState::idle) {
       if (!appStartRecording()) setMessage("Felvetel nem indithato");
-    } else if (!recorderStopping()) appStopRecording();
+    } else if (recorderSource() == CaptureSource::adc && !recorderStopping()) appStopRecording();
   } else if (tile == 2) {
     if (!playbackStop()) setMessage("Nincs lejatszas");
+  } else if (tile == 1) {
+    if (recorderState() == CaptureState::idle) {
+      if (!appStartMicRecording()) setMessage("MIC nem indithato");
+    } else if (recorderSource() == CaptureSource::microphone && !recorderStopping()) appStopRecording();
   } else if (tile == 3) {
     if (!recorderAdcReady() || !recorderTaskReady()) setMessage("ADC nem elerheto");
     else recorderSetSignal(!recorderSignalStatus().enabled);
@@ -349,7 +362,7 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   if (redraw) {
     lastSecond = second;
     drawBody();
-  } else if (!inSettings && (tile == 0 || tile == 3 || tile == 5 || tile == 6) && now - lastBodyAt >= 500) {
+  } else if (!inSettings && (tile == 0 || tile == 1 || tile == 3 || tile == 5 || tile == 6) && now - lastBodyAt >= 500) {
     bool secondChanged = second != lastSecond;
     lastSecond = second;
     drawBody(false);

@@ -5,6 +5,7 @@
 void appSetSdReady(bool ready);
 bool appSdReady();
 bool appStartRecording();
+bool appStartMicRecording();
 bool appStopRecording();
 bool appCanStartPlayback();
 bool appCanConnectLiveAudio();

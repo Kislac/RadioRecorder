@@ -39,8 +39,12 @@ class PreviewDevice:
         self.scenario = scenario
         self.started_at = time.monotonic()
         self.recording = scenario == "recording"
+        self.record_source = "adc"
         self.sd_ready = scenario != "missing-sd"
         self.signal_enabled = False
+        self.mic_signal_enabled = False
+        self.mic_signal_polled_at = 0
+        self.mic_signal_started_at = 0
         self.lowpass = False
         self.volume = 25
         self.boost = 1
@@ -61,6 +65,8 @@ class PreviewDevice:
 
     def tick(self):
         now = time.monotonic()
+        if self.mic_signal_enabled and now - self.mic_signal_polled_at > 4:
+            self.mic_signal_enabled = False
         if self.playing and now >= self.play_until:
             self.playing = ""
         if self.auto_stop_at and now >= self.auto_stop_at:
@@ -98,7 +104,8 @@ class PreviewDevice:
             if path == "/api/ptt-test":
                 return 200, {"active": bool(self.ptt_until), "pulseMs": 1000}
             if path == "/api/status":
-                return 200, {"version": "preview", "ready": self.sd_ready, "meterReady": True,
+                return 200, {"version": "preview", "ready": self.sd_ready, "micReady": self.sd_ready,
+                             "recordSource": self.record_source, "meterReady": True,
                              "liveReady": True, "audioGpio": 1, "screenOffMinutes": self.screen_minutes,
                              "demoSeconds": (50062 + int(elapsed)) % 86400, "lowpass": self.lowpass,
                              "state": "recording" if self.recording else "idle", "stopping": False,
@@ -121,6 +128,14 @@ class PreviewDevice:
                 rms = int(35 + 20 * math.sin(elapsed * 2)) if self.signal_enabled else 0
                 return 200, {"enabled": self.signal_enabled, "active": self.signal_enabled,
                              "sequence": int(elapsed * 10), "rms": rms, "peak": rms * 3, "bias": 2048, "fault": 0}
+            if path == "/api/mic/signal":
+                if self.mic_signal_enabled:
+                    self.mic_signal_polled_at = time.monotonic()
+                active = self.mic_signal_enabled and (not self.recording or self.record_source == "microphone")
+                rms = int(1200 + 500 * math.sin(elapsed * 2)) if active else 0
+                return 200, {"enabled": self.mic_signal_enabled, "active": active,
+                             "sequence": int((time.monotonic() - self.mic_signal_started_at) * 10) if active else 0,
+                             "rms": rms, "peak": rms * 3, "fault": 0}
             if path in ("/api/recordings", "/api/files"):
                 if self.recording or not self.sd_ready:
                     return 409, "SD unavailable or recording in progress"
@@ -146,10 +161,11 @@ class PreviewDevice:
             if path == "/api/ptt-test/off":
                 self.ptt_until = 0
                 return 200, "PTT test off"
-            if path == "/api/start" or path == "/api/wifi-test":
+            if path in ("/api/start", "/api/mic/start", "/api/wifi-test"):
                 if not self.sd_ready or self.recording or self.playing:
                     return 409, "Recorder unavailable or busy"
                 self.recording = True
+                self.record_source = "microphone" if path == "/api/mic/start" else "adc"
                 if path == "/api/wifi-test":
                     self.auto_stop_at = time.monotonic() + 2
                 return 200, f"REC{self.record_number:05d}.wav"
@@ -162,7 +178,19 @@ class PreviewDevice:
                 self.lowpass = path.endswith("/on")
                 return 200, "OK"
             if path in ("/api/signal/on", "/api/signal/off"):
+                if path.endswith("/on") and self.mic_signal_enabled:
+                    return 409, "Microphone monitoring active"
                 self.signal_enabled = path.endswith("/on")
+                return 200, "OK"
+            if path in ("/api/mic/signal/on", "/api/mic/signal/off"):
+                if not self.sd_ready:
+                    return 503, "Microphone unavailable"
+                if path.endswith("/on"):
+                    if self.signal_enabled or (self.recording and self.record_source != "microphone"):
+                        return 409, "Audio monitoring busy"
+                    self.mic_signal_started_at = time.monotonic()
+                    self.mic_signal_polled_at = self.mic_signal_started_at
+                self.mic_signal_enabled = path.endswith("/on")
                 return 200, "OK"
             if path == "/api/settings":
                 screen = self.integer(params, "screenOffMinutes", 0, 999)

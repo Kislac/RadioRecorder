@@ -20,6 +20,7 @@ void printSetupStatus() {
   Serial.printf("Speaker: %s\n", playbackStatus().ready ? "ready" : "unavailable");
   Serial.printf("SD card: %s\n", appSdReady() ? "ready" : "unavailable");
   Serial.printf("ADC GPIO%d: %s\n", kAudioGpio, recorderAdcReady() ? "ready" : "unavailable");
+  Serial.printf("I2S microphone GPIO6/7/8: %s\n", recorderMicReady() ? "initialized" : "unavailable");
   Serial.printf("Recorder: %s\n", appSdReady() && recorderTaskReady() ? "ready" : "unavailable");
   Serial.printf("OLED: %s\n", displayReady() ? "ready" : "unavailable (check GPIO4/5, 3V3, GND and I2C address)");
   Serial.printf("Wi-Fi mode: %s\n", wifiManagerModeName().c_str());
@@ -94,6 +95,7 @@ void setup() {
   appSetSdReady(sdReady);
   if (sdReady) recorderSetRecordingsPresent(hasRecordings());
   initRecorderAdc();
+  initRecorderMic();
   initPlayback(sdReady);
   initRecorderTask();
   if (recorderTaskReady()) initLiveAudio();

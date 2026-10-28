@@ -16,6 +16,7 @@
       <p class="note" id="demoClock">DEMO 13:54:22</p>
       <p class="state" id="state">Kapcsolódás...</p>
       <button id="toggle" disabled>Felvétel indítása</button>
+      <button id="micToggle" disabled>Mikrofonfelvétel indítása</button>
       <button id="wifiTest" disabled>Wi-Fi zajteszt</button>
       <p class="note" id="message"></p>
       <label class="filtercontrol"
@@ -39,6 +40,19 @@
         ></canvas>
         <div class="legend">
           <b>RMS</b><b>Csúcs</b><span>ADC egység / 30 s</span>
+        </div>
+      </div>
+    </section>
+    <section>
+      <div class="signalbar">
+        <h2>Mikrofon jel</h2>
+        <button id="micSignalToggle" disabled>Mérés bekapcsolása</button>
+      </div>
+      <p id="micSignalValues" class="signalvalues">Kikapcsolva</p>
+      <div id="micSignalPlot" hidden>
+        <canvas id="micSignalChart" aria-label="Mikrofon RMS és csúcs idősor" role="img"></canvas>
+        <div class="legend">
+          <b>RMS</b><b>Csúcs</b><span>16 bites PCM / 30 s</span>
         </div>
       </div>
     </section>

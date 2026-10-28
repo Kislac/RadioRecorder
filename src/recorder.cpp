@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstring>
 #include "esp_adc/adc_continuous.h"
+#include "driver/i2s_std.h"
 #include "live_audio.h"
 #include "playback.h"
 #include "wav.h"
@@ -12,6 +13,7 @@
 static constexpr size_t kDmaBufferSize = 4096;
 static constexpr uint32_t kMaxWavBytes = 0xffffffffU - 44;
 static adc_continuous_handle_t adcHandle = nullptr;
+static i2s_chan_handle_t micHandle = nullptr;
 static adc_channel_t audioChannel;
 static TaskHandle_t recorderTask = nullptr;
 static std::atomic<bool> stopRequested{false};
@@ -26,19 +28,30 @@ static std::atomic<uint16_t> signalRms{0};
 static std::atomic<uint16_t> signalPeak{0};
 static std::atomic<uint16_t> signalBias{0};
 static std::atomic<uint8_t> signalFault{0};
+static std::atomic<bool> micSignalEnabled{false};
+static std::atomic<bool> micSignalActive{false};
+static std::atomic<uint32_t> micSignalLastPoll{0};
+static std::atomic<uint32_t> micSignalSequence{0};
+static std::atomic<uint16_t> micSignalRms{0};
+static std::atomic<uint16_t> micSignalPeak{0};
+static std::atomic<uint8_t> micSignalFault{0};
 static std::atomic<CaptureState> captureState{CaptureState::idle};
+static std::atomic<CaptureSource> captureSource{CaptureSource::adc};
 static std::atomic<uint32_t> recordingStartedAt{0};
 static std::atomic<bool> recordingsPresent{false};
 static bool adcReady = false;
+static bool micReady = false;
 static char recordingName[16] = {};
 static char lastError[80] = {};
 static uint8_t dmaBuffer[kDmaBufferSize];
 static uint8_t pcmBuffer[kDmaBufferSize / 2];
 
 bool recorderAdcReady() { return adcReady; }
+bool recorderMicReady() { return micReady; }
 bool recorderTaskReady() { return recorderTask != nullptr; }
 void recorderNotify() { if (recorderTask) xTaskNotifyGive(recorderTask); }
 CaptureState recorderState() { return captureState.load(); }
+CaptureSource recorderSource() { return captureSource.load(); }
 bool recorderStopping() { return stopRequested.load(); }
 const char *recorderName() { return recordingName; }
 const char *recorderError() { return lastError; }
@@ -92,6 +105,7 @@ SignalStatus recorderSignalStatus() {
 }
 
 void recorderSetSignal(bool enabled) {
+  if (enabled && micSignalEnabled.load()) return;
   if (enabled) {
     signalSequence.store(0);
     signalFault.store(0);
@@ -101,10 +115,30 @@ void recorderSetSignal(bool enabled) {
   recorderNotify();
 }
 
+SignalStatus recorderMicSignalStatus() {
+  if (micSignalEnabled.load()) micSignalLastPoll.store(millis());
+  return {micSignalEnabled.load(), micSignalActive.load(), micSignalSequence.load(), micSignalRms.load(),
+          micSignalPeak.load(), 0, micSignalFault.load()};
+}
+
+bool recorderSetMicSignal(bool enabled) {
+  if (enabled && (!micReady || !recorderTask || signalEnabled.load() || serialMeterEnabled.load() ||
+                  liveAudioClient() >= 0 || (captureState.load() != CaptureState::idle &&
+                  captureSource.load() != CaptureSource::microphone))) return false;
+  if (enabled) {
+    micSignalSequence.store(0);
+    micSignalFault.store(0);
+    micSignalLastPoll.store(millis());
+  } else micSignalActive.store(false);
+  micSignalEnabled.store(enabled);
+  recorderNotify();
+  return true;
+}
+
 bool recorderSerialMeterEnabled() { return serialMeterEnabled.load(); }
 
 bool recorderSetSerialMeter(bool enabled) {
-  if (enabled && (!adcReady || recorderTask == nullptr)) {
+  if (enabled && (!adcReady || recorderTask == nullptr || micSignalEnabled.load())) {
     Serial.println("ADC meres nem elerheto");
     return false;
   }
@@ -155,6 +189,44 @@ struct SignalWindow {
   uint16_t peak = 0;
 };
 
+bool micSignalRequested() {
+  if (!micSignalEnabled.load()) return false;
+  if (static_cast<uint32_t>(millis() - micSignalLastPoll.load()) <= 4000) return true;
+  micSignalEnabled.store(false);
+  micSignalActive.store(false);
+  return false;
+}
+
+void addMicSignalSample(SignalWindow &window, int16_t sample) {
+  uint16_t amplitude = abs(static_cast<int32_t>(sample));
+  window.squares += static_cast<uint32_t>(amplitude) * amplitude;
+  if (amplitude > window.peak) window.peak = amplitude;
+  if (++window.samples >= kSampleRate / 10) {
+    micSignalRms.store(static_cast<uint16_t>(sqrtf(static_cast<float>(window.squares) / window.samples)));
+    micSignalPeak.store(window.peak);
+    micSignalSequence.fetch_add(1);
+    window = {};
+  }
+}
+
+esp_err_t readMicFrame(SignalWindow &window, size_t &pcmLength) {
+  size_t length = 0;
+  esp_err_t result = i2s_channel_read(micHandle, dmaBuffer, sizeof(dmaBuffer), &length, 100);
+  if (result != ESP_OK) return result;
+  if (!length || length % (2 * sizeof(int32_t)) != 0) return ESP_FAIL;
+  bool publishSignal = micSignalRequested();
+  pcmLength = 0;
+  for (size_t offset = 0; offset < length; offset += 2 * sizeof(int32_t)) {
+    int32_t sample;
+    memcpy(&sample, dmaBuffer + offset, sizeof(sample));
+    int16_t pcm = static_cast<int16_t>(sample >> 16);
+    put16(pcmBuffer + pcmLength, static_cast<uint16_t>(pcm));
+    pcmLength += 2;
+    if (publishSignal) addMicSignalSample(window, pcm);
+  }
+  return ESP_OK;
+}
+
 bool signalRequested() {
   if (serialMeterEnabled.load()) return true;
   if (!signalEnabled.load()) return false;
@@ -186,14 +258,16 @@ bool nextRecordingName() {
   return false;
 }
 
-bool recorderStart(bool sdAvailable) {
-  if (!sdAvailable || !adcReady || recorderTask == nullptr || captureState.load() != CaptureState::idle) return false;
+bool recorderStart(bool sdAvailable, CaptureSource source) {
+  if (!sdAvailable || !(source == CaptureSource::adc ? adcReady : micReady) || recorderTask == nullptr ||
+      captureState.load() != CaptureState::idle) return false;
   if (!nextRecordingName()) {
     snprintf(lastError, sizeof(lastError), "No free recording filename");
     return false;
   }
   lastError[0] = '\0';
   stopRequested.store(false);
+  captureSource.store(source);
   captureState.store(CaptureState::starting);
   xTaskNotifyGive(recorderTask);
   return true;
@@ -298,9 +372,37 @@ void monitorIdle() {
   signalActive.store(false);
 }
 
+void monitorMicIdle() {
+  if (i2s_channel_enable(micHandle) != ESP_OK) {
+    micSignalFault.store(1);
+    micSignalEnabled.store(false);
+    return;
+  }
+  micSignalActive.store(true);
+  SignalWindow window;
+  while (micSignalRequested() && captureState.load() == CaptureState::idle) {
+    watchdogResetCurrentTask();
+    size_t pcmLength = 0;
+    esp_err_t result = readMicFrame(window, pcmLength);
+    if (result == ESP_ERR_TIMEOUT) continue;
+    if (result != ESP_OK) {
+      micSignalFault.store(2);
+      micSignalEnabled.store(false);
+      break;
+    }
+  }
+  i2s_channel_disable(micHandle);
+  micSignalActive.store(false);
+}
+
 void recordLoop(void *) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (captureState.load() == CaptureState::idle && micSignalRequested()) {
+      bool monitorWatchdog = watchdogSubscribeCurrentTask();
+      monitorMicIdle();
+      watchdogUnsubscribeCurrentTask(monitorWatchdog);
+    }
     if (captureState.load() == CaptureState::idle && (signalRequested() || liveAudioClient() >= 0)) {
       bool monitorWatchdog = watchdogSubscribeCurrentTask();
       monitorIdle();
@@ -308,6 +410,8 @@ void recordLoop(void *) {
     }
     if (captureState.load() != CaptureState::starting) continue;
     bool recordingWatchdog = watchdogSubscribeCurrentTask();
+    CaptureSource source = captureSource.load();
+    bool microphone = source == CaptureSource::microphone;
     adcOverflow.store(false, std::memory_order_relaxed);
     String path = String("/") + recordingName;
     File file = SD_MMC.open(path, FILE_WRITE);
@@ -316,20 +420,38 @@ void recordLoop(void *) {
     bool valid = false;
     if (!file || !writeWavHeader(file, 0)) {
       snprintf(lastError, sizeof(lastError), "Cannot create WAV file");
-    } else if (adc_continuous_flush_pool(adcHandle) != ESP_OK || adc_continuous_start(adcHandle) != ESP_OK) {
-      snprintf(lastError, sizeof(lastError), "Cannot start ADC");
+    } else if (microphone ? i2s_channel_enable(micHandle) != ESP_OK :
+               adc_continuous_flush_pool(adcHandle) != ESP_OK || adc_continuous_start(adcHandle) != ESP_OK) {
+      snprintf(lastError, sizeof(lastError), microphone ? "Cannot start microphone" : "Cannot start ADC");
     } else {
       started = true;
-      signalActive.store(true);
+      if (!microphone) signalActive.store(true);
       recordingStartedAt.store(millis());
       captureState.store(CaptureState::recording);
-      Serial.printf("Recording started: %s\n", recordingName);
+      Serial.printf("Recording started: %s (%s)\n", recordingName, microphone ? "microphone" : "ADC");
       playbackPlayCue(PlaybackCue::recordingStarted);
       float dcLevel = 2048.0f;
       SignalWindow window;
+      SignalWindow micWindow;
       AudioLowpass lowpass;
       while (!stopRequested.load()) {
         if (recordingWatchdog) watchdogResetCurrentTask();
+        if (microphone) {
+          micSignalActive.store(micSignalRequested());
+          size_t pcmLength = 0;
+          esp_err_t result = readMicFrame(micWindow, pcmLength);
+          if (result == ESP_ERR_TIMEOUT) continue;
+          if (result != ESP_OK) {
+            snprintf(lastError, sizeof(lastError), "Microphone read failed");
+            break;
+          }
+          if (dataBytes > kMaxWavBytes - pcmLength || file.write(pcmBuffer, pcmLength) != pcmLength) {
+            snprintf(lastError, sizeof(lastError), "SD write failed or WAV size limit reached");
+            break;
+          }
+          dataBytes += pcmLength;
+          continue;
+        }
         bool publishSignal = signalRequested();
         if (adcOverflow.load(std::memory_order_relaxed)) {
           snprintf(lastError, sizeof(lastError), "ADC buffer overflow: samples lost");
@@ -366,8 +488,8 @@ void recordLoop(void *) {
       }
     }
     if (started) {
-      adc_continuous_stop(adcHandle);
-      signalActive.store(false);
+      if (microphone) { i2s_channel_disable(micHandle); micSignalActive.store(false); }
+      else { adc_continuous_stop(adcHandle); signalActive.store(false); }
     }
     if (adcOverflow.load(std::memory_order_relaxed) && !lastError[0]) {
       snprintf(lastError, sizeof(lastError), "ADC buffer overflow: samples lost");
@@ -389,7 +511,7 @@ void recordLoop(void *) {
     captureState.store(CaptureState::idle);
     if (started) playbackPlayCue(PlaybackCue::recordingStopped);
     watchdogUnsubscribeCurrentTask(recordingWatchdog);
-    if (signalRequested() || liveAudioClient() >= 0) xTaskNotifyGive(recorderTask);
+    if (signalRequested() || micSignalRequested() || liveAudioClient() >= 0) xTaskNotifyGive(recorderTask);
   }
 }
 
@@ -427,8 +549,25 @@ bool initRecorderAdc() {
   return adcReady;
 }
 
+bool initRecorderMic() {
+  i2s_chan_config_t channel = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+  if (i2s_new_channel(&channel, nullptr, &micHandle) != ESP_OK) return false;
+  i2s_std_config_t config = {};
+  config.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(kSampleRate);
+  config.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO);
+  config.gpio_cfg.mclk = I2S_GPIO_UNUSED;
+  config.gpio_cfg.bclk = GPIO_NUM_6;
+  config.gpio_cfg.ws = GPIO_NUM_7;
+  config.gpio_cfg.dout = I2S_GPIO_UNUSED;
+  config.gpio_cfg.din = GPIO_NUM_8;
+  micReady = i2s_channel_init_std_mode(micHandle, &config) == ESP_OK &&
+             gpio_set_pull_mode(GPIO_NUM_8, GPIO_PULLDOWN_ONLY) == ESP_OK;
+  if (!micReady) { i2s_del_channel(micHandle); micHandle = nullptr; }
+  return micReady;
+}
+
 void initRecorderTask() {
-  if (adcReady && xTaskCreatePinnedToCore(recordLoop, "recorder", 8192, nullptr, 2, &recorderTask, 1) != pdPASS) {
+  if ((adcReady || micReady) && xTaskCreatePinnedToCore(recordLoop, "recorder", 8192, nullptr, 2, &recorderTask, 1) != pdPASS) {
     Serial.println("Cannot create recorder task");
   }
 }

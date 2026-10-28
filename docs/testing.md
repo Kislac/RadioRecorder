@@ -30,6 +30,14 @@ Run `python -m scripts.test_device --record` only when an SD write is intended. 
 
 Run `python -m scripts.test_device --display-only` for the display-only test. It checks OLED readiness, captures every home tile and each of the eight settings rows, rejects blank or visually duplicate views, and restores the original tile without toggling settings or writing to SD.
 
+### INMP441-M mikrofon (SD-írás csak opt-in)
+
+Az I2S0 mikrofon bekötése: BCLK=GPIO6, WS=GPIO7, SD=GPIO8, VDD=3V3 és közös GND. Az L/R láb GND-re van kötve; a firmware a 32 bites sztereó I2S-adat **bal csatornáját** menti 22 050 Hz-es, 16 bites mono PCM WAV-ként. Ellenőrizd a GPIO6–8 szabad kivezetéseit és a kamera leválasztását. A soros `i` státuszban az „I2S microphone GPIO6/7/8: initialized” csak a periféria inicializálását jelzi, a hangminőséget vagy a tényleges bekötést nem.
+
+A webes **Mikrofon jel** gomb csak I2S-mintavételt indít; SD-t nem ír és nem indít PTT-t. A `GET /api/mic/signal` az `enabled`, `active`, `sequence`, `rms`, `peak` és `fault` mezőket adja, a `POST /api/mic/signal/on` és `/off` kapcsolja. RMS/csúcs: 100 ms-os ablakok, 16 bites PCM-egység. Mikrofonfelvétel közben ugyanaz a minta frissíti a kijelzést. Négy másodperc lekérdezés nélkül a mintavétel leáll. Az ADC grafikon/soros mérés és az ADC élő hallgatás mellett a mikrofonmérés nem indítható (HTTP 409). Offline ellenőrzés: `python -m unittest test.test_web_preview -v`; az előnézet szintértékei szimuláltak. Új firmware feltöltése és valódi mikrofonmérés csak külön engedéllyel, a rádió leválasztása és a COM port kizárólagos használata mellett; hangszintet fizikai mérés nélkül ne tekints igazoltnak.
+
+A read-only és a display-only teszt **nem indít mikrofonfelvételt**. A mikrofon az OLED **Mikrofon** csempén rövid nyomással, vagy a webes főoldal **Mikrofonfelvétel indítása** gombjával (`POST /api/mic/start`) indul; ugyanott újabb nyomással, illetve `POST /api/stop` paranccsal állítható le. Csak az egyik forrás rögzíthet egyszerre, és mikrofonfelvétel nem indul aktív élő ADC-hallgatás közben. A lezárt WAV a szokásos felvétellistában jelenik meg. SD-írásra és a próba pontos fájlnevének törlésére **külön engedéllyel** indíts rövid felvételt, majd ellenőrizd a fejlécet, a nem nulla hangadatot és a hallható beszédet. A hálózati AP-tesztet VPN mellett hagyd ki; a localhost előnézet tesztje nem csatlakozik az ESP-hez.
+
 ## Screen timeout
 
 The OLED shows the previous project's built-in 128x64 ClearSky splash during boot, then returns to the home screen. A short firmware-generated startup melody plays through the I2S speaker; no SD file is read. Successful recording start and stop events play separate short melodies through the same firmware-generated path.

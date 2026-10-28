@@ -9,7 +9,7 @@ from scripts.test_support import TestRun, firmware_at_least
 
 
 SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+) \(ADC\)")
-DISPLAY_TILES = ("Felvetel", "Fajlok", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Wi-Fi", "Beallitasok")
+DISPLAY_TILES = ("Felvetel", "Mikrofon", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Wi-Fi", "Beallitasok")
 SETTING_COUNT = 8
 
 
@@ -73,6 +73,9 @@ def valid_signal(lines):
 
 def test_signal(device, report):
     state = menu_state(device)
+    if state[4]:
+        device.write(b"j")
+        state = menu_state(device)
     while state[2] or state[3]:
         device.write(b"b")
         state = menu_state(device)
