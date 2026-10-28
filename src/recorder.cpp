@@ -5,6 +5,7 @@
 #include "esp_adc/adc_continuous.h"
 #include "driver/i2s_std.h"
 #include "live_audio.h"
+#include "app_control.h"
 #include "playback.h"
 #include "wav.h"
 #include "recorder.h"
@@ -41,7 +42,7 @@ static std::atomic<uint32_t> recordingStartedAt{0};
 static std::atomic<bool> recordingsPresent{false};
 static bool adcReady = false;
 static bool micReady = false;
-static char recordingName[16] = {};
+static char recordingName[64] = {};
 static char lastError[80] = {};
 static uint8_t dmaBuffer[kDmaBufferSize];
 static uint8_t pcmBuffer[kDmaBufferSize / 2];
@@ -59,13 +60,23 @@ bool recorderHasRecordings() { return recordingsPresent.load(); }
 void recorderSetRecordingsPresent(bool present) { recordingsPresent.store(present); }
 
 static bool isRecordingName(const char *filename) {
-  if (!filename || strlen(filename) != 12 || strncmp(filename, "REC", 3) != 0 || strcmp(filename + 8, ".wav") != 0) {
-    return false;
+  if (!filename) return false;
+  if (strlen(filename) == 12 && strncmp(filename, "REC", 3) == 0 && strcmp(filename + 8, ".wav") == 0) {
+    for (uint8_t index = 3; index < 8; ++index) if (!isDigit(filename[index])) return false;
+    return true;
   }
-  for (uint8_t index = 3; index < 8; ++index) {
-    if (filename[index] < '0' || filename[index] > '9') return false;
-  }
-  return true;
+  if (strlen(filename) < 35 || filename[0] != '/' || filename[5] != '-' || filename[8] != '-' ||
+      filename[11] != '/' || strcmp(filename + strlen(filename) - 4, ".wav") != 0) return false;
+  for (int index : {1, 2, 3, 4, 6, 7, 9, 10}) if (!isDigit(filename[index])) return false;
+  const char *name = filename + 12;
+  if (strncmp(name, "RadioMan", 8) == 0 || strncmp(name, "RadioAut", 8) == 0) name += 8;
+  else if (strncmp(name, "MicMan", 6) == 0 || strncmp(name, "MicAut", 6) == 0) name += 6;
+  else return false;
+  if (strlen(name) != 17 && strlen(name) != 20) return false;
+  for (int index : {0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12}) if (!isDigit(name[index])) return false;
+  if (name[6] != '_' || strncmp(filename + 3, name + 0, 2) != 0 ||
+      strncmp(filename + 6, name + 2, 2) != 0 || strncmp(filename + 9, name + 4, 2) != 0) return false;
+  return strlen(name) == 17 || (name[13] == '_' && isDigit(name[14]) && isDigit(name[15]));
 }
 
 static bool hasAnyRecording() {
@@ -75,8 +86,19 @@ static bool hasAnyRecording() {
   File entry;
   while ((entry = root.openNextFile())) {
     String name = entry.name();
-    name = name.substring(name.lastIndexOf('/') + 1);
-    found = !entry.isDirectory() && entry.size() >= 44 && isRecordingName(name.c_str());
+    if (entry.isDirectory()) {
+      String folder = name.startsWith("/") ? name : "/" + name;
+      File directory = SD_MMC.open(folder);
+      File child;
+      while (directory && (child = directory.openNextFile())) {
+        String childName = child.name();
+        String path = folder + "/" + childName.substring(childName.lastIndexOf('/') + 1);
+        found = !child.isDirectory() && child.size() >= 44 && isRecordingName(path.c_str());
+        child.close();
+        if (found) break;
+      }
+      directory.close();
+    } else found = entry.size() >= 44 && isRecordingName(name.substring(name.lastIndexOf('/') + 1).c_str());
     entry.close();
     if (found) break;
   }
@@ -88,10 +110,10 @@ bool recorderDeleteRecording(const char *filename) {
   if (captureState.load() != CaptureState::idle || !isRecordingName(filename)) {
     return false;
   }
-  String path = String("/") + filename;
+  String path = filename[0] == '/' ? String(filename) : String("/") + filename;
   if (!SD_MMC.exists(path) || !SD_MMC.remove(path) || SD_MMC.exists(path)) return false;
   recordingsPresent.store(hasAnyRecording());
-  if (strcmp(filename, recordingName) == 0) recordingName[0] = '\0';
+  if (path == recordingName) recordingName[0] = '\0';
   return true;
 }
 
@@ -250,10 +272,20 @@ void addSignalSample(SignalWindow &window, uint16_t raw, int32_t centered) {
 }
 
 
-bool nextRecordingName() {
-  for (uint32_t number = 1; number <= 99999; ++number) {
-    snprintf(recordingName, sizeof(recordingName), "REC%05lu.wav", static_cast<unsigned long>(number));
-    if (!SD_MMC.exists(String("/") + recordingName)) return true;
+bool nextRecordingName(CaptureSource source) {
+  tm local;
+  if (!appClockLocal(local)) return false;
+  char directory[12];
+  strftime(directory, sizeof(directory), "%Y-%m-%d", &local);
+  String folder = String("/") + directory;
+  if (!SD_MMC.exists(folder) && !SD_MMC.mkdir(folder)) return false;
+  char stamp[16];
+  strftime(stamp, sizeof(stamp), "%y%m%d_%H%M%S", &local);
+  const char *prefix = source == CaptureSource::microphone ? "MicMan" : "RadioMan";
+  for (unsigned int number = 0; number <= 99; ++number) {
+    snprintf(recordingName, sizeof(recordingName), number == 0 ? "/%s/%s%s.wav" : "/%s/%s%s_%02u.wav",
+             directory, prefix, stamp, number);
+    if (!SD_MMC.exists(recordingName)) return true;
   }
   return false;
 }
@@ -261,7 +293,7 @@ bool nextRecordingName() {
 bool recorderStart(bool sdAvailable, CaptureSource source) {
   if (!sdAvailable || !(source == CaptureSource::adc ? adcReady : micReady) || recorderTask == nullptr ||
       captureState.load() != CaptureState::idle) return false;
-  if (!nextRecordingName()) {
+  if (!nextRecordingName(source)) {
     snprintf(lastError, sizeof(lastError), "No free recording filename");
     return false;
   }
@@ -304,7 +336,7 @@ void pollSerialMeter() {
   if (sequence == lastSequence) return;
   lastSequence = sequence;
   lastPrintAt = millis();
-  char recordingLabel[64] = {};
+  char recordingLabel[96] = {};
   if (captureState.load() == CaptureState::recording) {
     uint32_t elapsedMs = lastPrintAt - recordingStartedAt.load();
     snprintf(recordingLabel, sizeof(recordingLabel), "REC %s | t=%lu.%03lu s | ", recordingName,
@@ -413,7 +445,7 @@ void recordLoop(void *) {
     CaptureSource source = captureSource.load();
     bool microphone = source == CaptureSource::microphone;
     adcOverflow.store(false, std::memory_order_relaxed);
-    String path = String("/") + recordingName;
+    String path = recordingName;
     File file = SD_MMC.open(path, FILE_WRITE);
     uint32_t dataBytes = 0;
     bool started = false;

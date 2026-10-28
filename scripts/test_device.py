@@ -120,7 +120,7 @@ def test_signal(device, report):
 
 
 def delete_test_recording(device, filename, report=None):
-    if not re.fullmatch(r"REC\d{5}\.wav", filename):
+    if not re.fullmatch(r"/\d{4}-\d{2}-\d{2}/RadioMan\d{6}_\d{6}(?:_\d{2})?\.wav", filename):
         raise ValueError("Refusing non-recording filename: " + filename)
     device.write(b"x")
     read_until(device, lambda line: line.startswith("Delete test WAV:"), timeout=3, report=report)
@@ -133,15 +133,15 @@ def delete_test_recording(device, filename, report=None):
 
 
 def test_recording(device, report, firmware_version):
-    if not firmware_at_least(firmware_version, (0, 1, 26)):
-        raise RuntimeError("record-and-delete requires firmware 0.1.26 or newer; found " + firmware_version)
+    if not firmware_at_least(firmware_version, (0, 1, 43)):
+        raise RuntimeError("record-and-delete requires firmware 0.1.43 or newer; found " + firmware_version)
     device.write(b"r")
     started = read_until(device, lambda line: line.startswith(("Recording started:", "Recording failed:",
                                                                "Cannot start recording")), timeout=5, report=report)
     if not started[-1].startswith("Recording started:"):
         raise AssertionError("Recording could not start: " + repr(started))
     start_line = next(line for line in started if line.startswith("Recording started:"))
-    filename = start_line.split(":", 1)[1].strip()
+    filename = start_line.split(":", 1)[1].strip().split(" ", 1)[0]
     try:
         time.sleep(1)
     finally:

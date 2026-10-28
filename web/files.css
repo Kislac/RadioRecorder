@@ -79,6 +79,17 @@ button:hover {
   padding-bottom: 12px;
   gap: 12px;
 }
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.toolbar-actions a {
+  color: white;
+  background: var(--ink);
+  padding: 9px 14px;
+  text-decoration: none;
+}
 button {
   cursor: pointer;
   background: var(--ink);
@@ -120,6 +131,16 @@ button:disabled {
   flex-shrink: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+.actions button,
+.actions a {
+  font-size: 13px;
+  padding: 7px 9px;
+  white-space: nowrap;
+}
+.actions a {
+  border: 1px solid var(--ink);
+  text-decoration: none;
 }
 audio {
   width: min(100%, 400px);

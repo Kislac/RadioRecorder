@@ -4,6 +4,7 @@
 #include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <cJSON.h>
+#include <functional>
 #include "web_server.h"
 #include "web_pages.h"
 #include "wav.h"
@@ -14,6 +15,7 @@
 #include "display.h"
 #include "wifi_manager.h"
 #include "ptt_test.h"
+#include "watchdog.h"
 
 static WebServer server(80);
 static WebSocketsServer audioSocket(81);
@@ -52,11 +54,27 @@ static void sendLiveFrames() {
 
 
 bool isRecordingFile(const String &name) {
-  if (name.length() != 12) return false;
   String upper = name;
   upper.toUpperCase();
-  if (!upper.startsWith("REC") || !upper.endsWith(".WAV")) return false;
-  for (int index = 3; index < 8; ++index) if (!isDigit(name[index])) return false;
+  if (!upper.endsWith(".WAV")) return false;
+  if (upper.length() == 12 && upper.startsWith("REC")) {
+    for (int index = 3; index < 8; ++index) if (!isDigit(name[index])) return false;
+    return true;
+  }
+  size_t prefix = 0;
+  if (upper.startsWith("RADIOMAN") || upper.startsWith("RADIOAUT")) prefix = 8;
+  else if (upper.startsWith("MICMAN") || upper.startsWith("MICAUT")) prefix = 6;
+  if (!prefix || (name.length() != prefix + 17 && name.length() != prefix + 20)) return false;
+  for (int index : {0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12})
+    if (!isDigit(name[prefix + index])) return false;
+  if (name[prefix + 6] != '_') return false;
+  return name.length() == prefix + 17 ||
+         (name[prefix + 13] == '_' && isDigit(name[prefix + 14]) && isDigit(name[prefix + 15]));
+}
+
+bool isDatedFolder(const String &name) {
+  if (name.length() != 10 || name[4] != '-' || name[7] != '-') return false;
+  for (int index : {0, 1, 2, 3, 5, 6, 8, 9}) if (!isDigit(name[index])) return false;
   return true;
 }
 
@@ -65,16 +83,40 @@ String fileName(const File &file) {
   return name.substring(name.lastIndexOf('/') + 1);
 }
 
-bool hasRecordings() {
+bool visitRecordings(const std::function<bool(const String &, size_t)> &visit) {
   File directory = SD_MMC.open("/");
   if (!directory) return false;
   File entry;
   while ((entry = directory.openNextFile())) {
-    bool found = !entry.isDirectory() && isRecordingFile(fileName(entry)) && entry.size() >= 44;
+    String name = fileName(entry);
+    if (entry.isDirectory() && isDatedFolder(name)) {
+      String folder = "/" + name;
+      File dated = SD_MMC.open(folder);
+      File child;
+      while (dated && (child = dated.openNextFile())) {
+        if (!child.isDirectory() && child.size() >= 44 && isRecordingFile(fileName(child)) &&
+            !visit(folder + "/" + fileName(child), child.size())) {
+          child.close(); dated.close(); entry.close(); directory.close();
+          return true;
+        }
+        child.close();
+      }
+      dated.close();
+    } else if (!entry.isDirectory() && entry.size() >= 44 && isRecordingFile(name) &&
+               !visit("/" + name, entry.size())) {
+      entry.close(); directory.close();
+      return true;
+    }
     entry.close();
-    if (found) return true;
   }
-  return false;
+  directory.close();
+  return true;
+}
+
+bool hasRecordings() {
+  bool found = false;
+  visitRecordings([&found](const String &, size_t) { found = true; return false; });
+  return found;
 }
 
 void sendStatus() {
@@ -183,51 +225,31 @@ void sendRecordings() {
     return;
   }
   uint32_t offset = max(0L, server.arg("offset").toInt());
-  File directory = SD_MMC.open("/");
-  if (!directory) {
+  uint32_t total = 0;
+  if (!visitRecordings([&total](const String &, size_t) { ++total; return true; })) {
     server.send(500, "text/plain", "Cannot read SD card");
     return;
   }
-  uint32_t total = 0;
-  File entry;
-  while ((entry = directory.openNextFile())) {
-    if (!entry.isDirectory() && isRecordingFile(fileName(entry)) && entry.size() >= 44) ++total;
-    entry.close();
-  }
-  directory.close();
-
   const uint32_t end = offset < total ? total - offset : 0;
   const uint32_t start = end > 20 ? end - 20 : 0;
   String names[20];
+  String paths[20];
   size_t sizes[20];
   uint32_t index = 0;
   uint32_t shown = 0;
-  if (start < end) {
-    directory = SD_MMC.open("/");
-    if (!directory) {
-      server.send(500, "text/plain", "Cannot read SD card");
-      return;
+  if (start < end && !visitRecordings([&](const String &path, size_t size) {
+    if (index >= start && index < end) {
+      paths[shown] = path;
+      names[shown] = path.substring(path.lastIndexOf('/') + 1);
+      sizes[shown++] = size;
     }
-    while ((entry = directory.openNextFile())) {
-      String name = fileName(entry);
-      if (!entry.isDirectory() && isRecordingFile(name) && entry.size() >= 44) {
-        if (index >= start && index < end) {
-          names[shown] = name;
-          sizes[shown++] = entry.size();
-        }
-        if (++index >= end) {
-          entry.close();
-          break;
-        }
-      }
-      entry.close();
-    }
-    directory.close();
-  }
+    return ++index < end;
+  })) { server.send(500, "text/plain", "Cannot read SD card"); return; }
   String json = "{\"files\":[";
   for (uint32_t item = shown; item > 0; --item) {
     if (item < shown) json += ',';
-    json += "{\"name\":\"" + names[item - 1] + "\",\"bytes\":" + String(sizes[item - 1]) + "}";
+    json += "{\"name\":\"" + names[item - 1] + "\",\"path\":\"" + paths[item - 1] +
+            "\",\"bytes\":" + String(sizes[item - 1]) + "}";
   }
   json += offset + shown < total ? "],\"next\":" + String(offset + shown) + "}" : "],\"next\":null}";
   server.sendHeader("Cache-Control", "no-store");
@@ -310,6 +332,158 @@ void sendFiles() {
     server.send(500, "text/plain", "Cannot list SD card");
   }
   cJSON_Delete(result);
+}
+
+bool removeSdTree(const String &path, uint8_t depth) {
+  if (depth > 8) return false;
+  File directory = SD_MMC.open(path, FILE_READ);
+  if (!directory || !directory.isDirectory()) return false;
+  File child;
+  while ((child = directory.openNextFile())) {
+    String childPath = path + "/" + fileName(child);
+    bool nested = child.isDirectory();
+    child.close();
+    if (!safeSdPath(childPath) || !(nested ? removeSdTree(childPath, depth + 1) : SD_MMC.remove(childPath))) {
+      directory.close();
+      return false;
+    }
+    watchdogResetCurrentTask();
+  }
+  directory.close();
+  return SD_MMC.rmdir(path);
+}
+
+void deleteSdEntry() {
+  wifiManagerNotifyActivity();
+  String path = server.arg("path");
+  if (!safeSdPath(path) || path == "/" || server.arg("confirm") != "1") {
+    server.send(400, "text/plain", "Invalid path or missing confirmation");
+    return;
+  }
+  if (!appSdReady() || recorderState() != CaptureState::idle || playbackStatus().state != PlaybackState::idle) {
+    server.send(409, "text/plain", "SD, recorder or playback busy");
+    return;
+  }
+  File entry = SD_MMC.open(path, FILE_READ);
+  if (!entry) { server.send(404, "text/plain", "File or folder not found"); return; }
+  bool directory = entry.isDirectory();
+  entry.close();
+  bool removed = directory ? removeSdTree(path, 0) : SD_MMC.remove(path);
+  if (!removed) { server.send(500, "text/plain", "Cannot remove file or folder"); return; }
+  recorderSetRecordingsPresent(hasRecordings());
+  server.send(200, "application/json", "{\"deleted\":true}");
+}
+
+bool walkSdFolder(const String &folder, const String &prefix, uint8_t depth,
+                  const std::function<bool(File &, const String &)> &visit) {
+  if (depth > 8) return false;
+  File directory = SD_MMC.open(folder, FILE_READ);
+  if (!directory || !directory.isDirectory()) return false;
+  File child;
+  while ((child = directory.openNextFile())) {
+    String name = fileName(child);
+    String path = folder + "/" + name;
+    String relative = prefix + name;
+    bool nested = child.isDirectory();
+    bool valid = safeSdPath(path) && relative.length() <= 220;
+    if (nested) child.close();
+    if (valid) valid = nested ? walkSdFolder(path, relative + "/", depth + 1, visit) : visit(child, relative);
+    child.close();
+    if (!valid) { directory.close(); return false; }
+  }
+  directory.close();
+  return true;
+}
+
+uint32_t zipCrc(File &file) {
+  uint32_t crc = 0xffffffffU;
+  uint8_t buffer[1024];
+  while (file.available()) {
+    size_t read = file.read(buffer, sizeof(buffer));
+    if (!read) return 0;
+    for (size_t index = 0; index < read; ++index) {
+      crc ^= buffer[index];
+      for (uint8_t bit = 0; bit < 8; ++bit) crc = (crc >> 1) ^ (crc & 1 ? 0xedb88320U : 0);
+    }
+    watchdogResetCurrentTask();
+  }
+  return ~crc;
+}
+
+void zip16(WiFiClient &client, uint16_t value) {
+  uint8_t bytes[] = {static_cast<uint8_t>(value), static_cast<uint8_t>(value >> 8)};
+  client.write(bytes, sizeof(bytes));
+}
+
+void zip32(WiFiClient &client, uint32_t value) {
+  zip16(client, value);
+  zip16(client, value >> 16);
+}
+
+void zipName(WiFiClient &client, const String &name) {
+  client.write(reinterpret_cast<const uint8_t *>(name.c_str()), name.length());
+}
+
+void downloadSdFolder() {
+  wifiManagerNotifyActivity();
+  String folder = server.arg("path");
+  if (!safeSdPath(folder) || folder == "/") { server.send(400, "text/plain", "Invalid folder"); return; }
+  if (!appSdReady() || recorderState() != CaptureState::idle) {
+    server.send(409, "text/plain", "SD or recorder busy"); return;
+  }
+  File directory = SD_MMC.open(folder, FILE_READ);
+  if (!directory || !directory.isDirectory()) { server.send(404, "text/plain", "Folder not found"); return; }
+  directory.close();
+  String label = folder.substring(folder.lastIndexOf('/') + 1);
+  uint64_t dataSize = 0;
+  uint64_t centralSize = 0;
+  uint32_t count = 0;
+  bool valid = walkSdFolder(folder, label + "/", 0, [&](File &file, const String &name) {
+    dataSize += 30ULL + name.length() + file.size();
+    centralSize += 46ULL + name.length();
+    ++count;
+    return count <= 65535 && dataSize + centralSize + 22 <= 0xffffffffULL;
+  });
+  if (!valid) { server.send(413, "text/plain", "Folder too deep or ZIP too large"); return; }
+  server.sendHeader("Content-Disposition", "attachment; filename=\"" + label + ".zip\"");
+  server.sendHeader("Cache-Control", "no-store");
+  server.setContentLength(dataSize + centralSize + 22);
+  server.send(200, "application/zip", "");
+  WiFiClient client = server.client();
+  walkSdFolder(folder, label + "/", 0, [&](File &file, const String &name) {
+    uint32_t size = file.size();
+    uint32_t crc = zipCrc(file);
+    if (!file.seek(0)) return false;
+    zip32(client, 0x04034b50); zip16(client, 20); zip16(client, 0x0800);
+    zip16(client, 0); zip16(client, 0); zip16(client, 0);
+    zip32(client, crc); zip32(client, size); zip32(client, size);
+    zip16(client, name.length()); zip16(client, 0); zipName(client, name);
+    uint8_t buffer[1024];
+    while (file.available() && client.connected()) {
+      size_t read = file.read(buffer, sizeof(buffer));
+      if (!read || client.write(buffer, read) != read) return false;
+      watchdogResetCurrentTask();
+    }
+    return client.connected() != 0;
+  });
+  uint32_t offset = 0;
+  if (client.connected()) walkSdFolder(folder, label + "/", 0, [&](File &file, const String &name) {
+    uint32_t size = file.size();
+    uint32_t crc = zipCrc(file);
+    zip32(client, 0x02014b50); zip16(client, 20); zip16(client, 20); zip16(client, 0x0800);
+    zip16(client, 0); zip16(client, 0); zip16(client, 0);
+    zip32(client, crc); zip32(client, size); zip32(client, size);
+    zip16(client, name.length()); zip16(client, 0); zip16(client, 0);
+    zip16(client, 0); zip16(client, 0); zip32(client, 0); zip32(client, offset);
+    zipName(client, name);
+    offset += 30 + name.length() + size;
+    return client.connected() != 0;
+  });
+  if (client.connected()) {
+    zip32(client, 0x06054b50); zip16(client, 0); zip16(client, 0);
+    zip16(client, count); zip16(client, count);
+    zip32(client, centralSize); zip32(client, dataSize); zip16(client, 0);
+  }
 }
 
 void sendSignal() {
@@ -643,6 +817,8 @@ void initWeb() {
   });
   server.on("/api/recordings", HTTP_GET, sendRecordings);
   server.on("/api/files", HTTP_GET, sendFiles);
+  server.on("/api/files/delete", HTTP_POST, deleteSdEntry);
+  server.on("/api/files/download", HTTP_GET, downloadSdFolder);
   server.on("/api/signal", HTTP_GET, sendSignal);
   server.on("/api/signal/off", HTTP_POST, []() { wifiManagerNotifyActivity(); setSignal(false); });
   server.on("/api/signal/on", HTTP_POST, []() { wifiManagerNotifyActivity(); setSignal(true); });

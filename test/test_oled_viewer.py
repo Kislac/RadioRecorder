@@ -172,9 +172,9 @@ class FrameTests(unittest.TestCase):
         self.assertFalse(firmware_at_least("unknown", (0, 1, 26)))
 
     def test_test_recording_delete_uses_exact_filename(self):
-        filename = "REC00042.wav"
-        device = FakeDevice(b"Delete test WAV: send exact RECxxxxx.wav filename\n",
-                            b"Test WAV deleted: REC00042.wav\n")
+        filename = "/2026-10-28/RadioMan261028_232530.wav"
+        device = FakeDevice(b"Delete test WAV: send exact recording path\n",
+                            b"Test WAV deleted: /2026-10-28/RadioMan261028_232530.wav\n")
         self.assertEqual(delete_test_recording(device, filename), "removed " + filename)
         self.assertEqual(device.commands, [b"x", filename.encode() + b"\n"])
 
@@ -182,6 +182,8 @@ class FrameTests(unittest.TestCase):
         device = FakeDevice()
         with self.assertRaises(ValueError):
             delete_test_recording(device, "../REC00042.wav")
+        with self.assertRaises(ValueError):
+            delete_test_recording(device, "/2026-10-28/MicMan261028_232530.wav")
         self.assertEqual(device.commands, [])
 
     def test_test_run_summary_is_saved_to_log(self):

@@ -53,7 +53,7 @@ function renderDemoClock() {
     (demoBase + Math.floor((performance.now() - demoSyncedAt) / 1000)) % 86400;
   document.querySelector("#demoClock").textContent =
     (clockSource === "unset" ? "IDŐ NINCS" :
-      ({ internet: "NTP ", manual: "KÉZI ", saved: "MENTETT " })[clockSource] || "") +
+      ({ internet: "NTP ", manual: "KÉZI ", saved: "MENTETT ", default: "ALAP " })[clockSource] || "") +
     (clockSource === "unset" ? "" :
     [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
       .map((value) => String(value).padStart(2, "0"))
@@ -498,16 +498,16 @@ async function list(reset) {
       const audio = document.createElement("audio");
       audio.controls = true;
       audio.preload = "none";
-      audio.src = "/file?name=" + encodeURIComponent(item.name);
+      audio.src = "/file?path=" + encodeURIComponent(item.path || "/" + item.name);
       info.append(title, size, audio);
       const actions = document.createElement("div");
       actions.className = "fileactions";
       const espPlay = document.createElement("button");
       espPlay.type = "button";
-      espPlay.dataset.espPlay = "/" + item.name;
+      espPlay.dataset.espPlay = item.path || "/" + item.name;
       espPlay.textContent = "ESP-n lejátszás";
       espPlay.title = "Lejátszás az ESP hangszóróján";
-      espPlay.addEventListener("click", () => playOnEsp("/" + item.name));
+      espPlay.addEventListener("click", () => playOnEsp(item.path || "/" + item.name));
       const download = document.createElement("a");
       download.href = audio.src + "&download=1";
       download.download = item.name;

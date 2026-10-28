@@ -30,7 +30,7 @@ function renderDemoClock() {
     (demoBase + Math.floor((performance.now() - demoSyncedAt) / 1000)) % 86400;
   document.querySelector("#demoClock").textContent =
     (clockSource === "unset" ? "IDŐ NINCS" :
-      ({ internet: "NTP ", manual: "KÉZI ", saved: "MENTETT " })[clockSource] || "") +
+      ({ internet: "NTP ", manual: "KÉZI ", saved: "MENTETT ", default: "ALAP " })[clockSource] || "") +
     (clockSource === "unset" ? "" :
     [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
       .map((value) => String(value).padStart(2, "0"))
@@ -161,6 +161,30 @@ function breadcrumbs() {
     crumbs.append(part);
   }
   document.querySelector("#location").textContent = folder;
+  const parent = document.querySelector("#parentFolder");
+  parent.hidden = folder === "/";
+  parent.href = link(folder.slice(0, folder.lastIndexOf("/")) || "/");
+}
+async function deleteEntry(item) {
+  const kind = item.directory ? "mappát és minden tartalmát" : "fájlt";
+  if (!confirm(`Biztosan törlöd a(z) ${item.name} ${kind}? Ez nem vonható vissza.`)) return;
+  try {
+    const response = await fetch("/api/files/delete?path=" + encodeURIComponent(item.path) + "&confirm=1", {
+      method: "POST",
+    });
+    if (!response.ok) throw Error(await response.text());
+    await load(true);
+  } catch (error) {
+    message.textContent = "Törlés sikertelen: " + error.message;
+  }
+}
+function actionButton(label, title, action) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.title = title;
+  button.addEventListener("click", action);
+  return button;
 }
 function render(item) {
   const row = document.createElement("li"),
@@ -180,16 +204,25 @@ function render(item) {
     : (item.bytes / 1024).toFixed(0) + " kB";
   info.append(name, meta);
   row.append(info);
-  if (!item.directory) {
-    const actions = document.createElement("div");
-    actions.className = "actions";
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  if (item.directory) {
+    const download = document.createElement("a");
+    download.href = "/api/files/download?path=" + encodeURIComponent(item.path);
+    download.textContent = "ZIP letöltése";
+    download.title = "Mappa letöltése ZIP fájlban";
+    actions.append(download);
+  } else {
     if (sound(item.name)) {
-      const play = document.createElement("button");
-      play.textContent = "Lejátszás";
-      play.addEventListener("click", () => {
-        if (info.querySelector("audio")) {
-          info.querySelector("audio").remove();
-          play.textContent = "Lejátszás";
+      const radio = actionButton("Rádión", "Rádiós lejátszás később", () => {});
+      radio.disabled = true;
+      actions.append(radio);
+      const play = actionButton("Telefonon", "Lejátszás ezen a készüléken", () => {
+        const existing = info.querySelector("audio");
+        if (existing) {
+          existing.pause();
+          existing.remove();
+          play.textContent = "Telefonon";
           return;
         }
         const audio = document.createElement("audio");
@@ -216,8 +249,9 @@ function render(item) {
     download.download = item.name;
     download.textContent = "Letöltés";
     actions.append(download);
-    row.append(actions);
   }
+  actions.append(actionButton("Törlés", "Végleges törlés megerősítéssel", () => deleteEntry(item)));
+  row.append(actions);
   listEl.append(row);
 }
 async function load(reset = false) {

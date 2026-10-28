@@ -31,7 +31,7 @@ void printSetupStatus() {
 }
 
 static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &button, bool &frameRequested) {
-  static char deleteFilename[13] = {};
+  static char deleteFilename[64] = {};
   static uint8_t deleteFilenameLength = 0;
   static bool receivingDeleteFilename = false;
   static bool deleteFilenameOverflow = false;
@@ -54,7 +54,7 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
     deleteFilenameLength = 0;
     deleteFilenameOverflow = false;
     receivingDeleteFilename = true;
-    Serial.println("Delete test WAV: send exact RECxxxxx.wav filename");
+    Serial.println("Delete test WAV: send exact recording path");
     return;
   }
   if (command == 'w') {

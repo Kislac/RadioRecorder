@@ -25,7 +25,8 @@ function showClock(clock) {
   clockZone.value = String(clock.zone);
   clockCurrent.textContent = clock.local ? clock.local.replace("T", " ") : "Az idő nincs beállítva";
   clockStatus.textContent = ({ internet: "Internetről szinkronizálva", manual: "Kézzel beállítva",
-    saved: "Mentett idő (RTC nélkül)", unset: "Az idő nincs beállítva" })[clock.source] || "Időállapot nem elérhető";
+    saved: "Mentett idő (RTC nélkül)", default: "Alapdátum (2000-01-01)",
+    unset: "Az idő nincs beállítva" })[clock.source] || "Időállapot nem elérhető";
   if (clock.local && !clockLocal.value) clockLocal.value = clock.local.slice(0, 16);
 }
 async function loadClock() {

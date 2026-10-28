@@ -1,4 +1,5 @@
 import http.client
+import io
 import json
 from pathlib import Path
 import runpy
@@ -6,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from unittest.mock import patch
 from urllib.parse import urlencode
 
@@ -14,6 +16,24 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_dated_recording_and_file_api_firmware_contract(self):
+        root = WEB_ROOT.parent
+        recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        control = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
+        files_script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
+        self.assertIn('static constexpr time_t kMinEpoch = 946684800;', control)
+        self.assertIn('clockDefault ? "default" : "saved"', control)
+        self.assertIn('SD_MMC.mkdir(folder)', recorder)
+        self.assertIn('"%Y-%m-%d"', recorder)
+        self.assertIn('"MicMan" : "RadioMan"', recorder)
+        self.assertIn('"%y%m%d_%H%M%S"', recorder)
+        self.assertIn('server.on("/api/files/delete", HTTP_POST, deleteSdEntry)', server)
+        self.assertIn('server.on("/api/files/download", HTTP_GET, downloadSdFolder)', server)
+        self.assertIn('server.arg("confirm") != "1"', server)
+        self.assertIn('confirm(`Biztosan törlöd', files_script)
+        self.assertIn('radio.disabled = true', files_script)
+
     def test_clock_firmware_contract(self):
         root = WEB_ROOT.parent
         control = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
@@ -193,13 +213,14 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/start', 'POST')[0], 409)
         self.assertEqual(self.request('/api/stop', 'POST')[0], 200)
         files = json.loads(self.request('/api/recordings')[1])["files"]
-        self.assertEqual(files[0]["name"], name.decode())
-        status, audio, headers = self.request('/file?name=' + name.decode(), headers={"Range": "bytes=0-43"})
+        self.assertEqual(files[0]["path"], name.decode())
+        self.assertRegex(name.decode(), r'^/2000-01-01/RadioMan000101_\d{6}\.wav$')
+        status, audio, headers = self.request('/file?path=' + name.decode(), headers={"Range": "bytes=0-43"})
         self.assertEqual(status, 206)
         self.assertEqual(len(audio), 44)
         self.assertEqual(audio[:4], b'RIFF')
         self.assertIn('Content-Range', headers)
-        self.assertEqual(self.request('/file?name=' + name.decode(), headers={"Range": "bytes=999999-"})[0], 416)
+        self.assertEqual(self.request('/file?path=' + name.decode(), headers={"Range": "bytes=999999-"})[0], 416)
 
     def test_microphone_recording_uses_same_wav_and_excludes_adc(self):
         self.assertTrue(json.loads(self.request('/api/status')[1])["micReady"])
@@ -210,11 +231,49 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/start', 'POST')[0], 409)
         self.assertEqual(self.request('/api/mic/start', 'POST')[0], 409)
         self.assertEqual(self.request('/api/stop', 'POST')[0], 200)
-        self.assertEqual(json.loads(self.request('/api/recordings')[1])["files"][0]["name"], name.decode())
-        self.assertEqual(self.request('/file?name=' + name.decode())[1][:4], b'RIFF')
+        self.assertRegex(name.decode(), r'^/2000-01-01/MicMan000101_\d{6}\.wav$')
+        self.assertEqual(json.loads(self.request('/api/recordings')[1])["files"][0]["path"], name.decode())
+        self.assertEqual(self.request('/file?path=' + name.decode())[1][:4], b'RIFF')
         self.server.device = PreviewDevice("missing-sd")
         self.assertFalse(json.loads(self.request('/api/status')[1])["micReady"])
         self.assertEqual(self.request('/api/mic/start', 'POST')[0], 409)
+
+    def test_dated_folder_zip_and_confirmed_delete(self):
+        self.assertEqual(self.request('/api/time')[0], 200)
+        for endpoint in ('/api/start', '/api/mic/start'):
+            name = self.request(endpoint, 'POST')[1].decode()
+            self.assertEqual(self.request('/api/stop', 'POST')[0], 200)
+            self.assertIn(name, self.server.device.files)
+        items = json.loads(self.request('/api/files')[1])['items']
+        self.assertIn('/2000-01-01', [item['path'] for item in items if item['directory']])
+        folder = json.loads(self.request('/api/files?dir=/2000-01-01')[1])['items']
+        self.assertEqual({item['path'] for item in folder}, {item for item in self.server.device.files
+                                                      if item.startswith('/2000-01-01/')})
+        status, archive, headers = self.request('/api/files/download?path=/2000-01-01')
+        self.assertEqual((status, headers['Content-Type']), (200, 'application/zip'))
+        with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+            self.assertEqual(set(zipped.namelist()), {'2000-01-01/' + item['name'] for item in folder})
+            self.assertTrue(all(zipped.read(item).startswith(b'RIFF') for item in zipped.namelist()))
+        self.assertEqual(self.request('/api/files/delete', 'POST', {'path': '/2000-01-01'})[0], 400)
+        self.assertEqual(self.request('/api/files/delete', 'POST', {'path': '/', 'confirm': '1'})[0], 400)
+        self.assertEqual(self.request('/api/files/delete', 'POST', {'path': '/../Archive', 'confirm': '1'})[0], 400)
+        self.assertEqual(self.request('/api/files/delete', 'POST', {'path': '/2000-01-01', 'confirm': '1'})[0], 200)
+        self.assertEqual(self.request('/api/files?dir=/2000-01-01')[0], 404)
+        self.assertEqual(self.request('/api/files/download?path=/2000-01-01')[0], 400)
+        self.assertEqual(self.request('/api/recordings')[0], 200)
+
+    def test_same_second_names_do_not_overwrite_and_busy_delete_is_rejected(self):
+        self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-10-28T23:25'})[0], 200)
+        first = self.request('/api/start', 'POST')[1].decode()
+        self.assertEqual(self.request('/api/files/delete', 'POST',
+                                      {'path': '/2026-10-28', 'confirm': '1'})[0], 409)
+        self.assertEqual(self.request('/api/stop', 'POST')[0], 200)
+        second = self.request('/api/start', 'POST')[1].decode()
+        self.assertEqual(self.request('/api/stop', 'POST')[0], 200)
+        self.assertEqual(second, first[:-4] + '_01.wav')
+        self.assertEqual(self.request('/api/files/delete', 'POST', {'path': first, 'confirm': '1'})[0], 200)
+        self.assertNotIn(first, self.server.device.files)
+        self.assertIn(second, self.server.device.files)
 
     def test_microphone_meter_idle_recording_and_shutdown(self):
         files_before = dict(self.server.device.files)
@@ -247,7 +306,7 @@ class PreviewHttpTests(unittest.TestCase):
 
     def test_clock_manual_timezone_dst_and_restored_date(self):
         clock = lambda: json.loads(self.request('/api/time')[1])
-        self.assertEqual(clock()['source'], 'unset')
+        self.assertEqual((clock()['source'], clock()['local'][:10]), ('default', '2000-01-01'))
         self.assertEqual(clock()['zone'], 0)
         self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-02-29T12:00'})[0], 400)
         self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-03-29T02:30'})[0], 400)
@@ -271,7 +330,7 @@ class PreviewHttpTests(unittest.TestCase):
         clock = lambda: json.loads(self.request('/api/time')[1])
         self.assertEqual(self.request('/api/wifi/connect', 'POST',
                                       {'ssid': 'Workshop WiFi', 'password': 'dummy', 'keepApHost': '1'})[0], 202)
-        self.assertEqual(clock()['source'], 'unset')
+        self.assertEqual(clock()['source'], 'default')
         deadline, ssid, keep = self.server.device.pending_network
         self.server.device.pending_network = (deadline - 2, ssid, keep)
         self.assertEqual(clock()['source'], 'internet')

@@ -10,7 +10,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.42";
+static constexpr char kFirmwareVersion[] = "0.1.43";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -18,13 +18,14 @@ static constexpr char kSettingsNamespace[] = "radio-recorder";
 static constexpr char kScreenOffKey[] = "screenOffMin";
 static constexpr char kEpochKey[] = "clockEpoch";
 static constexpr char kZoneKey[] = "clockZone";
-static constexpr time_t kMinEpoch = 1577836800;
+static constexpr time_t kMinEpoch = 946684800;
 static uint16_t screenOffMinutes = kDefaultScreenOffMinutes;
 static uint8_t clockZone = 0;
 static bool clockKnown = false;
 static bool clockOnline = false;
 static bool clockSynced = false;
 static bool clockManual = false;
+static bool clockDefault = true;
 static int32_t savedDay = -1;
 static uint32_t lastDayCheck = 0;
 static uint32_t lastSyncAt = 0;
@@ -87,7 +88,7 @@ bool appClockLocal(tm &local) {
   return localtime_r(&now, &local) != nullptr;
 }
 static bool clockFreshSync() { return clockOnline && clockSynced && millis() - lastSyncAt < 86400000UL; }
-char appClockIndicator() { return !clockKnown ? '-' : clockFreshSync() ? 'N' : clockManual ? 'K' : 'M'; }
+char appClockIndicator() { return !clockKnown ? '-' : clockFreshSync() ? 'N' : clockManual ? 'K' : clockDefault ? 'A' : 'M'; }
 uint8_t appClockTimezone() { return clockZone; }
 
 String appClockJson() {
@@ -100,7 +101,7 @@ String appClockJson() {
                 String(clockKnown ? static_cast<uint64_t>(now) : 0);
   json += ",\"zone\":" + String(clockZone);
   json += ",\"source\":\"" + String(!clockKnown ? "unset" : clockFreshSync() ? "internet" :
-                                           clockManual ? "manual" : "saved") + "\"}";
+                                           clockManual ? "manual" : clockDefault ? "default" : "saved") + "\"}";
   return json;
 }
 
@@ -143,6 +144,7 @@ bool appClockSetLocal(const String &text) {
   clockKnown = true;
   clockSynced = false;
   clockManual = true;
+  clockDefault = false;
   return true;
 }
 
@@ -162,6 +164,7 @@ void appClockPoll() {
     clockKnown = true;
     clockSynced = true;
     clockManual = false;
+    clockDefault = false;
     lastSyncAt = millis();
   }
   if (!clockKnown || millis() - lastDayCheck < 60000UL) return;
@@ -171,6 +174,9 @@ void appClockPoll() {
 }
 
 bool appInitSettings() {
+  timeval fallback = {kMinEpoch, 0};
+  clockKnown = settimeofday(&fallback, nullptr) == 0;
+  if (clockKnown) savedDay = clockDay(kMinEpoch);
   Preferences preferences;
   if (!preferences.begin(kSettingsNamespace, true)) return false;
   screenOffMinutes = preferences.getUShort(kScreenOffKey, kDefaultScreenOffMinutes);
@@ -183,7 +189,7 @@ bool appInitSettings() {
   if (savedEpoch >= static_cast<uint64_t>(kMinEpoch) && savedEpoch <= 4102444799ULL) {
     timeval tv = {static_cast<time_t>(savedEpoch), 0};
     clockKnown = settimeofday(&tv, nullptr) == 0;
-    if (clockKnown) savedDay = clockDay(static_cast<time_t>(savedEpoch));
+    if (clockKnown) { savedDay = clockDay(static_cast<time_t>(savedEpoch)); clockDefault = false; }
   }
   return true;
 }

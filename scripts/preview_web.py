@@ -9,16 +9,26 @@ import io
 import json
 import math
 from pathlib import Path
+import re
 import select
 import struct
 import threading
 import time
 from urllib.parse import parse_qs, urlsplit
 import wave
+import zipfile
 
 from scripts.web_assets import WEB_ROOT
 
 SCENARIOS = ("ready", "missing-sd", "recording", "wifi-failure")
+DEFAULT_EPOCH = 946684800
+
+
+def safe_sd_path(path):
+    return (path == "/" or path.startswith("/") and len(path) <= 220 and
+            all(segment not in ("", ".", "..") and not any(ord(character) < 32 or character in '\\:\"\x7f'
+                                                          for character in segment)
+                for segment in path[1:].split("/")))
 
 
 def last_sunday(year, month):
@@ -56,10 +66,10 @@ class PreviewDevice:
         self.scenario = scenario
         self.started_at = time.monotonic()
         self.saved_epoch, self.clock_zone = saved_clock or (None, 0)
-        self.clock_epoch = self.saved_epoch
+        self.clock_epoch = self.saved_epoch if self.saved_epoch is not None else DEFAULT_EPOCH
         self.clock_started_at = self.started_at
-        self.clock_source = "saved" if self.clock_epoch is not None else "unset"
-        self.saved_day = clock_local(self.saved_epoch, self.clock_zone).date() if self.saved_epoch is not None else None
+        self.clock_source = "saved" if self.saved_epoch is not None else "default"
+        self.saved_day = clock_local(self.clock_epoch, self.clock_zone).date()
         self.recording = scenario == "recording"
         self.record_source = "adc"
         self.sd_ready = scenario != "missing-sd"
@@ -73,8 +83,10 @@ class PreviewDevice:
         self.screen_minutes = 5
         self.wifi_minutes = 5
         self.wav = sample_wav()
-        self.files = {"REC00001.wav": self.wav, "REC00002.wav": self.wav}
-        self.record_number = 3
+        self.files = {"/REC00001.wav": self.wav, "/REC00002.wav": self.wav,
+                  "/Archive/sample.wav": self.wav}
+        self.directories = {"/Archive"}
+        self.recording_name = self.next_recording_name(self.record_source) if self.recording else ""
         self.playing = ""
         self.play_until = 0
         self.auto_stop_at = 0
@@ -123,9 +135,29 @@ class PreviewDevice:
     def finish_recording(self):
         self.recording = False
         self.auto_stop_at = 0
-        name = f"REC{self.record_number:05d}.wav"
-        self.files[name] = self.wav
-        self.record_number += 1
+        self.files[self.recording_name] = self.wav
+
+    def next_recording_name(self, source):
+        local = clock_local(self.clock_info()["epoch"], self.clock_zone)
+        folder = "/" + local.strftime("%Y-%m-%d")
+        prefix = "MicMan" if source == "microphone" else "RadioMan"
+        stem = folder + "/" + prefix + local.strftime("%y%m%d_%H%M%S")
+        for number in range(100):
+            path = stem + (f"_{number:02d}" if number else "") + ".wav"
+            if path not in self.files:
+                self.directories.add(folder)
+                return path
+        raise ValueError("No free recording filename")
+
+    def folder_zip(self, path):
+        if not safe_sd_path(path) or path not in self.directories:
+            raise ValueError("Invalid folder")
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_STORED) as archive:
+            for name, data in self.files.items():
+                if name.startswith(path + "/"):
+                    archive.writestr(path.rsplit("/", 1)[-1] + name[len(path):], data)
+        return output.getvalue()
 
     @staticmethod
     def integer(params, name, minimum, maximum):
@@ -182,18 +214,21 @@ class PreviewDevice:
                 if self.recording or not self.sd_ready:
                     return 409, "SD unavailable or recording in progress"
                 offset = self.integer({"offset": params.get("offset", "0")}, "offset", 0, 100000)
-                files = [{"name": name, "bytes": len(data)} for name, data in reversed(list(self.files.items()))]
+                files = [{"name": name.rsplit("/", 1)[-1], "path": name, "bytes": len(data)}
+                         for name, data in reversed(list(self.files.items()))
+                         if re.fullmatch(r"(?:/REC\d{5}|/\d{4}-\d{2}-\d{2}/(?:Radio|Mic)(?:Man|Aut)\d{6}_\d{6}(?:_\d{2})?)\.wav", name)]
                 if path == "/api/recordings":
-                    return 200, {"files": files[offset:offset + 20], "next": None}
+                    return 200, {"files": files[offset:offset + 20],
+                                 "next": offset + 20 if offset + 20 < len(files) else None}
                 directory = params.get("dir", "/")
-                if directory not in ("/", "/Archive"):
+                if not safe_sd_path(directory) or directory != "/" and directory not in self.directories:
                     return 404, "Directory not found"
-                items = ([{"name": "Archive", "path": "/Archive", "directory": True, "bytes": 0}] +
-                         [{**item, "path": "/" + item["name"], "directory": False} for item in files])
-                if directory == "/Archive":
-                    items = [{"name": "sample.wav", "path": "/Archive/sample.wav", "directory": False,
-                              "bytes": len(self.wav)}]
-                return 200, {"items": items[offset:offset + 20], "next": None}
+                items = ([{"name": name.rsplit("/", 1)[-1], "path": name, "directory": True, "bytes": 0}
+                          for name in sorted(self.directories) if name.rsplit("/", 1)[0] == directory.rstrip("/")] +
+                         [{"name": name.rsplit("/", 1)[-1], "path": name, "directory": False, "bytes": len(data)}
+                          for name, data in self.files.items() if name.rsplit("/", 1)[0] == directory.rstrip("/")])
+                return 200, {"items": items[offset:offset + 20],
+                             "next": offset + 20 if offset + 20 < len(items) else None}
         if method == "POST":
             if path == "/api/time/zone":
                 self.clock_zone = self.integer(params, "zone", 0, 28)
@@ -236,9 +271,24 @@ class PreviewDevice:
                     return 409, "Recorder unavailable or busy"
                 self.recording = True
                 self.record_source = "microphone" if path == "/api/mic/start" else "adc"
+                self.recording_name = self.next_recording_name(self.record_source)
                 if path == "/api/wifi-test":
                     self.auto_stop_at = time.monotonic() + 2
-                return 200, f"REC{self.record_number:05d}.wav"
+                return 200, self.recording_name
+            if path == "/api/files/delete":
+                target = params.get("path", "")
+                if not safe_sd_path(target) or target == "/" or params.get("confirm") != "1":
+                    return 400, "Invalid path or missing confirmation"
+                if not self.sd_ready or self.recording or self.playing:
+                    return 409, "SD, recorder or playback busy"
+                if target in self.directories:
+                    self.directories = {name for name in self.directories if not name.startswith(target + "/") and name != target}
+                    self.files = {name: data for name, data in self.files.items() if not name.startswith(target + "/")}
+                elif target in self.files:
+                    del self.files[target]
+                else:
+                    return 404, "File or folder not found"
+                return 200, {"deleted": True}
             if path == "/api/stop":
                 if not self.recording:
                     return 409, "Not recording"
@@ -283,7 +333,7 @@ class PreviewDevice:
             if path == "/api/play":
                 if self.recording or not self.sd_ready or self.playing:
                     return 409, "Speaker unavailable or busy"
-                if params.get("path", "").lstrip("/") not in self.files and params.get("path") != "/Archive/sample.wav":
+                if params.get("path") not in self.files:
                     return 404, "WAV not found"
                 self.playing, self.play_until = params["path"], time.monotonic() + 2
                 return 200, "Playing on simulated speaker"
@@ -360,6 +410,15 @@ class PreviewHandler(BaseHTTPRequestHandler):
         try:
             with self.server.device.lock:
                 if url.path.startswith("/api/"):
+                    if url.path == "/api/files/download" and method == "GET":
+                        folder = params.get("path", "")
+                        if not self.server.device.sd_ready or self.server.device.recording:
+                            self.reply(409, "SD or recorder busy")
+                        else:
+                            archive = self.server.device.folder_zip(folder)
+                            self.reply(200, archive, "application/zip", {"Content-Disposition":
+                                       'attachment; filename="' + folder.rsplit("/", 1)[-1] + '.zip"'})
+                        return
                     status, payload = self.server.device.api(method, url.path, params)
                     self.reply(status, payload)
                     return
@@ -391,8 +450,8 @@ class PreviewHandler(BaseHTTPRequestHandler):
         if not device.sd_ready or device.recording:
             self.reply(409, "SD unavailable or recording in progress")
             return
-        name = params.get("path", params.get("name", "")).lstrip("/")
-        data = device.wav if name == "Archive/sample.wav" else device.files.get(name)
+        name = params.get("path", "/" + params.get("name", ""))
+        data = device.files.get(name) if safe_sd_path(name) else None
         if data is None:
             self.reply(404, "File not found")
             return
