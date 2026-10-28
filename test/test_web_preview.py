@@ -14,6 +14,24 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_clock_firmware_contract(self):
+        root = WEB_ROOT.parent
+        control = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
+        wifi = (root / "src" / "wifi_manager.cpp").read_text(encoding="utf-8")
+        display = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        self.assertIn("CET-1CEST,M3.5.0/2,M10.5.0/3", control)
+        self.assertIn('preferences.putULong64(kEpochKey', control)
+        self.assertIn('preferences.getULong64(kEpochKey', control)
+        self.assertIn('sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED', control)
+        self.assertIn('if (clockDay(now) != savedDay) saveClock(now)', control)
+        self.assertIn('appClockStartSync();', wifi)
+        self.assertIn('appClockStopSync();', wifi)
+        self.assertIn('case 12: oled.drawStr(9, y, "Idozona")', display)
+        self.assertIn('if (!appClockSetLocal(value))', display)
+        self.assertIn('server.on("/api/time", HTTP_POST, setClock)', server)
+        self.assertIn('server.on("/api/time/zone", HTTP_POST, setClockZone)', server)
+
     def test_microphone_firmware_capture_contract(self):
         root = WEB_ROOT.parent
         recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
@@ -226,6 +244,41 @@ class PreviewHttpTests(unittest.TestCase):
         settings = json.loads(self.request('/api/settings')[1])
         self.assertEqual(settings["screenOffMinutes"], 0)
         self.assertEqual(settings["wifiAutoOffMinutes"], 999)
+
+    def test_clock_manual_timezone_dst_and_restored_date(self):
+        clock = lambda: json.loads(self.request('/api/time')[1])
+        self.assertEqual(clock()['source'], 'unset')
+        self.assertEqual(clock()['zone'], 0)
+        self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-02-29T12:00'})[0], 400)
+        self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-03-29T02:30'})[0], 400)
+        self.assertEqual(self.request('/api/time/zone', 'POST', {'zone': '29'})[0], 400)
+        self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-07-01T12:34'})[0], 200)
+        self.assertEqual((clock()['local'][:16], clock()['source']), ('2026-07-01T12:34', 'manual'))
+        self.assertEqual(self.request('/api/time/zone', 'POST', {'zone': '1'})[0], 200)
+        self.assertEqual(clock()['local'][:16], '2026-07-01T10:34')
+        self.assertEqual(self.request('/api/time/zone', 'POST', {'zone': '17'})[0], 200)
+        self.assertEqual(clock()['local'][:16], '2026-07-01T13:34')
+        saved = self.server.device.saved_epoch, self.server.device.clock_zone
+        self.server.device = PreviewDevice(saved_clock=saved)
+        self.assertEqual((clock()['source'], clock()['zone'], clock()['local'][:16]),
+                         ('saved', 17, '2026-07-01T13:34'))
+        self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-07-02T23:59'})[0], 200)
+        self.server.device.clock_started_at -= 120
+        self.assertEqual(clock()['local'][:10], '2026-07-03')
+        self.assertEqual(self.server.device.saved_day.isoformat(), '2026-07-03')
+
+    def test_clock_reports_sync_only_after_wifi_success(self):
+        clock = lambda: json.loads(self.request('/api/time')[1])
+        self.assertEqual(self.request('/api/wifi/connect', 'POST',
+                                      {'ssid': 'Workshop WiFi', 'password': 'dummy', 'keepApHost': '1'})[0], 202)
+        self.assertEqual(clock()['source'], 'unset')
+        deadline, ssid, keep = self.server.device.pending_network
+        self.server.device.pending_network = (deadline - 2, ssid, keep)
+        self.assertEqual(clock()['source'], 'internet')
+        self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-01-02T12:00'})[0], 200)
+        self.assertEqual(clock()['source'], 'manual')
+        self.assertEqual(self.request('/api/wifi/forget', 'POST')[0], 200)
+        self.assertEqual(clock()['source'], 'manual')
 
     def test_ptt_test_requires_explicit_pulse_and_expires_without_extension(self):
         status = lambda: json.loads(self.request('/api/ptt-test')[1])

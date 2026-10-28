@@ -46,6 +46,20 @@
         ><button id="wakeDisplay" type="button">Kijelző felébresztése</button>
         <p id="result" role="status" aria-live="polite">Betöltés...</p>
       </form>
+      <section class="clock-settings">
+        <h2>Dátum és idő</h2>
+        <p id="clockStatus" role="status">Időállapot betöltése...</p>
+        <p id="clockCurrent" class="clock-current"></p>
+        <form id="clockForm">
+          <label for="clockLocal">Helyi dátum és idő</label>
+          <input id="clockLocal" type="datetime-local" min="2020-01-01T00:00" max="2099-12-31T23:59" required />
+          <button type="submit">Idő beállítása</button>
+        </form>
+        <div class="clock-zone">
+          <label for="clockZone">Időzóna</label>
+          <select id="clockZone"></select>
+        </div>
+      </section>
       <section class="wifi-settings">
         <h2>Wi-Fi hálózat</h2>
         <p id="wifiStatus" role="status">Állapot betöltése...</p>

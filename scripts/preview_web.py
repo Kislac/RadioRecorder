@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+from datetime import datetime, timedelta, timezone
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
@@ -20,6 +21,22 @@ from scripts.web_assets import WEB_ROOT
 SCENARIOS = ("ready", "missing-sd", "recording", "wifi-failure")
 
 
+def last_sunday(year, month):
+    last = datetime(year, month + 1, 1) - timedelta(days=1)
+    return last - timedelta(days=(last.weekday() + 1) % 7)
+
+
+def clock_local(epoch, zone):
+    instant = datetime.fromtimestamp(epoch, timezone.utc)
+    offset = zone - 14 if zone >= 2 else 0
+    if zone == 0:
+        year = instant.year
+        starts = last_sunday(year, 3).replace(hour=1, tzinfo=timezone.utc)
+        ends = last_sunday(year, 10).replace(hour=1, tzinfo=timezone.utc)
+        offset = 2 if starts <= instant < ends else 1
+    return (instant + timedelta(hours=offset)).replace(tzinfo=None)
+
+
 def sample_wav():
     output = io.BytesIO()
     with wave.open(output, "wb") as audio:
@@ -32,12 +49,17 @@ def sample_wav():
 
 
 class PreviewDevice:
-    def __init__(self, scenario="ready"):
+    def __init__(self, scenario="ready", saved_clock=None):
         if scenario not in SCENARIOS:
             raise ValueError("Unknown preview scenario")
         self.lock = threading.RLock()
         self.scenario = scenario
         self.started_at = time.monotonic()
+        self.saved_epoch, self.clock_zone = saved_clock or (None, 0)
+        self.clock_epoch = self.saved_epoch
+        self.clock_started_at = self.started_at
+        self.clock_source = "saved" if self.clock_epoch is not None else "unset"
+        self.saved_day = clock_local(self.saved_epoch, self.clock_zone).date() if self.saved_epoch is not None else None
         self.recording = scenario == "recording"
         self.record_source = "adc"
         self.sd_ready = scenario != "missing-sd"
@@ -66,6 +88,11 @@ class PreviewDevice:
 
     def tick(self):
         now = time.monotonic()
+        if self.clock_epoch is not None:
+            instant = self.clock_epoch + (now - self.clock_started_at)
+            day = clock_local(instant, self.clock_zone).date()
+            if day != self.saved_day:
+                self.saved_epoch, self.saved_day = int(instant), day
         if self.mic_signal_enabled and now - self.mic_signal_polled_at > 4:
             self.mic_signal_enabled = False
         if self.playing and now >= self.play_until:
@@ -83,6 +110,15 @@ class PreviewDevice:
             else:
                 self.wifi.update(mode="AP+STA" if keep_ap else "STA", ssid=ssid, ip="192.168.1.80",
                                  savedSsid=ssid, hasSavedNetwork=True, keepApHost=keep_ap, apAvailable=keep_ap)
+                self.clock_epoch = self.saved_epoch = int(time.time())
+                self.clock_started_at = now
+                self.clock_source = "internet"
+                self.saved_day = clock_local(self.clock_epoch, self.clock_zone).date()
+
+    def clock_info(self):
+        epoch = int(self.clock_epoch + time.monotonic() - self.clock_started_at) if self.clock_epoch is not None else 0
+        local = clock_local(epoch, self.clock_zone).strftime("%Y-%m-%dT%H:%M:%S") if epoch else ""
+        return {"local": local, "epoch": epoch, "zone": self.clock_zone, "source": self.clock_source}
 
     def finish_recording(self):
         self.recording = False
@@ -105,10 +141,13 @@ class PreviewDevice:
             if path == "/api/ptt-test":
                 return 200, {"active": bool(self.ptt_until or self.ptt_latched), "pulseMs": 1000}
             if path == "/api/status":
+                clock = self.clock_info()
                 return 200, {"version": "preview", "ready": self.sd_ready, "micReady": self.sd_ready,
+                             "clock": clock, "demoSeconds": sum(int(value) * scale for value, scale in
+                             zip(clock["local"][11:19].split(":"), (3600, 60, 1))) if clock["local"] else 0,
                              "recordSource": self.record_source, "meterReady": True,
                              "liveReady": True, "audioGpio": 1, "screenOffMinutes": self.screen_minutes,
-                             "demoSeconds": (50062 + int(elapsed)) % 86400, "lowpass": self.lowpass,
+                             "lowpass": self.lowpass,
                              "state": "recording" if self.recording else "idle", "stopping": False,
                              "speakerReady": True, "speakerVolume": self.volume, "speakerBoost": self.boost,
                              "playback": "playing" if self.playing else "idle", "playbackPath": self.playing,
@@ -117,6 +156,8 @@ class PreviewDevice:
             if path == "/api/settings":
                 return 200, {"screenOffMinutes": self.screen_minutes, "wifiAutoOffMinutes": self.wifi_minutes,
                              "wifi": dict(self.wifi)}
+            if path == "/api/time":
+                return 200, self.clock_info()
             if path == "/api/wifi/status":
                 return 200, dict(self.wifi)
             if path == "/api/wifi/scan":
@@ -154,6 +195,28 @@ class PreviewDevice:
                               "bytes": len(self.wav)}]
                 return 200, {"items": items[offset:offset + 20], "next": None}
         if method == "POST":
+            if path == "/api/time/zone":
+                self.clock_zone = self.integer(params, "zone", 0, 28)
+                if self.clock_epoch is not None:
+                    self.saved_day = clock_local(self.clock_info()["epoch"], self.clock_zone).date()
+                return 200, self.clock_info()
+            if path == "/api/time":
+                text = params.get("local", "")
+                try:
+                    local = datetime.strptime(text, "%Y-%m-%dT%H:%M")
+                    if local.strftime("%Y-%m-%dT%H:%M") != text or not 2020 <= local.year <= 2099:
+                        raise ValueError()
+                    offsets = (1, 2) if self.clock_zone == 0 else (self.clock_zone - 14 if self.clock_zone >= 2 else 0,)
+                    candidates = [int((local - timedelta(hours=offset)).replace(tzinfo=timezone.utc).timestamp())
+                                  for offset in offsets]
+                    epoch = next(value for value in candidates if clock_local(value, self.clock_zone) == local)
+                except (ValueError, StopIteration):
+                    return 400, "Invalid date/time"
+                self.clock_epoch = self.saved_epoch = epoch
+                self.clock_started_at = time.monotonic()
+                self.clock_source = "manual"
+                self.saved_day = local.date()
+                return 200, self.clock_info()
             if path == "/api/ptt-test/on":
                 if self.ptt_until or self.ptt_latched:
                     return 409, "PTT test already active"
@@ -240,6 +303,8 @@ class PreviewDevice:
                 return 202, {"state": "connecting"}
             if path == "/api/wifi/forget":
                 self.pending_network = None
+                if self.clock_source == "internet":
+                    self.clock_source = "saved"
                 self.wifi.update(mode="AP", ssid="RadioRecorder", ip="192.168.4.1", savedSsid="",
                                  hasSavedNetwork=False, keepApHost=False, connecting=False, apAvailable=True)
                 return 200, {"state": "ap"}

@@ -12,6 +12,62 @@ const wifiStatus = document.querySelector("#wifiStatus"),
   ssidInput = document.querySelector("#wifiSsid"),
   passwordInput = document.querySelector("#wifiPassword"),
   keepApInput = document.querySelector("#keepApHost");
+const clockForm = document.querySelector("#clockForm"),
+  clockLocal = document.querySelector("#clockLocal"),
+  clockZone = document.querySelector("#clockZone"),
+  clockStatus = document.querySelector("#clockStatus"),
+  clockCurrent = document.querySelector("#clockCurrent");
+const zoneLabels = ["Budapest (téli/nyári idő)", "UTC"];
+for (let offset = -12; offset <= 14; offset++)
+  zoneLabels.push("UTC" + (offset >= 0 ? "+" : "") + offset);
+zoneLabels.forEach((label, index) => clockZone.add(new Option(label, index)));
+function showClock(clock) {
+  clockZone.value = String(clock.zone);
+  clockCurrent.textContent = clock.local ? clock.local.replace("T", " ") : "Az idő nincs beállítva";
+  clockStatus.textContent = ({ internet: "Internetről szinkronizálva", manual: "Kézzel beállítva",
+    saved: "Mentett idő (RTC nélkül)", unset: "Az idő nincs beállítva" })[clock.source] || "Időállapot nem elérhető";
+  if (clock.local && !clockLocal.value) clockLocal.value = clock.local.slice(0, 16);
+}
+async function loadClock() {
+  try {
+    const response = await fetch("/api/time", { cache: "no-store" });
+    if (!response.ok) throw Error();
+    showClock(await response.json());
+  } catch {
+    clockStatus.textContent = "Az időállapot nem elérhető.";
+  }
+}
+clockForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!clockForm.reportValidity()) return;
+  const button = clockForm.querySelector("button");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/time?" + new URLSearchParams({ local: clockLocal.value }), { method: "POST" });
+    if (!response.ok) throw Error(await response.text());
+    showClock(await response.json());
+  } catch (error) {
+    clockStatus.textContent = error.message || "Az idő beállítása sikertelen.";
+  } finally {
+    button.disabled = false;
+  }
+});
+clockZone.addEventListener("change", async () => {
+  clockZone.disabled = true;
+  try {
+    const response = await fetch("/api/time/zone?" + new URLSearchParams({ zone: clockZone.value }), { method: "POST" });
+    if (!response.ok) throw Error(await response.text());
+    clockLocal.value = "";
+    showClock(await response.json());
+  } catch (error) {
+    clockStatus.textContent = error.message || "Az időzóna mentése sikertelen.";
+    await loadClock();
+  } finally {
+    clockZone.disabled = false;
+  }
+});
+loadClock();
+setInterval(loadClock, 10000);
 async function loadSettings() {
   try {
     const response = await fetch("/api/settings", { cache: "no-store" });

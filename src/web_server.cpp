@@ -86,6 +86,7 @@ void sendStatus() {
   json += ",\"screenOffMinutes\":" + String(appScreenOffMinutes());
   json += ",\"wifi\":" + wifiManagerStatusJson();
   json += ",\"demoSeconds\":" + String(appDemoTimeSeconds());
+  json += ",\"clock\":" + appClockJson();
   json += ",\"audioGpio\":" + String(kAudioGpio);
   json += ",\"lowpass\":" + String(recorderLowpass() ? "true" : "false");
   json += ",\"meterReady\":" + String(recorderAdcReady() && recorderTaskReady() ? "true" : "false");
@@ -115,6 +116,30 @@ void sendSettings() {
   json += ",\"wifiAutoOffMinutes\":" + String(wifiManagerAutoOffMinutes());
   json += ",\"wifi\":" + wifiManagerStatusJson() + "}";
   server.send(200, "application/json", json);
+}
+
+void sendClock() {
+  wifiManagerNotifyActivity();
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", appClockJson());
+}
+
+void setClock() {
+  wifiManagerNotifyActivity();
+  String local = server.arg("local");
+  if (local.length() != 16) { server.send(400, "text/plain", "Invalid local date/time"); return; }
+  if (!appClockSetLocal(local)) { server.send(400, "text/plain", "Invalid date/time or NVS unavailable"); return; }
+  sendClock();
+}
+
+void setClockZone() {
+  wifiManagerNotifyActivity();
+  String text = server.arg("zone");
+  if (text.isEmpty() || text.length() > 2) { server.send(400, "text/plain", "Invalid timezone"); return; }
+  for (char digit : text) if (!isDigit(digit)) { server.send(400, "text/plain", "Invalid timezone"); return; }
+  uint8_t zone = static_cast<uint8_t>(text.toInt());
+  if (zone > 28 || !appClockSetTimezone(zone)) { server.send(400, "text/plain", "Invalid timezone or NVS unavailable"); return; }
+  sendClock();
 }
 
 void saveSettings() {
@@ -494,6 +519,9 @@ void initWeb() {
   });
   server.on("/api/settings", HTTP_GET, sendSettings);
   server.on("/api/settings", HTTP_POST, saveSettings);
+  server.on("/api/time", HTTP_GET, sendClock);
+  server.on("/api/time", HTTP_POST, setClock);
+  server.on("/api/time/zone", HTTP_POST, setClockZone);
   server.on("/api/ptt-test", HTTP_GET, []() {
     wifiManagerNotifyActivity();
     server.sendHeader("Cache-Control", "no-store");
@@ -668,6 +696,7 @@ void webStopServices() {
 }
 
 bool webDisableForNoiseTest() {
+  appClockStopSync();
   webStopServices();
   if (!WiFi.mode(WIFI_OFF)) return false;
   return true;

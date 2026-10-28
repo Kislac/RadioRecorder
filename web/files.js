@@ -4,6 +4,7 @@ fetch("/api/status", { cache: "no-store" })
   .then((data) => {
     document.querySelector("#firmwareVersion").textContent = "v" + data.version;
     demoBase = data.demoSeconds;
+    clockSource = data.clock?.source || "unset";
     demoSyncedAt = performance.now();
     renderDemoClock();
   })
@@ -21,16 +22,19 @@ let next = 0,
 let volumeQueued = null,
   volumeSending = false,
   boostUpdating = false;
-let demoBase = 13 * 3600 + 54 * 60 + 22,
-  demoSyncedAt = performance.now();
+let demoBase = 0,
+  demoSyncedAt = performance.now(),
+  clockSource = "unset";
 function renderDemoClock() {
   const seconds =
     (demoBase + Math.floor((performance.now() - demoSyncedAt) / 1000)) % 86400;
   document.querySelector("#demoClock").textContent =
-    "DEMO " +
+    (clockSource === "unset" ? "IDŐ NINCS" :
+      ({ internet: "NTP ", manual: "KÉZI ", saved: "MENTETT " })[clockSource] || "") +
+    (clockSource === "unset" ? "" :
     [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
       .map((value) => String(value).padStart(2, "0"))
-      .join(":");
+      .join(":"));
 }
 setInterval(renderDemoClock, 1000);
 const sound = (name) =>
@@ -97,6 +101,7 @@ async function refreshSpeaker() {
     const data = await response.json(),
       playing = data.playback !== "idle";
     demoBase = data.demoSeconds;
+    clockSource = data.clock?.source || "unset";
     demoSyncedAt = performance.now();
     renderDemoClock();
     speakerStop.disabled = !playing;

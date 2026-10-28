@@ -28,7 +28,11 @@ Run `python -m scripts.test_device` for a non-recording check. It scans serial p
 
 Run `python -m scripts.test_device --record` only when an SD write is intended. Firmware 0.1.26 or newer is required. In addition to the checks above, it starts a short recording, requests stop, verifies a finalized WAV with non-zero audio data, then deletes that exact test-created file and confirms removal. This is destructive test data on the card; use it only with the correct device and an available SD card. The firmware accepts only an exact valid `RECxxxxx.wav` filename and refuses deletion while recording; arbitrary paths and other file types cannot be deleted with this command.
 
-Run `python -m scripts.test_device --display-only` for the display-only test. It checks OLED readiness, captures every home tile and each of the eight settings rows, rejects blank or visually duplicate views, and restores the original tile without toggling settings or writing to SD.
+Run `python -m scripts.test_device --display-only` for the display-only test. It checks OLED readiness, captures every home tile and each of the 14 settings rows, rejects blank or visually duplicate views, and restores the original tile without toggling settings or writing to SD.
+
+### Időszinkron és kézi óra
+
+Külső Wi-Fi STA-kapcsolat után az ESP NTP-t kérdez (a RadioRecorder AP önmagában nem internet). Csak sikeres SNTP-válasz után jelenik meg az `N`/„Internetről szinkronizálva”; a Wi-Fi önmagában nem elég. A webes **Beállítások → Dátum és idő** részben dátum/idő menthető és az időzóna bármikor átállítható. Az OLED **Beállítások** listájában az Év/Hónap/Nap/Óra/Perc és Időzóna soron nyomással lépj szerkesztésbe, forgatással módosíts, újabb nyomással ments, hosszan nyomva lépj ki mentés nélkül. Budapest DST az alapérték, vagy UTC és egész órás UTC−12…UTC+14 választható. Nyári idő kezdetén a nem létező helyi óra elutasításra kerül; kézi időt egy későbbi NTP-válasz felülírhat. Az ESP32-on külön EEPROM helyett flash NVS-ben tároljuk az időzónát, a kézzel beállított vagy első NTP-s időpontot és a napváltás pillanatát; folyamatos másodpercenkénti írás nincs. Reset után a mentett időből indul újra az óra, de áramtalanítás alatt RTC nélkül nem tudja az eltelt időt. Offline teszt: `python -m unittest test.test_web_preview -v`. Valódi NTP, AP és OLED helyes dátumának igazolása csak feltöltött firmware-rel és az adott hálózaton lehetséges; a jelenlegi VPN mellett Wi-Fi AP tesztet ne indíts.
 
 ### INMP441-M mikrofon (SD-írás csak opt-in)
 

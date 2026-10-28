@@ -38,6 +38,7 @@ bool scanComplete = false;
 bool scanFailed = false;
 bool restoreApOnlyAfterScan = false;
 bool forgetPending = false;
+bool clockStationConnected = false;
 uint8_t scanResultCount = 0;
 struct ScanResult {
   String ssid;
@@ -68,6 +69,8 @@ bool startAp(bool withStation) {
 
 void fallbackToAp(const char *reason) {
   Serial.printf("Wi-Fi station fallback: %s\n", reason);
+  appClockStopSync();
+  clockStationConnected = false;
   WiFi.disconnect(false, false);
   mode = Mode::off;
   if (!startAp(false)) {
@@ -129,6 +132,8 @@ void wifiManagerPoll() {
 
   if (forgetPending) {
     forgetPending = false;
+    appClockStopSync();
+    clockStationConnected = false;
     webStopServices();
     WiFi.disconnect(false, false);
     WiFi.mode(WIFI_OFF);
@@ -162,6 +167,8 @@ void wifiManagerPoll() {
       }
       Serial.printf("Wi-Fi connected: '%s', IP %s, mode %s\n", connectedSsid.c_str(),
                     WiFi.localIP().toString().c_str(), wifiManagerModeName().c_str());
+      appClockStartSync();
+      clockStationConnected = true;
       connectingWithNewCredentials = false;
       pendingSsid = "";
       pendingPassword = "";
@@ -174,6 +181,12 @@ void wifiManagerPoll() {
     }
   } else if (mode == Mode::station && WiFi.status() != WL_CONNECTED) {
     fallbackToAp("station connection lost");
+  }
+  if (mode == Mode::apStation) {
+    bool connected = WiFi.status() == WL_CONNECTED;
+    if (connected && !clockStationConnected) appClockStartSync();
+    if (!connected && clockStationConnected) appClockStopSync();
+    clockStationConnected = connected;
   }
 
   if (scanRunning) {
@@ -208,6 +221,8 @@ void wifiManagerPoll() {
   bool busy = recorderState() != CaptureState::idle || liveAudioClient() >= 0 ||
               playbackGetState() != PlaybackState::idle || mode == Mode::connecting || scanRunning;
   if (mode != Mode::off && !busy && autoOffMinutes > 0 && now - lastActivityAt >= static_cast<uint32_t>(autoOffMinutes) * 60000UL) {
+    appClockStopSync();
+    clockStationConnected = false;
     webStopServices();
     WiFi.disconnect(false, false);
     WiFi.mode(WIFI_OFF);
@@ -232,6 +247,8 @@ bool wifiManagerToggle() {
     return mode != Mode::off;
   }
   webStopServices();
+  appClockStopSync();
+  clockStationConnected = false;
   WiFi.disconnect(false, false);
   WiFi.mode(WIFI_OFF);
   mode = Mode::off;
@@ -312,6 +329,8 @@ bool wifiManagerConnect(const String &ssid, const String &password, bool keepApH
   if (!WiFi.mode(WIFI_AP_STA) || (!apAlreadyActive && !WiFi.softAP(kApSsid))) return false;
   webStartServices();
   WiFi.scanDelete();
+  appClockStopSync();
+  clockStationConnected = false;
   scanRunning = scanComplete = scanFailed = false;
   WiFi.disconnect(false, false);
   pendingSsid = ssid;

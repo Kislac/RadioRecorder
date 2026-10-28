@@ -67,6 +67,14 @@ input {
   background: #fff;
   color: var(--ink);
 }
+select {
+  font: inherit;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  max-width: 100%;
+}
 input[type="number"] {
   width: 8ch;
   font-variant-numeric: tabular-nums;
@@ -103,6 +111,25 @@ footer {
   border-top: 1px solid var(--line);
   margin-top: 36px;
   padding-top: 24px;
+}
+.clock-settings {
+  border-top: 1px solid var(--line);
+  margin-top: 36px;
+  padding-top: 24px;
+}
+.clock-settings h2 {
+  font: normal 24px Georgia, serif;
+}
+.clock-settings form,
+.clock-zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.clock-current {
+  font-variant-numeric: tabular-nums;
 }
 .ptt-test {
   border-top: 1px solid var(--line);

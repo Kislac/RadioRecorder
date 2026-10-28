@@ -120,6 +120,7 @@ void loop() {
   if (frameRequested) printDisplayFrame();
   pollWeb();
   wifiManagerPoll();
+  appClockPoll();
   appPollWifiTest();
   feedSystemWatchdog();
   delay(10);

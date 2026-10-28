@@ -19,7 +19,7 @@ namespace {
 constexpr int kSdaGpio = 4;
 constexpr int kSclGpio = 5;
 constexpr uint8_t kTileCount = 8;
-constexpr uint8_t kSettingsCount = 8;
+constexpr uint8_t kSettingsCount = 14;
 const char *const kTileNames[kTileCount] = {"Felvetel", "Mikrofon", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Wi-Fi", "Beallitasok"};
 
 U8G2_SH1106_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, kSclGpio, kSdaGpio);
@@ -35,6 +35,8 @@ bool inSettings = false;
 bool editing = false;
 bool messagePending = false;
 bool screenSleeping = false;
+tm clockEdit = {};
+uint8_t zoneEdit = 0;
 char message[26] = {};
 
 void setMessage(const char *text) {
@@ -60,8 +62,10 @@ void drawStatus(uint32_t seconds) {
   if (recorderState() != CaptureState::idle) oled.drawStr(26, 8, "REC");
   uint32_t time = seconds;
   char clockText[24];
-  snprintf(clockText, sizeof(clockText), "D %02lu:%02lu:%02lu", static_cast<unsigned long>(time / 3600),
-           static_cast<unsigned long>((time / 60) % 60), static_cast<unsigned long>(time % 60));
+  if (!appClockKnown()) snprintf(clockText, sizeof(clockText), "--:--:--");
+  else snprintf(clockText, sizeof(clockText), "%c%02lu:%02lu:%02lu", appClockIndicator(),
+                static_cast<unsigned long>(time / 3600),
+                static_cast<unsigned long>((time / 60) % 60), static_cast<unsigned long>(time % 60));
   oled.drawStr(72, 8, clockText);
   oled.drawHLine(0, 10, 128);
 }
@@ -72,6 +76,8 @@ void drawSettingValue(uint8_t y, const char *value) {
 
 void drawSettings() {
   oled.setFont(u8g2_font_5x8_tf);
+  tm local = {};
+  if (!appClockLocal(local)) { local.tm_year = 126; local.tm_mday = 1; }
   for (uint8_t index = 0; index < kSettingsCount; ++index) {
     uint8_t row = (setting / 4) * 4;
     if (index < row || index >= row + 4) continue;
@@ -106,6 +112,45 @@ void drawSettings() {
         uint16_t minutes = wifiManagerAutoOffMinutes();
         if (minutes == 0) snprintf(value, sizeof(value), "0 min");
         else snprintf(value, sizeof(value), "%u min", minutes);
+        drawSettingValue(y, value);
+        break;
+      }
+      case 7: oled.drawStr(9, y, "Ev"); {
+        char value[16];
+        snprintf(value, sizeof(value), "%d", (editing && setting == index ? clockEdit : local).tm_year + 1900);
+        drawSettingValue(y, value);
+        break;
+      }
+      case 8: oled.drawStr(9, y, "Honap"); {
+        char value[16];
+        snprintf(value, sizeof(value), "%02d", (editing && setting == index ? clockEdit : local).tm_mon + 1);
+        drawSettingValue(y, value);
+        break;
+      }
+      case 9: oled.drawStr(9, y, "Nap"); {
+        char value[16];
+        snprintf(value, sizeof(value), "%02d", (editing && setting == index ? clockEdit : local).tm_mday);
+        drawSettingValue(y, value);
+        break;
+      }
+      case 10: oled.drawStr(9, y, "Ora"); {
+        char value[16];
+        snprintf(value, sizeof(value), "%02d", (editing && setting == index ? clockEdit : local).tm_hour);
+        drawSettingValue(y, value);
+        break;
+      }
+      case 11: oled.drawStr(9, y, "Perc"); {
+        char value[16];
+        snprintf(value, sizeof(value), "%02d", (editing && setting == index ? clockEdit : local).tm_min);
+        drawSettingValue(y, value);
+        break;
+      }
+      case 12: oled.drawStr(9, y, "Idozona"); {
+        uint8_t zone = editing && setting == index ? zoneEdit : appClockTimezone();
+        char value[12];
+        if (zone == 0) snprintf(value, sizeof(value), "Budapest");
+        else if (zone == 1) snprintf(value, sizeof(value), "UTC");
+        else snprintf(value, sizeof(value), "UTC%+d", static_cast<int>(zone) - 14);
         drawSettingValue(y, value);
         break;
       }
@@ -188,13 +233,29 @@ void drawBody(bool fullUpdate = true) {
 
 void onPress() {
   if (inSettings) {
-    if (editing) { editing = false; return; }
-    if (setting == 7) { inSettings = false; return; }
+    if (editing) {
+      if (setting == 12) {
+        if (!appClockSetTimezone(zoneEdit)) setMessage("Idozona mentese hiba");
+      } else if (setting >= 7 && setting <= 11) {
+        char value[64];
+        snprintf(value, sizeof(value), "%04d-%02d-%02dT%02d:%02d", clockEdit.tm_year + 1900,
+                 clockEdit.tm_mon + 1, clockEdit.tm_mday, clockEdit.tm_hour, clockEdit.tm_min);
+        if (!appClockSetLocal(value)) setMessage("Ervenytelen ido/NVS");
+      }
+      editing = false;
+      return;
+    }
+    if (setting == 13) { inSettings = false; return; }
     if (setting == 0) { if (appWifiTestActive()) setMessage("Wi-Fi zajteszt aktiv"); else if (!wifiManagerToggle()) setMessage("Wi-Fi valtas sikertelen"); return; }
     if (setting == 1) { if (!recorderSetSerialMeter(!recorderSerialMeterEnabled())) setMessage("ADC nem elerheto"); return; }
     if (setting == 4) { recorderSetLowpass(!recorderLowpass()); return; }
     if (setting == 5) { editing = true; return; }
     if (setting == 6) { editing = true; return; }
+    if (setting >= 7 && setting <= 11) {
+      clockEdit = {};
+      if (!appClockLocal(clockEdit)) { clockEdit.tm_year = 126; clockEdit.tm_mday = 1; }
+    }
+    if (setting == 12) zoneEdit = appClockTimezone();
     editing = true;
   } else if (tile == 0) {
     if (appWifiTestActive()) setMessage("Zajteszt aktiv");
@@ -343,6 +404,14 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
         int32_t minutes = static_cast<int32_t>(wifiManagerAutoOffMinutes()) + steps;
         minutes = constrain(minutes, 0L, 999L);
         if (!wifiManagerSetAutoOffMinutes(static_cast<uint16_t>(minutes))) setMessage("NVS mentesi hiba");
+      } else if (editing && setting >= 7 && setting <= 11) {
+        int *field = setting == 7 ? &clockEdit.tm_year : setting == 8 ? &clockEdit.tm_mon :
+                         setting == 9 ? &clockEdit.tm_mday : setting == 10 ? &clockEdit.tm_hour : &clockEdit.tm_min;
+        int32_t minimum = setting == 7 ? 120 : setting == 9 ? 1 : 0;
+        int32_t maximum = setting == 7 ? 199 : setting == 8 ? 11 : setting == 9 ? 31 : setting == 10 ? 23 : 59;
+        *field = constrain(*field + steps, minimum, maximum);
+      } else if (editing && setting == 12) {
+        zoneEdit = constrain(static_cast<int32_t>(zoneEdit) + steps, 0L, 28L);
       } else {
         setting = (setting + (steps % kSettingsCount) + kSettingsCount) % kSettingsCount;
       }
