@@ -61,6 +61,7 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
   if (command == 'b' && button == ButtonEvent::none) button = ButtonEvent::longPress;
   if (command == 'd') frameRequested = true;
   if (command == 'p') printDisplayState();
+  if (command == 'o') displaySleep();
   if (command == 'r' && !appStartRecording()) Serial.println("Cannot start recording");
   if (command == 's') Serial.println(appStopRecording() ? "Stop requested" : "Not recording");
   if (command == 'i') printSetupStatus();

@@ -44,6 +44,8 @@ class FrameTests(unittest.TestCase):
         self.assertIn('server.on("/api/settings", HTTP_POST, saveSettings)', server_source)
         self.assertIn('if (value.isEmpty() || value.length() > 3)', server_source)
         self.assertIn('if (minutes > 999)', server_source)
+        self.assertIn('server.on("/api/display/wake", HTTP_POST', server_source)
+        self.assertIn('server.send(503, "text/plain", "OLED unavailable")', server_source)
         self.assertIn('kDefaultScreenOffMinutes = 5', app_source)
         self.assertIn('preferences.getUShort(kScreenOffKey, kDefaultScreenOffMinutes)', app_source)
         self.assertIn('preferences.putUShort(kScreenOffKey, minutes)', app_source)
@@ -51,6 +53,13 @@ class FrameTests(unittest.TestCase):
         self.assertIn('oled.setPowerSave(0)', display_source)
         self.assertIn('oled.setPowerSave(1)', display_source)
         self.assertIn('snprintf(value, sizeof(value), "0 min")', display_source)
+        wake_branch = display_source.split("if (screenSleeping)", 1)[1].split("bool redraw", 1)[0]
+        self.assertIn("drawBody();", wake_branch)
+        self.assertIn("return;", wake_branch)
+        self.assertIn('Serial.printf("OLED_STATE %u %u %u %u %u\\n", tile, setting, inSettings, editing, screenSleeping)', display_source)
+        self.assertIn("if (command == 'o') displaySleep();", (root / "src" / "main.cpp").read_text(encoding="utf-8"))
+        self.assertIn("Kijelző felébresztése", page_source)
+        self.assertIn("/api/display/wake", page_source)
 
     def test_display_frame_validation_requires_distinct_visible_views(self):
         frames = []
@@ -164,8 +173,8 @@ class FrameTests(unittest.TestCase):
         self.assertEqual(device.commands, [b"d"])
 
     def test_menu_state_query(self):
-        device = FakeDevice(b"OLED_STATE 6 0 1 0\n")
-        self.assertEqual(menu_state(device), (6, 0, 1, 0))
+        device = FakeDevice(b"OLED_STATE 6 0 1 0 0\n")
+        self.assertEqual(menu_state(device), (6, 0, 1, 0, 0))
         self.assertEqual(device.commands, [b"p"])
 
     def test_wifi_profile_is_open_and_has_correct_ssid(self):

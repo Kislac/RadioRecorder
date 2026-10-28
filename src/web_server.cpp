@@ -436,6 +436,14 @@ void initWeb() {
   });
   server.on("/api/settings", HTTP_GET, sendSettings);
   server.on("/api/settings", HTTP_POST, saveSettings);
+  server.on("/api/display/wake", HTTP_POST, []() {
+    if (!displayReady()) {
+      server.send(503, "text/plain", "OLED unavailable");
+      return;
+    }
+    displayWake();
+    server.send(200, "text/plain", "Display awake");
+  });
   server.on("/api/status", HTTP_GET, sendStatus);
   server.on("/api/play", HTTP_POST, startSpeakerPlayback);
   server.on("/api/play/volume", HTTP_POST, []() {

@@ -161,7 +161,7 @@ def menu_state(device):
         line = device.readline()
         if line.startswith(b"OLED_STATE "):
             values = tuple(int(value) for value in line.split()[1:])
-            if len(values) != 4:
+            if len(values) != 5:
                 raise AssertionError("Malformed OLED state")
             return values
     raise TimeoutError("No OLED menu state received")
@@ -241,6 +241,66 @@ def test_display_all(device, report):
             raise AssertionError("Could not restore original home tile")
 
 
+def test_wake_input(device):
+    state = menu_state(device)
+    for _ in range(2):
+        if not state[2]:
+            break
+        device.write(b"b")
+        state = menu_state(device)
+    if state[2]:
+        raise AssertionError("Could not exit settings before wake test")
+    original_tile = state[0]
+    try:
+        for _ in range((5 - state[0]) % len(DISPLAY_TILES)):
+            device.write(b"l")
+            state = menu_state(device)
+        if state[0] != 5:
+            raise AssertionError("Could not reach safe Radio tile")
+        device.write(b"o")
+        if not menu_state(device)[4]:
+            raise AssertionError("Test sleep command did not put OLED to sleep")
+        device.write(b"j")
+        state = menu_state(device)
+        if state[4] or state[0] != 5:
+            raise AssertionError("First encoder input did not only wake OLED")
+        device.write(b"l")
+        state = menu_state(device)
+        if state[0] != 6:
+            raise AssertionError("Second encoder input did not navigate")
+
+        device.write(b"o")
+        if not menu_state(device)[4]:
+            raise AssertionError("Test sleep command did not put OLED to sleep")
+        device.write(b"k")
+        state = menu_state(device)
+        if state[4] or state[2] or state[0] != 6:
+            raise AssertionError("First button input did more than wake OLED")
+        device.write(b"k")
+        state = menu_state(device)
+        if not state[2]:
+            raise AssertionError("Second button input did not open settings")
+        device.write(b"b")
+        if menu_state(device)[2]:
+            raise AssertionError("Could not close settings after wake test")
+        return "first encoder and button events wake only; second events act"
+    finally:
+        state = menu_state(device)
+        if state[4]:
+            device.write(b"j")
+            state = menu_state(device)
+        for _ in range(2):
+            if not state[2]:
+                break
+            device.write(b"b")
+            state = menu_state(device)
+        for _ in range((original_tile - state[0]) % len(DISPLAY_TILES)):
+            device.write(b"l")
+            state = menu_state(device)
+        if state[0] != original_tile:
+            raise AssertionError("Could not restore original tile after wake test")
+
+
 def test_oled_navigation(device):
     for _ in range(2):
         if not menu_state(device)[2]:
@@ -296,6 +356,7 @@ def main():
                 if ready:
                     if args.display_only:
                         report.case("All OLED tiles and settings rows", lambda: test_display_all(device, report))
+                        report.case("Wake consumes first encoder/button input", lambda: test_wake_input(device))
                     else:
                         signal_ok, _ = report.case("Live ADC sample", lambda: test_signal(device, report))
                         if signal_ok:

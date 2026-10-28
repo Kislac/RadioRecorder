@@ -206,6 +206,12 @@ void initDisplay() {
 
 bool displayReady() { return ready; }
 
+void displaySleep() {
+  if (!ready) return;
+  oled.setPowerSave(1);
+  screenSleeping = true;
+}
+
 void displayWake() {
   if (!ready) return;
   lastActivityAt = millis();
@@ -221,7 +227,7 @@ void printDisplayState() {
     Serial.println("OLED_ERROR unavailable");
     return;
   }
-  Serial.printf("OLED_STATE %u %u %u %u\n", tile, setting, inSettings, editing);
+  Serial.printf("OLED_STATE %u %u %u %u %u\n", tile, setting, inSettings, editing, screenSleeping);
 }
 
 void printDisplayFrame() {
@@ -253,6 +259,8 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
     if (!activity) return;
     oled.setPowerSave(0);
     screenSleeping = false;
+    drawBody();
+    return;
   }
   bool redraw = false;
   if (button == ButtonEvent::longPress) {
@@ -317,7 +325,6 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   }
   uint16_t timeoutMinutes = appScreenOffMinutes();
   if (timeoutMinutes > 0 && now - lastActivityAt >= static_cast<uint32_t>(timeoutMinutes) * 60000UL) {
-    oled.setPowerSave(1);
-    screenSleeping = true;
+    displaySleep();
   }
 }
