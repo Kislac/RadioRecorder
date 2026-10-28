@@ -16,6 +16,15 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_file_manager_pages_folders_before_files_and_loads_on_scroll(self):
+        server = (WEB_ROOT.parent / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
+        self.assertIn('folder != (pass == 0)', server)
+        self.assertIn('if (index++ < offset)', server)
+        self.assertIn('new IntersectionObserver(', script)
+        self.assertIn('entries[0].isIntersecting', script)
+        self.assertIn('if (!loading && !loadFailed && more.getBoundingClientRect()', script)
+
     def test_dated_recording_and_file_api_firmware_contract(self):
         root = WEB_ROOT.parent
         recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
@@ -261,6 +270,21 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/files?dir=/2000-01-01')[0], 404)
         self.assertEqual(self.request('/api/files/download?path=/2000-01-01')[0], 400)
         self.assertEqual(self.request('/api/recordings')[0], 200)
+
+    def test_folders_precede_files_across_page_boundaries(self):
+        device = self.server.device
+        for number in range(22):
+            device.directories.add(f'/Folder{number:02d}')
+        for number in range(25):
+            device.files[f'/Sample{number:02d}.wav'] = device.wav
+        pages = [json.loads(self.request(f'/api/files?offset={offset}')[1])
+                 for offset in (0, 20, 40)]
+        self.assertEqual([page['next'] for page in pages], [20, 40, None])
+        self.assertEqual([len(page['items']) for page in pages], [20, 20, 10])
+        items = [item for page in pages for item in page['items']]
+        self.assertTrue(all(item['directory'] for item in items[:23]))
+        self.assertTrue(all(not item['directory'] for item in items[23:]))
+        self.assertEqual(len({item['path'] for item in items}), 50)
 
     def test_same_second_names_do_not_overwrite_and_busy_delete_is_rejected(self):
         self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-10-28T23:25'})[0], 200)

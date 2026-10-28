@@ -18,7 +18,8 @@ const speakerVolume = document.querySelector("#speakerVolume"),
   speakerVolumeValue = document.querySelector("#speakerVolumeValue"),
   speakerBoost = document.querySelector("#speakerBoost");
 let next = 0,
-  loading = false;
+  loading = false,
+  loadFailed = false;
 let volumeQueued = null,
   volumeSending = false,
   boostUpdating = false;
@@ -261,6 +262,7 @@ async function load(reset = false) {
     listEl.replaceChildren();
     next = 0;
   }
+  loadFailed = false;
   try {
     const response = await fetch(
       "/api/files?dir=" + encodeURIComponent(folder) + "&offset=" + next,
@@ -277,16 +279,28 @@ async function load(reset = false) {
     next = data.next;
     refreshSpeaker();
     more.hidden = next === null;
+    more.textContent = "Továbbiak";
     message.textContent = listEl.children.length ? "" : "Üres mappa.";
   } catch (error) {
     message.textContent = error.message;
-    more.hidden = true;
+    loadFailed = true;
+    more.hidden = false;
+    more.textContent = "Újrapróbálás";
   } finally {
     loading = false;
   }
+  if (!loadFailed && next !== null) requestAnimationFrame(() => {
+    if (!loading && !loadFailed && more.getBoundingClientRect().top <= innerHeight + 240) load();
+  });
 }
 document.querySelector("#reload").addEventListener("click", () => load(true));
 more.addEventListener("click", () => load());
+if ("IntersectionObserver" in window) {
+  const observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && !loading && !loadFailed && next !== null) load();
+  }, { rootMargin: "0px 0px 240px 0px" });
+  observer.observe(more);
+}
 breadcrumbs();
 load();
 setInterval(refreshSpeaker, 1500);

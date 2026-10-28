@@ -16,6 +16,8 @@ Alapcím: `http://127.0.0.1:8080`. Ha foglalt, a program a következő szabad po
 
 A főoldal, a `/files` fájlkezelő és a `/settings` beállítások ugyanazokat a webes forrásokat használják, mint a firmware. A böngészőfül `[Offline]` előtagja jelzi az előnézetet. Fájlmódosítás után frissítsd az oldalt; a szervert nem kell újraindítani.
 
+A fájlkezelő előbb a mappákat, majd a fájlokat adja vissza, legfeljebb 20 elemet kérésenként; görgetéskor automatikusan lekéri a következő oldalt, hibánál az Újrapróbálás gombbal folytatható.
+
 ## Szerkeszthető fájlok
 
 | Oldal | HTML | Stílus | Viselkedés |

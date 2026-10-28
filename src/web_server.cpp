@@ -289,6 +289,7 @@ void sendFiles() {
     server.send(404, "text/plain", "Directory not found");
     return;
   }
+  directory.close();
   uint32_t offset = max(0L, server.arg("offset").toInt());
   cJSON *result = cJSON_CreateObject();
   cJSON *items = result ? cJSON_AddArrayToObject(result, "items") : nullptr;
@@ -300,27 +301,36 @@ void sendFiles() {
   uint32_t index = 0;
   uint32_t shown = 0;
   bool moreFiles = false;
-  File entry;
-  while ((entry = directory.openNextFile())) {
-    if (index >= offset && shown < 20) {
+  for (uint8_t pass = 0; pass < 2 && !moreFiles; ++pass) {
+    directory = SD_MMC.open(directoryPath, FILE_READ);
+    if (!directory) {
+      cJSON_Delete(result);
+      server.send(500, "text/plain", "Cannot list SD card");
+      return;
+    }
+    File entry;
+    while ((entry = directory.openNextFile())) {
+      bool folder = entry.isDirectory();
+      if (folder != (pass == 0)) { entry.close(); continue; }
+      if (index++ < offset) { entry.close(); continue; }
+      if (shown == 20) {
+        moreFiles = true;
+        entry.close();
+        break;
+      }
       String name = fileName(entry);
       String path = directoryPath == "/" ? "/" + name : directoryPath + "/" + name;
       cJSON *item = cJSON_CreateObject();
       cJSON_AddStringToObject(item, "name", name.c_str());
       cJSON_AddStringToObject(item, "path", path.c_str());
-      cJSON_AddBoolToObject(item, "directory", entry.isDirectory());
-      cJSON_AddNumberToObject(item, "bytes", entry.isDirectory() ? 0 : entry.size());
+      cJSON_AddBoolToObject(item, "directory", folder);
+      cJSON_AddNumberToObject(item, "bytes", folder ? 0 : entry.size());
       cJSON_AddItemToArray(items, item);
       ++shown;
-    } else if (index >= offset + 20) {
-      moreFiles = true;
       entry.close();
-      break;
     }
-    ++index;
-    entry.close();
+    directory.close();
   }
-  directory.close();
   if (moreFiles) cJSON_AddNumberToObject(result, "next", offset + shown);
   else cJSON_AddNullToObject(result, "next");
   char *json = cJSON_PrintUnformatted(result);
