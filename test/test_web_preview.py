@@ -4,15 +4,40 @@ from pathlib import Path
 import runpy
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 from urllib.parse import urlencode
 
 from scripts.preview_web import PreviewDevice, PreviewServer
-from scripts.web_assets import PAGES, WEB_ROOT, generate_header, render_page
+from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header, render_page
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_ptt_firmware_has_bounded_idle_first_control_path(self):
+        root = WEB_ROOT.parent
+        relay = (root / "src" / "ptt_test.cpp").read_text(encoding="utf-8")
+        header = (root / "include" / "ptt_test.h").read_text(encoding="utf-8")
+        main = (root / "src" / "main.cpp").read_text(encoding="utf-8")
+        display = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        self.assertIn("kPttTestPulseMs = 1000", header)
+        self.assertIn("kRelayGpio = 10", relay)
+        self.assertIn("kRelayActiveLevel = HIGH", relay)
+        self.assertLess(relay.index("digitalWrite(kRelayGpio, kRelayIdleLevel);"),
+                        relay.index("pinMode(kRelayGpio, OUTPUT);"))
+        self.assertIn("if (active && static_cast<uint32_t>(millis() - startedAt) >= kPttTestPulseMs) stopPttTest();", relay)
+        self.assertIn("esp_timer_create(&timerArgs, &pulseTimer) == ESP_OK", relay)
+        self.assertIn("esp_timer_start_once(pulseTimer, static_cast<uint64_t>(kPttTestPulseMs) * 1000)", relay)
+        self.assertIn("timerArgs.dispatch_method = ESP_TIMER_TASK", relay)
+        self.assertIn("digitalWrite(kRelayGpio, kRelayIdleLevel);\n    active = false;", relay)
+        self.assertIn("if (!initialized || active) return false;", relay)
+        self.assertIn("initPttTest();", main)
+        self.assertIn("pollPttTest();", main)
+        self.assertIn("if (!startPttTest())", display)
+        self.assertIn('server.on("/api/ptt-test/on", HTTP_POST', server)
+        self.assertIn('server.on("/api/ptt-test/off", HTTP_POST', server)
+
     def test_platformio_hook_generates_header_without_building_firmware(self):
         class FakeEnvironment:
             def __init__(self, project):
@@ -39,8 +64,10 @@ class WebAssetTests(unittest.TestCase):
         for name in PAGES:
             with self.subTest(page=name):
                 document = render_page(name)
-                self.assertIn((WEB_ROOT / (name + ".css")).read_text(encoding="utf-8"), document)
-                self.assertIn((WEB_ROOT / (name + ".js")).read_text(encoding="utf-8"), document)
+                parser = AssetReferences()
+                parser.feed((WEB_ROOT / (name + ".html")).read_text(encoding="utf-8"))
+                for _, _, reference in parser.references:
+                    self.assertIn((WEB_ROOT / reference.lstrip("/")).read_text(encoding="utf-8"), document)
                 self.assertNotIn('<script src=', document)
                 self.assertNotIn('rel="stylesheet"', document)
                 self.assertNotIn("/preview/live", document)
@@ -92,17 +119,18 @@ class PreviewHttpTests(unittest.TestCase):
         return status, data, response_headers
 
     def test_pages_navigation_and_assets_are_available(self):
-        for path, name in (("/", "index"), ("/files", "files"), ("/settings", "settings")):
+        for path, name in (("/", "index"), ("/files", "files"), ("/settings", "settings"), ("/test", "test")):
             with self.subTest(path=path):
                 status, page, _ = self.request(path)
                 self.assertEqual(status, 200)
                 self.assertIn(b"[Offline]", page)
                 self.assertIn(b"/preview/live", page)
-                for extension in ("css", "js"):
-                    status, asset, _ = self.request('/' + name + '.' + extension)
+                for asset_name in (("settings.css", "test.js") if name == "test" else (name + ".css", name + ".js")):
+                    status, asset, _ = self.request('/' + asset_name)
                     self.assertEqual(status, 200)
                     self.assertGreater(len(asset), 100)
         self.assertEqual(self.request('/../platformio.ini')[0], 404)
+        self.assertEqual(self.request('/test.css')[0], 404)
 
     def test_record_stop_and_audio_range(self):
         status, name, _ = self.request('/api/start', 'POST')
@@ -126,6 +154,21 @@ class PreviewHttpTests(unittest.TestCase):
         settings = json.loads(self.request('/api/settings')[1])
         self.assertEqual(settings["screenOffMinutes"], 0)
         self.assertEqual(settings["wifiAutoOffMinutes"], 999)
+
+    def test_ptt_test_requires_explicit_pulse_and_expires_without_extension(self):
+        status = lambda: json.loads(self.request('/api/ptt-test')[1])
+        self.assertEqual(status(), {"active": False, "pulseMs": 1000})
+        self.assertEqual(self.request('/api/ptt-test/on')[0], 404)
+        self.assertEqual(self.request('/api/ptt-test/on', 'POST')[0], 200)
+        deadline = self.server.device.ptt_until
+        self.assertTrue(status()["active"])
+        self.assertEqual(self.request('/api/ptt-test/on', 'POST')[0], 409)
+        self.assertEqual(self.server.device.ptt_until, deadline)
+        self.server.device.ptt_until = time.monotonic() - 0.01
+        self.assertFalse(status()["active"])
+        self.assertEqual(self.request('/api/ptt-test/on', 'POST')[0], 200)
+        self.assertEqual(self.request('/api/ptt-test/off', 'POST')[0], 200)
+        self.assertFalse(status()["active"])
 
     def test_signal_and_network_operations(self):
         self.assertEqual(self.request('/api/signal/on', 'POST')[0], 200)

@@ -13,6 +13,7 @@
 #include "app_control.h"
 #include "display.h"
 #include "wifi_manager.h"
+#include "ptt_test.h"
 
 static WebServer server(80);
 static WebSocketsServer audioSocket(81);
@@ -454,8 +455,29 @@ void initWeb() {
     server.sendHeader("Cache-Control", "no-store");
     server.send_P(200, "text/html; charset=utf-8", kSettingsPage);
   });
+  server.on("/test", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send_P(200, "text/html; charset=utf-8", kTestPage);
+  });
   server.on("/api/settings", HTTP_GET, sendSettings);
   server.on("/api/settings", HTTP_POST, saveSettings);
+  server.on("/api/ptt-test", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", String("{\"active\":") + (pttTestActive() ? "true" : "false") +
+                ",\"pulseMs\":" + String(kPttTestPulseMs) + "}");
+  });
+  server.on("/api/ptt-test/on", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (!startPttTest()) { server.send(409, "text/plain", "PTT test already active"); return; }
+    server.send(200, "text/plain", "PTT test pulse started");
+  });
+  server.on("/api/ptt-test/off", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    stopPttTest();
+    server.send(200, "text/plain", "PTT test off");
+  });
   server.on("/api/wifi/status", HTTP_GET, []() {
     wifiManagerNotifyActivity();
     server.sendHeader("Cache-Control", "no-store");

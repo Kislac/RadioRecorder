@@ -52,6 +52,7 @@ class PreviewDevice:
         self.playing = ""
         self.play_until = 0
         self.auto_stop_at = 0
+        self.ptt_until = 0
         self.scan_started = None
         self.pending_network = None
         self.wifi = {"mode": "AP", "ssid": "RadioRecorder", "ip": "192.168.4.1", "apIp": "192.168.4.1",
@@ -64,6 +65,8 @@ class PreviewDevice:
             self.playing = ""
         if self.auto_stop_at and now >= self.auto_stop_at:
             self.finish_recording()
+        if self.ptt_until and now >= self.ptt_until:
+            self.ptt_until = 0
         if self.pending_network and now >= self.pending_network[0]:
             _, ssid, keep_ap = self.pending_network
             self.pending_network = None
@@ -92,6 +95,8 @@ class PreviewDevice:
         self.tick()
         elapsed = time.monotonic() - self.started_at
         if method == "GET":
+            if path == "/api/ptt-test":
+                return 200, {"active": bool(self.ptt_until), "pulseMs": 1000}
             if path == "/api/status":
                 return 200, {"version": "preview", "ready": self.sd_ready, "meterReady": True,
                              "liveReady": True, "audioGpio": 1, "screenOffMinutes": self.screen_minutes,
@@ -133,6 +138,14 @@ class PreviewDevice:
                               "bytes": len(self.wav)}]
                 return 200, {"items": items[offset:offset + 20], "next": None}
         if method == "POST":
+            if path == "/api/ptt-test/on":
+                if self.ptt_until:
+                    return 409, "PTT test already active"
+                self.ptt_until = time.monotonic() + 1
+                return 200, "PTT test pulse started"
+            if path == "/api/ptt-test/off":
+                self.ptt_until = 0
+                return 200, "PTT test off"
             if path == "/api/start" or path == "/api/wifi-test":
                 if not self.sd_ready or self.recording or self.playing:
                     return 409, "Recorder unavailable or busy"
@@ -254,10 +267,12 @@ class PreviewHandler(BaseHTTPRequestHandler):
                     self.send_audio(params)
                     return
             if method == "GET":
-                routes = {"/": "index.html", "/files": "files.html", "/settings": "settings.html"}
+                routes = {"/": "index.html", "/files": "files.html", "/settings": "settings.html",
+                          "/test": "test.html"}
                 name = routes.get(url.path, url.path.lstrip("/"))
                 allowed = {page + extension for page in ("index", "files", "settings")
                            for extension in (".html", ".css", ".js")}
+                allowed.update(("test.html", "test.js"))
                 if name in allowed:
                     source = (WEB_ROOT / name).read_text(encoding="utf-8")
                     if name.endswith(".html"):

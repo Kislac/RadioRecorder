@@ -9,6 +9,7 @@
 #include "recorder.h"
 #include "web_server.h"
 #include "wifi_manager.h"
+#include "ptt_test.h"
 
 #ifndef RADIORECORDER_OLED_ENABLED
 #define RADIORECORDER_OLED_ENABLED 0
@@ -156,8 +157,11 @@ void drawBody(bool fullUpdate = true) {
     oled.drawStr(0, 52, ip);
   } else if (tile == 7) {
     oled.drawStr(0, 37, "Nyomas = beallitasok");
+  } else if (tile == 5) {
+    oled.drawStr(0, 36, "PTT teszt / GPIO10");
+    oled.drawStr(0, 48, pttTestActive() ? "AKTIV (max 1 mp)" : "Nyomas = 1 mp impulzus");
   } else {
-    oled.drawStr(0, 38, tile == 5 ? "Nincs radio HW" : "Fajlkezelo kesobb");
+    oled.drawStr(0, 38, "Fajlkezelo kesobb");
   }
   oled.drawHLine(0, 56, 128);
   if (messagePending) {
@@ -203,7 +207,7 @@ void onPress() {
       setMessage("Nincs mentett Wi-Fi");
     }
   } else if (tile == 5) {
-    setMessage("Radio HW nem elerheto");
+    if (!startPttTest()) setMessage("PTT teszt mar aktiv");
   }
 }
 }
@@ -345,7 +349,7 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   if (redraw) {
     lastSecond = second;
     drawBody();
-  } else if (!inSettings && (tile == 0 || tile == 3 || tile == 6) && now - lastBodyAt >= 500) {
+  } else if (!inSettings && (tile == 0 || tile == 3 || tile == 5 || tile == 6) && now - lastBodyAt >= 500) {
     bool secondChanged = second != lastSecond;
     lastSecond = second;
     drawBody(false);

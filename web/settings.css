@@ -104,6 +104,19 @@ footer {
   margin-top: 36px;
   padding-top: 24px;
 }
+.ptt-test {
+  border-top: 1px solid var(--line);
+  margin-top: 36px;
+  padding-top: 24px;
+}
+.ptt-test h2 {
+  font: normal 24px Georgia, serif;
+}
+.ptt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
 .wifi-settings h2 {
   font:
     normal 24px Georgia,

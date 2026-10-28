@@ -8,6 +8,7 @@
 #include "display.h"
 #include "watchdog.h"
 #include "wifi_manager.h"
+#include "ptt_test.h"
 #include <SD_MMC.h>
 
 void printSetupStatus() {
@@ -79,6 +80,7 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
 
 void setup() {
   Serial.begin(115200);
+  initPttTest();
   Serial.println("RadioRecorder setup starting");
   if (!initSystemWatchdog()) {
     Serial.println("Watchdog initialization failed; restarting");
@@ -105,6 +107,7 @@ void setup() {
 }
 
 void loop() {
+  pollPttTest();
   int32_t steps = takeEncoderSteps();
   pollSerialMeter();
   ButtonEvent button = pollEncoderButton();
