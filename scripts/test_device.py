@@ -10,7 +10,7 @@ from scripts.test_support import TestRun, firmware_at_least
 
 SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+) \(ADC\)")
 DISPLAY_TILES = ("Felvetel", "Fajlok", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Beallitasok")
-SETTING_COUNT = 6
+SETTING_COUNT = 7
 
 
 def read_until(device, predicate, timeout=3, report=None):
@@ -48,6 +48,9 @@ def status(device, report, display_only=False):
     for label in required:
         if not any(line.startswith(label + ": ready") for line in lines):
             raise AssertionError(label + " is not ready: " + repr(lines))
+    timeout_line = next((line for line in lines if line.startswith("OLED screen off: ")), None)
+    if timeout_line is None or not 0 <= int(timeout_line.split(": ", 1)[1].split()[0]) <= 999:
+        raise AssertionError("Invalid OLED screen timeout status: " + repr(lines))
     if any(line.startswith("Recording:") for line in lines):
         raise AssertionError("Stop the current recording before running device tests")
     return next(line.split(": ", 1)[1] for line in lines if line.startswith("Firmware: v"))

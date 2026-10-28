@@ -23,7 +23,7 @@ a{color:#12604f;text-decoration:underline;text-underline-offset:3px}#more{margin
 .speaker-volume .boost-label{margin-top:16px}.speaker-volume select{font:inherit;padding:7px 10px;border:1px solid var(--line);background:#fff;color:var(--ink);width:100%}
 .filtercontrol{display:flex;align-items:center;gap:10px;margin-top:20px;cursor:pointer}.filtercontrol input{width:18px;height:18px;accent-color:#12604f}
 @media(max-width:560px){li{grid-template-columns:1fr}.fileactions{justify-content:flex-start}h1{font-size:30px}}
-</style></head><body><header>RADIO RECORDER <span id="firmwareVersion">v?</span> <a href="/files">Fájlkezelő</a></header>
+</style></head><body><header>RADIO RECORDER <span id="firmwareVersion">v?</span> <a href="/settings">Beállítások</a> <a href="/files">Fájlkezelő</a></header>
 <main><h1>Felvétel</h1><p class="note" id="demoClock">DEMO 13:54:22</p><p class="state" id="state">Kapcsolódás...</p><button id="toggle" disabled>Felvétel indítása</button> <button id="wifiTest" disabled>Wi-Fi zajteszt</button><p class="note" id="message"></p>
 <label class="filtercontrol"><input id="lowpassToggle" type="checkbox">3,4 kHz-es zajszűrő</label>
 <p class="note">Csak ellenőrzött, kis szintű tesztforrás. A rádiót még ne csatlakoztasd.</p></main>
@@ -279,6 +279,25 @@ fetch('/api/signal',{cache:'no-store'}).then(response=>response.json()).then(dat
  if(data.enabled){meterRunning=true;signalToggle.textContent='Mérés kikapcsolása';signalPlot.hidden=false;pollSignal(meterGeneration)}
 }).catch(()=>{});
 </script></body></html>)HTML";
+
+const char kSettingsPage[] PROGMEM = R"SETTINGS(<!doctype html>
+<html lang="hu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beállítások - Radio Recorder</title>
+<style>
+:root{color-scheme:light;--ink:#24302d;--line:#c8d0ca;--muted:#52635a}
+*{box-sizing:border-box}body{margin:0;background:repeating-linear-gradient(0deg,#f3f5f2 0 39px,#e9eee9 40px);color:var(--ink);font:16px "Trebuchet MS",sans-serif}
+header,main,footer{padding:20px max(20px,calc((100vw - 760px)/2))}header{background:var(--ink);color:#f6f5ed;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font:700 18px Georgia,serif}header a{color:inherit;font:16px "Trebuchet MS",sans-serif}
+main{padding-top:40px;min-height:70vh}h1{font:normal 34px Georgia,serif;margin:0 0 28px}.setting{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:16px;padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+label{font-weight:bold}input{width:8ch;font:inherit;font-variant-numeric:tabular-nums;padding:9px 10px;border:1px solid var(--line);background:#fff;color:var(--ink)}.value{display:flex;align-items:center;gap:10px;color:var(--muted)}button{margin-top:22px;font:inherit;cursor:pointer;background:var(--ink);color:white;border:1px solid var(--ink);padding:10px 18px}button:disabled{opacity:.5;cursor:default}#result{min-height:1.5em;color:var(--muted)}footer{border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+@media(max-width:480px){.setting{grid-template-columns:1fr}.value{justify-content:flex-start}}
+</style></head><body><header>RADIO RECORDER <nav><a href="/">Főoldal</a> · <a href="/files">Fájlkezelő</a></nav></header>
+<main><h1>Beállítások</h1><form id="settingsForm"><div class="setting"><label for="screenOffMinutes">Képernyő kikapcsolása</label><div class="value"><input id="screenOffMinutes" name="screenOffMinutes" type="number" min="0" max="999" step="1" required><span>perc</span></div></div><button id="save" type="submit" disabled>Mentés</button><p id="result" role="status" aria-live="polite">Betöltés...</p></form></main>
+<footer>ESP32-S3 / Radio Recorder</footer><script>
+const form=document.querySelector('#settingsForm'),minutes=document.querySelector('#screenOffMinutes'),save=document.querySelector('#save'),result=document.querySelector('#result');
+async function loadSettings(){try{const response=await fetch('/api/settings',{cache:'no-store'});if(!response.ok)throw Error();const settings=await response.json();minutes.value=settings.screenOffMinutes;save.disabled=false;result.textContent=Number(minutes.value)===0?'Automatikus kikapcsolás: soha':'Automatikus kikapcsolás: '+minutes.value+' perc'}catch{result.textContent='A beállítások betöltése sikertelen.'}}
+form.addEventListener('submit',async event=>{event.preventDefault();if(!form.reportValidity())return;save.disabled=true;result.textContent='Mentés...';try{const response=await fetch('/api/settings?screenOffMinutes='+encodeURIComponent(minutes.value),{method:'POST'});if(!response.ok)throw Error(await response.text());const settings=await response.json();result.textContent=Number(settings.screenOffMinutes)===0?'Elmentve · soha':'Elmentve · '+settings.screenOffMinutes+' perc'}catch(error){result.textContent=error.message||'A mentés sikertelen.'}finally{save.disabled=false}});
+loadSettings();
+</script></body></html>)SETTINGS";
 
 const char kFilesPage[] PROGMEM = R"FILES(<!doctype html>
 <html lang="hu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

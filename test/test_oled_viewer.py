@@ -3,6 +3,7 @@ import unittest
 from contextlib import redirect_stdout
 from itertools import count
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -30,6 +31,27 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_persistent_screen_timeout_web_settings_contract(self):
+        root = Path(__file__).resolve().parents[1]
+        page_source = (root / "src" / "web_pages.cpp").read_text(encoding="utf-8")
+        server_source = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        app_source = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
+        display_source = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        self.assertIn('href="/settings"', page_source)
+        self.assertIn('href="/"', page_source)
+        self.assertIn('type="number" min="0" max="999" step="1"', page_source)
+        self.assertIn('server.on("/api/settings", HTTP_GET, sendSettings)', server_source)
+        self.assertIn('server.on("/api/settings", HTTP_POST, saveSettings)', server_source)
+        self.assertIn('if (value.isEmpty() || value.length() > 3)', server_source)
+        self.assertIn('if (minutes > 999)', server_source)
+        self.assertIn('kDefaultScreenOffMinutes = 5', app_source)
+        self.assertIn('preferences.getUShort(kScreenOffKey, kDefaultScreenOffMinutes)', app_source)
+        self.assertIn('preferences.putUShort(kScreenOffKey, minutes)', app_source)
+        self.assertIn('kMaxScreenOffMinutes = 999', app_source)
+        self.assertIn('oled.setPowerSave(0)', display_source)
+        self.assertIn('oled.setPowerSave(1)', display_source)
+        self.assertIn('snprintf(value, sizeof(value), "0 min")', display_source)
+
     def test_display_frame_validation_requires_distinct_visible_views(self):
         frames = []
         for x in range(7):

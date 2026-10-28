@@ -16,7 +16,7 @@ namespace {
 constexpr int kSdaGpio = 4;
 constexpr int kSclGpio = 5;
 constexpr uint8_t kTileCount = 7;
-constexpr uint8_t kSettingsCount = 6;
+constexpr uint8_t kSettingsCount = 7;
 const char *const kTileNames[kTileCount] = {"Felvetel", "Fajlok", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Beallitasok"};
 
 U8G2_SH1106_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, kSclGpio, kSdaGpio);
@@ -26,10 +26,12 @@ uint8_t setting = 0;
 uint8_t spinner = 0;
 uint32_t lastBodyAt = 0;
 uint32_t lastSpinnerAt = 0;
+uint32_t lastActivityAt = 0;
 uint32_t lastSecond = UINT32_MAX;
 bool inSettings = false;
 bool editing = false;
 bool messagePending = false;
+bool screenSleeping = false;
 char message[26] = {};
 
 void setMessage(const char *text) {
@@ -88,6 +90,14 @@ void drawSettings() {
         break;
       }
       case 4: oled.drawStr(9, y, "Low-pass"); drawSettingValue(y, recorderLowpass() ? "BE" : "KI"); break;
+      case 5: oled.drawStr(9, y, "Kijelzo ido"); {
+        char value[10];
+        uint16_t minutes = appScreenOffMinutes();
+        if (minutes == 0) snprintf(value, sizeof(value), "0 min");
+        else snprintf(value, sizeof(value), "%u min", minutes);
+        drawSettingValue(y, value);
+        break;
+      }
       default: oled.drawStr(9, y, "Vissza"); break;
     }
   }
@@ -142,10 +152,11 @@ void drawBody(bool fullUpdate = true) {
 void onPress() {
   if (inSettings) {
     if (editing) { editing = false; return; }
-    if (setting == 5) { inSettings = false; return; }
+    if (setting == 6) { inSettings = false; return; }
     if (setting == 0) { if (appWifiTestActive()) setMessage("Wi-Fi zajteszt aktiv"); else toggleWifi(); return; }
     if (setting == 1) { if (!recorderSetSerialMeter(!recorderSerialMeterEnabled())) setMessage("ADC nem elerheto"); return; }
     if (setting == 4) { recorderSetLowpass(!recorderLowpass()); return; }
+    if (setting == 5) { editing = true; return; }
     editing = true;
   } else if (tile == 0) {
     if (appWifiTestActive()) setMessage("Zajteszt aktiv");
@@ -188,11 +199,22 @@ void initDisplay() {
   oled.setBusClock(100000);
   oled.begin();
   ready = true;
+  lastActivityAt = millis();
   drawBody();
 #endif
 }
 
 bool displayReady() { return ready; }
+
+void displayWake() {
+  if (!ready) return;
+  lastActivityAt = millis();
+  if (screenSleeping) {
+    oled.setPowerSave(0);
+    screenSleeping = false;
+    drawBody();
+  }
+}
 
 void printDisplayState() {
   if (!ready) {
@@ -224,6 +246,14 @@ void printDisplayFrame() {
 
 void pollDisplay(int32_t steps, ButtonEvent button) {
   if (!ready) return;
+  uint32_t now = millis();
+  bool activity = steps != 0 || button != ButtonEvent::none;
+  if (activity) lastActivityAt = now;
+  if (screenSleeping) {
+    if (!activity) return;
+    oled.setPowerSave(0);
+    screenSleeping = false;
+  }
   bool redraw = false;
   if (button == ButtonEvent::longPress) {
     if (editing) editing = false;
@@ -243,6 +273,10 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
         while (steps > 0) { boost = boost == 1 ? 2 : 4; --steps; }
         while (steps < 0) { boost = boost == 4 ? 2 : 1; ++steps; }
         playbackSetBoost(boost);
+      } else if (editing && setting == 5) {
+        int32_t minutes = static_cast<int32_t>(appScreenOffMinutes()) + steps;
+        minutes = constrain(minutes, 0L, 999L);
+        if (!appSetScreenOffMinutes(static_cast<uint16_t>(minutes))) setMessage("NVS mentesi hiba");
       } else {
         setting = (setting + (steps % kSettingsCount) + kSettingsCount) % kSettingsCount;
       }
@@ -251,7 +285,6 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
     }
     redraw = true;
   }
-  uint32_t now = millis();
   uint32_t second = appDemoTimeSeconds();
   uint32_t elapsed = now - lastSpinnerAt;
   bool spinnerTick = elapsed >= 100;
@@ -281,5 +314,10 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   } else if (spinnerTick) {
     drawStatus(second);
     oled.updateDisplayArea(0, 0, 1, 1);
+  }
+  uint16_t timeoutMinutes = appScreenOffMinutes();
+  if (timeoutMinutes > 0 && now - lastActivityAt >= static_cast<uint32_t>(timeoutMinutes) * 60000UL) {
+    oled.setPowerSave(1);
+    screenSleeping = true;
   }
 }

@@ -11,6 +11,7 @@
 #include "recorder.h"
 #include "live_audio.h"
 #include "app_control.h"
+#include "display.h"
 
 static WebServer server(80);
 static WebSocketsServer audioSocket(81);
@@ -77,6 +78,7 @@ void sendStatus() {
   bool ready = appSdReady() && recorderAdcReady() && recorderTaskReady();
   String json = "{\"ready\":" + String(ready ? "true" : "false");
   json += ",\"version\":\"" + appFirmwareVersion() + "\"";
+  json += ",\"screenOffMinutes\":" + String(appScreenOffMinutes());
   json += ",\"demoSeconds\":" + String(appDemoTimeSeconds());
   json += ",\"audioGpio\":" + String(kAudioGpio);
   json += ",\"lowpass\":" + String(recorderLowpass() ? "true" : "false");
@@ -96,6 +98,37 @@ void sendStatus() {
   json += ",\"error\":\"" + String(state == CaptureState::idle ? recorderError() : "") + "\"}";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", json);
+}
+
+void sendSettings() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", "{\"screenOffMinutes\":" + String(appScreenOffMinutes()) + "}");
+}
+
+void saveSettings() {
+  String value = server.arg("screenOffMinutes");
+  if (value.isEmpty() || value.length() > 3) {
+    server.send(400, "text/plain", "screenOffMinutes must be an integer from 0 to 999");
+    return;
+  }
+  for (char digit : value) {
+    if (!isDigit(digit)) {
+      server.send(400, "text/plain", "screenOffMinutes must be an integer from 0 to 999");
+      return;
+    }
+  }
+  uint16_t minutes = static_cast<uint16_t>(value.toInt());
+  if (minutes > 999) {
+    server.send(400, "text/plain", "screenOffMinutes must be an integer from 0 to 999");
+    return;
+  }
+  if (!appSetScreenOffMinutes(minutes)) {
+    server.send(500, "text/plain", "Could not save settings to NVS");
+    return;
+  }
+  displayWake();
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", "{\"screenOffMinutes\":" + String(appScreenOffMinutes()) + "}");
 }
 
 void sendRecordings() {
@@ -397,6 +430,12 @@ void initWeb() {
     server.sendHeader("Cache-Control", "no-store");
     server.send_P(200, "text/html; charset=utf-8", kFilesPage);
   });
+  server.on("/settings", HTTP_GET, []() {
+    server.sendHeader("Cache-Control", "no-store");
+    server.send_P(200, "text/html; charset=utf-8", kSettingsPage);
+  });
+  server.on("/api/settings", HTTP_GET, sendSettings);
+  server.on("/api/settings", HTTP_POST, saveSettings);
   server.on("/api/status", HTTP_GET, sendStatus);
   server.on("/api/play", HTTP_POST, startSpeakerPlayback);
   server.on("/api/play/volume", HTTP_POST, []() {

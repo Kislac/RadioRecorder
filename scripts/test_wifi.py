@@ -66,13 +66,20 @@ def test_api(base_url, args, report):
     status = json.loads(request(base_url, "/api/status"))
     assert status["version"] and status["state"] in ("idle", "starting", "recording")
     assert isinstance(status["meterReady"], bool)
+    assert 0 <= status["screenOffMinutes"] <= 999
     signal = json.loads(request(base_url, "/api/signal"))
     assert isinstance(signal["rms"], int) and isinstance(signal["enabled"], bool)
-    page_lengths = (len(request(base_url, "/")), len(request(base_url, "/files")))
+    settings = json.loads(request(base_url, "/api/settings"))
+    assert 0 <= settings["screenOffMinutes"] <= 999
+    pages = (request(base_url, "/"), request(base_url, "/files"), request(base_url, "/settings"))
+    page_lengths = tuple(map(len, pages))
     assert all(length > 0 for length in page_lengths)
+    assert b'href="/settings"' in pages[0]
+    assert b'href="/"' in pages[2]
     report.detail("HTTP /api/status " + json.dumps(status, sort_keys=True))
+    report.detail("HTTP /api/settings " + json.dumps(settings, sort_keys=True))
     report.detail("HTTP /api/signal " + json.dumps(signal, sort_keys=True))
-    report.detail("HTTP pages: /={} bytes, /files={} bytes".format(*page_lengths))
+    report.detail("HTTP pages: /={} bytes, /files={} bytes, /settings={} bytes".format(*page_lengths))
     return status
 
 

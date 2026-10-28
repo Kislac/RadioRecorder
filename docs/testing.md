@@ -16,7 +16,13 @@ Run `python -m scripts.test_device` for a non-recording check. It scans serial p
 
 Run `python -m scripts.test_device --record` only when an SD write is intended. Firmware 0.1.26 or newer is required. In addition to the checks above, it starts a short recording, requests stop, verifies a finalized WAV with non-zero audio data, then deletes that exact test-created file and confirms removal. This is destructive test data on the card; use it only with the correct device and an available SD card. The firmware accepts only an exact valid `RECxxxxx.wav` filename and refuses deletion while recording; arbitrary paths and other file types cannot be deleted with this command.
 
-Run `python -m scripts.test_device --display-only` for the display-only test. It checks OLED readiness, captures every home tile and each of the six settings rows, rejects blank or visually duplicate views, and restores the original tile without toggling settings or writing to SD.
+Run `python -m scripts.test_device --display-only` for the display-only test. It checks OLED readiness, captures every home tile and each of the seven settings rows, rejects blank or visually duplicate views, and restores the original tile without toggling settings or writing to SD.
+
+## Screen timeout
+
+The OLED timeout defaults to 5 minutes. The encoder settings include `Kijelzo ido`: turn to set 0–999 minutes, press to finish editing; 0 means never turn off. Any encoder movement or button press wakes the OLED and restarts the timer. The MCU and recorder keep running while the panel is in U8g2 power-save; this saves display power only, not the ESP32/Wi-Fi/ADC baseline.
+
+The main web page links to `/settings`; that page links back to `/`. `GET /api/settings` returns `screenOffMinutes`; `POST /api/settings?screenOffMinutes=N` validates and saves the 0–999 value. Values are stored in ESP32 NVS via `Preferences`, loaded on boot, and the settings page wakes the OLED after saving. The Wi-Fi AP is open, so only use its setting route on a trusted test network.
 
 VS Code's **Terminal > Run Task** menu includes `RadioRecorder: Display Test` and `RadioRecorder: All Tests (read-only)`, as well as `RadioRecorder: Device Test (read-only)`, `RadioRecorder: Device Test (record to SD)`, `RadioRecorder: OLED Viewer`, `RadioRecorder: Wi-Fi API Test (read-only)`, `RadioRecorder: Offline Tests`, and `RadioRecorder: Firmware Build`. The aggregate task runs offline tests, build, serial device test, display test, and Wi-Fi read-only API test sequentially. It does not upload firmware or record to SD; its device tasks require the test firmware already be uploaded and the serial monitor closed. The Wi-Fi test requires the PC to reach the ESP AP. The recording task is explicitly write-enabled; other test tasks are read-only apart from menu navigation and briefly enabling ADC measurement.
 

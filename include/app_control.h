@@ -13,3 +13,6 @@ bool appWifiTestActive();
 void appPollWifiTest();
 String appFirmwareVersion();
 uint32_t appDemoTimeSeconds();
+bool appInitSettings();
+uint16_t appScreenOffMinutes();
+bool appSetScreenOffMinutes(uint16_t minutes);

@@ -12,6 +12,7 @@
 void printSetupStatus() {
   Serial.printf("Firmware: v%s\n", appFirmwareVersion().c_str());
   Serial.printf("3.4 kHz low-pass: %s (f = toggle)\n", recorderLowpass() ? "on" : "off");
+  Serial.printf("OLED screen off: %u min\n", appScreenOffMinutes());
   Serial.printf("SD card: %s\n", appSdReady() ? "ready" : "unavailable");
   Serial.printf("ADC GPIO%d: %s\n", kAudioGpio, recorderAdcReady() ? "ready" : "unavailable");
   Serial.printf("Recorder: %s\n", appSdReady() && recorderTaskReady() ? "ready" : "unavailable");
@@ -74,6 +75,7 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
 void setup() {
   Serial.begin(115200);
   Serial.println("RadioRecorder setup starting");
+  if (!appInitSettings()) Serial.println("Settings: NVS read failed; using defaults");
   initControls();
   bool sdReady = SD_MMC.setPins(39, 38, 40) && SD_MMC.begin("/sdcard", true, false) && SD_MMC.cardType() != CARD_NONE;
   appSetSdReady(sdReady);
