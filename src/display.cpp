@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <U8g2lib.h>
+#include "startup_image.h"
 #include "app_control.h"
 #include "playback.h"
 #include "recorder.h"
@@ -127,9 +128,13 @@ void drawBody(bool fullUpdate = true) {
     oled.drawStr(0, 36, signal.enabled ? "Nyomas: meres KI" : "Nyomas: meres BE");
     oled.drawStr(0, 48, signal.active ? meter : signal.enabled ? "Meres indul..." : "Meres kikapcsolva");
   } else if (tile == 4) {
-    oled.drawStr(0, 34, appSdReady() ? "SD: OK" : "SD: hianyzik");
-    oled.drawStr(0, 44, recorderAdcReady() ? "ADC: OK" : "ADC: hiba");
-    oled.drawStr(0, 54, webReady() ? "Wi-Fi AP: BE" : "Wi-Fi AP: KI");
+    char firmware[24];
+    snprintf(firmware, sizeof(firmware), "FW: v%s", appFirmwareVersion().c_str());
+    String buildTime = appFirmwareBuildDateTime();
+    oled.drawStr(0, 32, appSdReady() ? "SD: OK" : "SD: hianyzik");
+    oled.drawStr(0, 40, recorderAdcReady() ? "ADC: OK" : "ADC: hiba");
+    oled.drawStr(0, 48, firmware);
+    oled.drawStr(0, 56, buildTime.c_str());
   } else if (tile == 6) {
     oled.drawStr(0, 37, "Nyomas = beallitasok");
   } else {
@@ -200,8 +205,14 @@ void initDisplay() {
   oled.begin();
   ready = true;
   lastActivityAt = millis();
-  drawBody();
+  oled.clearBuffer();
+  oled.drawXBM(0, 0, 128, 64, kStartupImageBits);
+  oled.sendBuffer();
 #endif
+}
+
+void displayShowHome() {
+  if (ready) drawBody();
 }
 
 bool displayReady() { return ready; }

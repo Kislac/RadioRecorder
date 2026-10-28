@@ -4,6 +4,7 @@
 #include "controls.h"
 
 void initDisplay();
+void displayShowHome();
 bool displayReady();
 void displaySleep();
 void displayWake();

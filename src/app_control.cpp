@@ -7,7 +7,7 @@
 #include <Preferences.h>
 #include <esp_timer.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.29";
+static constexpr char kFirmwareVersion[] = "0.1.32";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -24,6 +24,10 @@ bool appWifiTestActive() { return wifiTestPhase != 0; }
 
 String appFirmwareVersion() {
   return String(kFirmwareVersion) + "." + String(kFirmwareBuild);
+}
+
+String appFirmwareBuildDateTime() {
+  return String(__DATE__) + " " + String(__TIME__);
 }
 
 uint32_t appDemoTimeSeconds() {

@@ -5,3 +5,4 @@
 - PC-driven hardware and Wi-Fi tests must print a pass/fail/skip summary and save timestamped logs under the gitignored `.test-logs/` directory. A test-created SD recording must be removed after it is verified, using the exact filename created by that run.
 - Follow `docs/testing.md` for offline, serial hardware, display, and Wi-Fi checks. Keep the OLED frame format and serial commands documented if they change.
 - Increment `kFirmwareVersion` in `src/app_control.cpp` for firmware changes. Do not edit `firmware-build.txt` manually; the upload hook owns that counter.
+- Keep the 10-second ESP-IDF task watchdog enabled: monitor both core idle tasks and feed the main loop plus active recorder/speaker tasks. Do not subscribe a worker while it is normally blocked waiting for work.

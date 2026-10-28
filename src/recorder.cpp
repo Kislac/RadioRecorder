@@ -4,8 +4,10 @@
 #include <cstring>
 #include "esp_adc/adc_continuous.h"
 #include "live_audio.h"
+#include "playback.h"
 #include "wav.h"
 #include "recorder.h"
+#include "watchdog.h"
 
 static constexpr size_t kDmaBufferSize = 4096;
 static constexpr uint32_t kMaxWavBytes = 0xffffffffU - 44;
@@ -252,6 +254,7 @@ void monitorIdle() {
   AudioLowpass lowpass;
   float dcLevel = 2048.0f;
   while ((signalRequested() || liveAudioClient() >= 0) && captureState.load() == CaptureState::idle) {
+    watchdogResetCurrentTask();
     if (adcOverflow.load(std::memory_order_relaxed)) {
       signalFault.store(2);
       signalEnabled.store(false);
@@ -298,8 +301,13 @@ void monitorIdle() {
 void recordLoop(void *) {
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    if (captureState.load() == CaptureState::idle && (signalRequested() || liveAudioClient() >= 0)) monitorIdle();
+    if (captureState.load() == CaptureState::idle && (signalRequested() || liveAudioClient() >= 0)) {
+      bool monitorWatchdog = watchdogSubscribeCurrentTask();
+      monitorIdle();
+      watchdogUnsubscribeCurrentTask(monitorWatchdog);
+    }
     if (captureState.load() != CaptureState::starting) continue;
+    bool recordingWatchdog = watchdogSubscribeCurrentTask();
     adcOverflow.store(false, std::memory_order_relaxed);
     String path = String("/") + recordingName;
     File file = SD_MMC.open(path, FILE_WRITE);
@@ -316,10 +324,12 @@ void recordLoop(void *) {
       recordingStartedAt.store(millis());
       captureState.store(CaptureState::recording);
       Serial.printf("Recording started: %s\n", recordingName);
+      playbackPlayCue(PlaybackCue::recordingStarted);
       float dcLevel = 2048.0f;
       SignalWindow window;
       AudioLowpass lowpass;
       while (!stopRequested.load()) {
+        if (recordingWatchdog) watchdogResetCurrentTask();
         bool publishSignal = signalRequested();
         if (adcOverflow.load(std::memory_order_relaxed)) {
           snprintf(lastError, sizeof(lastError), "ADC buffer overflow: samples lost");
@@ -377,6 +387,8 @@ void recordLoop(void *) {
     else Serial.printf("Recording failed: %s\n", recordingName);
     if (lastError[0]) Serial.printf("Recording error: %s\n", lastError);
     captureState.store(CaptureState::idle);
+    if (started) playbackPlayCue(PlaybackCue::recordingStopped);
+    watchdogUnsubscribeCurrentTask(recordingWatchdog);
     if (signalRequested() || liveAudioClient() >= 0) xTaskNotifyGive(recorderTask);
   }
 }

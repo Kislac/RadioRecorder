@@ -6,13 +6,17 @@
 #include "web_server.h"
 #include "controls.h"
 #include "display.h"
+#include "watchdog.h"
 #include <SD_MMC.h>
 #include <WiFi.h>
 
 void printSetupStatus() {
   Serial.printf("Firmware: v%s\n", appFirmwareVersion().c_str());
+  Serial.printf("Build time: %s\n", appFirmwareBuildDateTime().c_str());
+  Serial.println("Watchdog: active (10 s, both cores)");
   Serial.printf("3.4 kHz low-pass: %s (f = toggle)\n", recorderLowpass() ? "on" : "off");
   Serial.printf("OLED screen off: %u min\n", appScreenOffMinutes());
+  Serial.printf("Speaker: %s\n", playbackStatus().ready ? "ready" : "unavailable");
   Serial.printf("SD card: %s\n", appSdReady() ? "ready" : "unavailable");
   Serial.printf("ADC GPIO%d: %s\n", kAudioGpio, recorderAdcReady() ? "ready" : "unavailable");
   Serial.printf("Recorder: %s\n", appSdReady() && recorderTaskReady() ? "ready" : "unavailable");
@@ -55,6 +59,10 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
     Serial.println("Delete test WAV: send exact RECxxxxx.wav filename");
     return;
   }
+  if (command == 'w') {
+    Serial.println("Watchdog test: forcing a main-loop stall");
+    while (true) {}
+  }
   if (command == 'j') --steps;
   if (command == 'l') ++steps;
   if (command == 'k' && button == ButtonEvent::none) button = ButtonEvent::shortPress;
@@ -76,6 +84,12 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
 void setup() {
   Serial.begin(115200);
   Serial.println("RadioRecorder setup starting");
+  if (!initSystemWatchdog()) {
+    Serial.println("Watchdog initialization failed; restarting");
+    delay(100);
+    ESP.restart();
+  }
+  Serial.println("Watchdog: ready (10 s)");
   if (!appInitSettings()) Serial.println("Settings: NVS read failed; using defaults");
   initControls();
   bool sdReady = SD_MMC.setPins(39, 38, 40) && SD_MMC.begin("/sdcard", true, false) && SD_MMC.cardType() != CARD_NONE;
@@ -87,6 +101,9 @@ void setup() {
   if (recorderTaskReady()) initLiveAudio();
   initWeb();
   initDisplay();
+  playbackPlayCue(PlaybackCue::startup);
+  delay(850);
+  displayShowHome();
   printSetupStatus();
 }
 
@@ -100,5 +117,6 @@ void loop() {
   if (frameRequested) printDisplayFrame();
   pollWeb();
   appPollWifiTest();
+  feedSystemWatchdog();
   delay(10);
 }

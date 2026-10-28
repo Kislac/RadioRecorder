@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 enum class PlaybackState { idle, starting, playing };
+enum class PlaybackCue { startup, recordingStarted, recordingStopped };
 
 struct PlaybackStatus {
   PlaybackState state;
@@ -17,6 +18,7 @@ void initPlayback(bool sdReady);
 PlaybackState playbackGetState();
 PlaybackStatus playbackStatus();
 void playbackStart(const String &path);
+void playbackPlayCue(PlaybackCue cue);
 bool playbackStop();
 void playbackSetVolume(uint8_t volume);
 void playbackSetBoost(uint8_t boost);

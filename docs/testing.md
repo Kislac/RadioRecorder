@@ -6,7 +6,11 @@ Install the PC serial dependency with `python -m pip install -r scripts/requirem
 
 Run `python -m unittest discover -s test -p 'test_*.py' -v` and `pio run -e esp32-s3-devkitc-1`. Offline tests verify the 128x64 U8g2 framebuffer encoding, pixel addressing, and image comparisons. The build verifies the firmware; neither proves physical hardware behavior.
 
+The firmware enables a 10-second ESP-IDF Task Watchdog. It monitors both core idle tasks and the Arduino loop; recorder and speaker workers are subscribed only while active and feed it as they make progress. A non-yielding infinite loop or a stalled active worker therefore triggers panic/reboot. A watchdog reset is not itself proof that the original fault is fixed; inspect the reset log and reproduce the triggering workload.
+
 PC-driven hardware and Wi-Fi tests print a pass/fail/skip summary and write timestamped details to `.test-logs/` in the workspace root. Git ignores this directory.
+
+The ESP-IDF Task Watchdog uses a 10-second timeout, monitors both core idle tasks, the Arduino main loop, and active recorder/speaker work. Normal workers blocked on notifications are not subscribed. A detected stall triggers panic/reset. `RadioRecorder: Watchdog Reset Test (reboots ESP)` is intentionally excluded from `All Tests`: it sends serial command `w`, freezes the main loop, and verifies a watchdog panic followed by firmware reboot. This test interrupts the current ESP session and should only be run when an automatic reset is acceptable.
 
 ## Serial hardware
 
@@ -20,15 +24,21 @@ Run `python -m scripts.test_device --display-only` for the display-only test. It
 
 ## Screen timeout
 
+The OLED shows the previous project's built-in 128x64 ClearSky splash during boot, then returns to the home screen. A short firmware-generated startup melody plays through the I2S speaker; no SD file is read. Successful recording start and stop events play separate short melodies through the same firmware-generated path.
+
+Serial status and the OLED **Diagnosztika** tile show both firmware version/build number and the compiler's embedded `__DATE__`/`__TIME__` timestamp. The timestamp is the compilation time; upload builds increment the firmware build number through the existing upload hook.
+
 The OLED timeout defaults to 5 minutes. The encoder settings include `Kijelzo ido`: turn to set 0–999 minutes, press to finish editing; 0 means never turn off. When asleep, the first encoder movement or button press only wakes and redraws the display; that input is consumed and does not navigate or activate a tile. The next input performs its normal action. The MCU and recorder keep running while the panel is in U8g2 power-save; this saves display power only, not the ESP32/Wi-Fi/ADC baseline.
 
 The main web page links to `/settings`; that page links back to `/`. `GET /api/settings` returns `screenOffMinutes`; `POST /api/settings?screenOffMinutes=N` validates and saves the 0–999 value. Values are stored in ESP32 NVS via `Preferences` and loaded on boot. The settings page has a **Kijelző felébresztése** button backed by `POST /api/display/wake`; saving a timeout also wakes the panel. The Wi-Fi AP is open, so only use its setting route on a trusted test network.
 
 VS Code's **Terminal > Run Task** menu includes `RadioRecorder: Display Test` and `RadioRecorder: All Tests (read-only)`, as well as `RadioRecorder: Device Test (read-only)`, `RadioRecorder: Device Test (record to SD)`, `RadioRecorder: OLED Viewer`, `RadioRecorder: Wi-Fi API Test (read-only)`, `RadioRecorder: Offline Tests`, and `RadioRecorder: Firmware Build`. The aggregate task runs offline tests, build, serial device test, display test, and Wi-Fi read-only API test sequentially. It does not upload firmware or record to SD; its device tasks require the test firmware already be uploaded and the serial monitor closed. The Wi-Fi test requires the PC to reach the ESP AP. The recording task is explicitly write-enabled; other test tasks are read-only apart from menu navigation and briefly enabling ADC measurement.
 
+`RadioRecorder: Watchdog Reset Test (reboots ESP)` is intentionally not part of `All Tests`: it sends serial command `w`, deliberately blocks the main loop, and verifies the 10-second watchdog panic and reboot. Use it only when resetting the ESP is acceptable; it does not write to SD.
+
 Run `python -m scripts.oled_viewer` for a live PC image; it uses the same serial port discovery. Left/Right emulates rotation, Enter a short press, and Space (or Escape) a long press; a brief Space tap sends one long-press event. "Kép mentése" saves a portable bitmap (PBM) screenshot. A short press can start or stop recording when the Felvetel tile is selected, just like the physical button.
 
-Serial commands: `j` left, `l` right, `k` short press, `b` long press, `d` OLED frame, `p` OLED menu state, `o` force OLED sleep for wake testing, `m` serial ADC meter toggle, and `x` followed by an exact `RECxxxxx.wav` filename and newline to delete that recording. Existing commands remain `i` status, `r` recording start, `s` recording stop, `f` low-pass toggle. `d` returns `OLED_FRAME 128 64 ` plus 2048 uppercase hexadecimal digits and newline. The 1024 bytes use U8g2 vertical tiles: byte offset `(y // 8) * 128 + x`, bit `y % 8`. `p` returns `OLED_STATE tile setting inSettings editing screenSleeping`. The snapshot is on demand, so a client should poll `d` for animation. These commands are only available once the new firmware is uploaded.
+Serial commands: `j` left, `l` right, `k` short press, `b` long press, `d` OLED frame, `p` OLED menu state, `o` force OLED sleep for wake testing, `w` deliberately stall the main loop for the watchdog reset test, `m` serial ADC meter toggle, and `x` followed by an exact `RECxxxxx.wav` filename and newline to delete that recording. Existing commands remain `i` status, `r` recording start, `s` recording stop, `f` low-pass toggle. `d` returns `OLED_FRAME 128 64 ` plus 2048 uppercase hexadecimal digits and newline. The 1024 bytes use U8g2 vertical tiles: byte offset `(y // 8) * 128 + x`, bit `y % 8`. `p` returns `OLED_STATE tile setting inSettings editing screenSleeping`. The snapshot is on demand, so a client should poll `d` for animation. These commands are only available once the new firmware is uploaded.
 
 ## Wi-Fi AP
 

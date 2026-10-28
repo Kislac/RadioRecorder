@@ -18,6 +18,14 @@
       "problemMatcher": []
     },
     {
+      "label": "RadioRecorder: Watchdog Reset Test (reboots ESP)",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.test_watchdog"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
       "label": "RadioRecorder: Device Test (record to SD)",
       "type": "process",
       "command": "python",

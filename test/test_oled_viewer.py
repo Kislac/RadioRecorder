@@ -31,12 +31,37 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_watchdog_monitors_idle_cores_and_feeds_active_tasks(self):
+        root = Path(__file__).resolve().parents[1]
+        watchdog = (root / "src" / "watchdog.cpp").read_text(encoding="utf-8")
+        main_source = (root / "src" / "main.cpp").read_text(encoding="utf-8")
+        recorder_source = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
+        playback_source = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        main_source = (root / "src" / "main.cpp").read_text(encoding="utf-8")
+        watchdog_test_source = (root / "scripts" / "test_watchdog.py").read_text(encoding="utf-8")
+        self.assertIn("kWatchdogTimeoutMs = 10000", watchdog)
+        self.assertIn("kWatchdogIdleCoreMask = (1U << portNUM_PROCESSORS) - 1", watchdog)
+        self.assertIn("config.trigger_panic", watchdog)
+        self.assertIn("esp_task_wdt_reconfigure(&config)", watchdog)
+        self.assertIn("initSystemWatchdog()", main_source)
+        self.assertIn("feedSystemWatchdog()", main_source)
+        self.assertIn('Serial.println("Watchdog: active (10 s, both cores)")', main_source)
+        self.assertIn("watchdogResetCurrentTask()", recorder_source)
+        self.assertIn("watchdogResetCurrentTask()", playback_source)
+        self.assertIn("if (command == 'w')", main_source)
+        self.assertIn('device.write(b"w")', watchdog_test_source)
+        self.assertIn("task watchdog got triggered", watchdog_test_source)
+        self.assertIn('line == "Watchdog: ready (10 s)"', watchdog_test_source)
+
     def test_persistent_screen_timeout_web_settings_contract(self):
         root = Path(__file__).resolve().parents[1]
         page_source = (root / "src" / "web_pages.cpp").read_text(encoding="utf-8")
         server_source = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
         app_source = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
         display_source = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        playback_source = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        recorder_source = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
+        startup_image = (root / "include" / "startup_image.h").read_text(encoding="utf-8")
         self.assertIn('href="/settings"', page_source)
         self.assertIn('href="/"', page_source)
         self.assertIn('type="number" min="0" max="999" step="1"', page_source)
@@ -60,6 +85,19 @@ class FrameTests(unittest.TestCase):
         self.assertIn("if (command == 'o') displaySleep();", (root / "src" / "main.cpp").read_text(encoding="utf-8"))
         self.assertIn("Kijelző felébresztése", page_source)
         self.assertIn("/api/display/wake", page_source)
+        self.assertIn("oled.drawXBM(0, 0, 128, 64, kStartupImageBits)", display_source)
+        self.assertIn("playbackPlayCue(PlaybackCue::startup)", (root / "src" / "main.cpp").read_text(encoding="utf-8"))
+        self.assertIn("playbackPlayCue(PlaybackCue::recordingStarted)", recorder_source)
+        self.assertIn("playbackPlayCue(PlaybackCue::recordingStopped)", recorder_source)
+        self.assertIn('static_assert(sizeof(kStartupImageBits) == 1024', startup_image)
+        self.assertIn("sinf(phase)", playback_source)
+        self.assertIn("if (speakerReady && xTaskCreatePinnedToCore", playback_source)
+        self.assertIn("cuePlaying.compare_exchange_strong", playback_source)
+        self.assertIn("cuePlaying.load() ? PlaybackState::playing", playback_source)
+        self.assertIn('playbackPlayCue(PlaybackCue::startup)', (root / "src" / "main.cpp").read_text(encoding="utf-8"))
+        self.assertIn('String(__DATE__) + " " + String(__TIME__)', app_source)
+        self.assertIn('Serial.printf("Build time: %s\\n"', (root / "src" / "main.cpp").read_text(encoding="utf-8"))
+        self.assertIn('appFirmwareBuildDateTime()', display_source)
 
     def test_display_frame_validation_requires_distinct_visible_views(self):
         frames = []

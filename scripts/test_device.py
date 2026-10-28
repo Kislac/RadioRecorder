@@ -44,10 +44,12 @@ def status(device, report, display_only=False):
         raise TimeoutError("Incomplete firmware status: " + repr(lines))
     if not any(line.startswith("Firmware: v") for line in lines):
         raise AssertionError("No firmware status from ESP")
-    required = ("OLED",) if display_only else ("SD card", "ADC GPIO1", "Recorder", "OLED")
+    required = ("OLED",) if display_only else ("SD card", "ADC GPIO1", "Recorder", "OLED", "Speaker")
     for label in required:
         if not any(line.startswith(label + ": ready") for line in lines):
             raise AssertionError(label + " is not ready: " + repr(lines))
+    if not any(line.startswith("Watchdog: active (10 s") for line in lines):
+        raise AssertionError("Task watchdog is not active: " + repr(lines))
     timeout_line = next((line for line in lines if line.startswith("OLED screen off: ")), None)
     if timeout_line is None or not 0 <= int(timeout_line.split(": ", 1)[1].split()[0]) <= 999:
         raise AssertionError("Invalid OLED screen timeout status: " + repr(lines))
