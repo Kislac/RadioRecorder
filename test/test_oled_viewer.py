@@ -32,6 +32,29 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_oled_menu_redesign_contract(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        self.assertIn("kTileCount = 11", source)
+        self.assertIn('"Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel"', source)
+        self.assertIn('"Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel"', source)
+        self.assertIn("kBrowseRows = 5", source)
+        self.assertIn("if (!inMenu) oled.drawHLine(0, 56, 128);", source)
+        self.assertIn('snprintf(footer, sizeof(footer), "< %u/%u >"', source)
+        self.assertNotIn("Hosszu: vissza", source)
+        self.assertIn("drawRecordingName(recorderName())", source)
+        self.assertIn("if (isSignalTile(previousTile)) stopDisplaySignal();", source)
+        self.assertIn("if (isSignalTile(tile)) startDisplaySignal();", source)
+        self.assertIn("recorderSetMicSignal(true)", source)
+        self.assertIn("recorderSetMicSignal(false)", source)
+        self.assertIn("sampleDisplaySignal(now)", source)
+        self.assertIn("graphSamples[120]", source)
+        self.assertIn("if (pttTestActive()) stopPttTest();", source)
+        self.assertIn("else if (!latchPttTest())", source)
+        self.assertIn("WiFi.localIP().toString()", source)
+        self.assertIn("WiFi.softAPIP().toString()", source)
+        self.assertIn('"%04d.%02u.%02d %s"', source)
+
     def test_oled_sd_browser_and_inert_radio_playback(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "src" / "display.cpp").read_text(encoding="utf-8")
@@ -139,7 +162,7 @@ class FrameTests(unittest.TestCase):
         self.assertIn('playbackPlayCue(PlaybackCue::startup)', (root / "src" / "main.cpp").read_text(encoding="utf-8"))
         self.assertIn('String(__DATE__) + " " + String(__TIME__)', app_source)
         self.assertIn('Serial.printf("Build time: %s\\n"', (root / "src" / "main.cpp").read_text(encoding="utf-8"))
-        self.assertIn('appFirmwareBuildDateTime()', display_source)
+        self.assertIn('drawBuildDate();', display_source)
         self.assertIn('kWifiTimeoutKey[] = "wifiOffMin"', wifi_source)
         self.assertIn('kDefaultTimeoutMinutes = 5', wifi_source)
         self.assertIn('kConnectTimeoutMs = 15000', wifi_source)

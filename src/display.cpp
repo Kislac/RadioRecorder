@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <SD_MMC.h>
+#include <WiFi.h>
 #include <Wire.h>
 #include <U8g2lib.h>
 #include "startup_image.h"
@@ -20,9 +21,20 @@
 namespace {
 constexpr int kSdaGpio = 4;
 constexpr int kSclGpio = 5;
-constexpr uint8_t kTileCount = 8;
+constexpr uint8_t kTileCount = 11;
 constexpr uint8_t kSettingsCount = 14;
-const char *const kTileNames[kTileCount] = {"Felvetel", "Mikrofon", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Wi-Fi", "Beallitasok"};
+constexpr uint8_t kBrowseRows = 5;
+constexpr uint8_t kSettingsRows = 5;
+constexpr uint8_t kFileTile = 4;
+constexpr uint8_t kRadioSignalTile = 5;
+constexpr uint8_t kMicSignalTile = 6;
+constexpr uint8_t kDiagnosticsTile = 7;
+constexpr uint8_t kPttTile = 8;
+constexpr uint8_t kWifiTile = 9;
+constexpr uint8_t kSettingsTile = 10;
+const char *const kTileNames[kTileCount] = {"Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel",
+                                            "Aut Mikrofon Felvetel", "Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel",
+                                            "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok"};
 
 U8G2_SH1106_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, kSclGpio, kSdaGpio);
 bool ready = false;
@@ -39,6 +51,13 @@ bool messagePending = false;
 bool screenSleeping = false;
 bool browsingFiles = false;
 bool choosingPlayback = false;
+bool graphMode = false;
+bool ownsRadioSignal = false;
+bool ownsMicSignal = false;
+uint8_t graphSamples[120] = {};
+uint8_t graphCount = 0;
+uint8_t graphNext = 0;
+uint32_t lastGraphSampleAt = 0;
 String browsePath = "/";
 String selectedFile;
 uint32_t browseSelected = 0;
@@ -49,7 +68,7 @@ struct BrowseRow {
   String path;
   bool directory = false;
 };
-BrowseRow browseRows[4];
+BrowseRow browseRows[kBrowseRows];
 tm clockEdit = {};
 uint8_t zoneEdit = 0;
 char message[26] = {};
@@ -57,6 +76,108 @@ char message[26] = {};
 void setMessage(const char *text) {
   snprintf(message, sizeof(message), "%s", text);
   messagePending = true;
+}
+
+bool isSignalTile(uint8_t selectedTile) {
+  return selectedTile == kRadioSignalTile || selectedTile == kMicSignalTile;
+}
+
+SignalStatus selectedSignal() {
+  return tile == kMicSignalTile ? recorderMicSignalStatus() : recorderSignalStatus();
+}
+
+void startDisplaySignal() {
+  graphMode = false;
+  graphCount = graphNext = 0;
+  lastGraphSampleAt = millis();
+  if (tile == kRadioSignalTile && !recorderSignalStatus().enabled && recorderAdcReady() && recorderTaskReady()) {
+    recorderSetSignal(true);
+    ownsRadioSignal = recorderSignalStatus().enabled;
+  } else if (tile == kMicSignalTile && !recorderMicSignalStatus().enabled) {
+    ownsMicSignal = recorderSetMicSignal(true);
+  }
+}
+
+void stopDisplaySignal() {
+  if (ownsRadioSignal) recorderSetSignal(false);
+  if (ownsMicSignal) recorderSetMicSignal(false);
+  ownsRadioSignal = ownsMicSignal = false;
+  graphMode = false;
+}
+
+void sampleDisplaySignal(uint32_t now) {
+  if (!isSignalTile(tile)) return;
+  SignalStatus signal = selectedSignal();
+  if (!signal.enabled || !signal.active) return;
+  if (static_cast<uint32_t>(now - lastGraphSampleAt) < 1000) return;
+  lastGraphSampleAt = now;
+  uint16_t limit = tile == kRadioSignalTile ? 4095 : 32767;
+  float normalized = static_cast<float>(signal.rms) / limit;
+  graphSamples[graphNext] = static_cast<uint8_t>(fminf(24, sqrtf(normalized) * 24));
+  graphNext = (graphNext + 1) % sizeof(graphSamples);
+  if (graphCount < sizeof(graphSamples)) ++graphCount;
+}
+
+void drawSignal() {
+  SignalStatus signal = selectedSignal();
+  if (!signal.enabled) { oled.drawStr(0, 36, "Jelmeres nem elerheto"); return; }
+  if (!signal.active) { oled.drawStr(0, 36, "Meres indul..."); return; }
+  char meter[27];
+  snprintf(meter, sizeof(meter), "RMS %u  Csucs %u", signal.rms, signal.peak);
+  oled.drawStr(0, 33, meter);
+  if (!graphMode) { oled.drawStr(0, 48, "Nyomas: grafikon"); return; }
+  oled.drawHLine(0, 62, 128);
+  for (uint8_t index = 0; index < graphCount; ++index) {
+    uint8_t sample = graphSamples[(graphNext + sizeof(graphSamples) - graphCount + index) % sizeof(graphSamples)];
+    oled.drawVLine(8 + index, 61 - sample, sample + 1);
+  }
+}
+
+void drawRecordingName(const char *path) {
+  String name(path);
+  if (name.length() <= 24) { oled.drawStr(0, 46, name.c_str()); return; }
+  oled.drawStr(0, 44, name.substring(0, 24).c_str());
+  oled.drawStr(0, 53, name.substring(24, 48).c_str());
+}
+
+void drawBuildDate() {
+  static const char *const months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  char month[4] = {};
+  int day = 0;
+  int year = 0;
+  sscanf(__DATE__, "%3s %d %d", month, &day, &year);
+  uint8_t monthNumber = 0;
+  for (uint8_t index = 0; index < 12; ++index) {
+    if (strcmp(month, months[index]) == 0) monthNumber = index + 1;
+  }
+  char date[24];
+  snprintf(date, sizeof(date), "%04d.%02u.%02d %s", year, monthNumber, day, __TIME__);
+  oled.drawStr(0, 55, date);
+}
+
+void drawWifi() {
+  oled.setFont(u8g2_font_5x8_tf);
+  String mode = wifiManagerModeName();
+  oled.drawStr(128 - oled.getStrWidth(mode.c_str()), 22, mode.c_str());
+  bool station = WiFi.status() == WL_CONNECTED;
+  wifi_mode_t wifiMode = WiFi.getMode();
+  bool ap = wifiMode == WIFI_MODE_AP || wifiMode == WIFI_MODE_APSTA;
+  String ssid = station ? WiFi.SSID() : mode == "CONNECTING" ? wifiManagerSSID() : "-";
+  oled.drawStr(0, 30, "STA SSID:");
+  if (ssid.length() > 15) {
+    uint32_t offset = (millis() / 400) % (ssid.length() + 4);
+    ssid = (ssid + "    " + ssid).substring(offset, offset + 15);
+  }
+  oled.drawStr(48, 30, ssid.c_str());
+  String staIp = station ? WiFi.localIP().toString() : "-";
+  oled.drawStr(0, 38, "STA IP:");
+  oled.drawStr(40, 38, staIp.c_str());
+  oled.drawStr(0, 46, "AP SSID:");
+  oled.drawStr(45, 46, ap ? WiFi.softAPSSID().c_str() : "-");
+  String apIp = ap ? WiFi.softAPIP().toString() : "-";
+  oled.drawStr(0, 54, "AP IP:");
+  oled.drawStr(40, 54, apIp.c_str());
 }
 
 void refreshBrowseRows() {
@@ -76,13 +197,13 @@ void refreshBrowseRows() {
   }
   directory.close();
   if (browseTotal && browseSelected >= browseTotal) browseSelected = browseTotal - 1;
-  uint32_t first = (browseSelected / 4) * 4;
+  uint32_t first = (browseSelected / kBrowseRows) * kBrowseRows;
   if (hasParent && first == 0) {
     int separator = browsePath.lastIndexOf('/');
     browseRows[0] = {"..", separator == 0 ? "/" : browsePath.substring(0, separator), true};
   }
   uint32_t index = hasParent ? 1 : 0;
-  for (uint8_t pass = 0; pass < 2 && index < first + 4; ++pass) {
+  for (uint8_t pass = 0; pass < 2 && index < first + kBrowseRows; ++pass) {
     directory = SD_MMC.open(browsePath, FILE_READ);
     if (!directory) break;
     while ((entry = directory.openNextFile())) {
@@ -92,14 +213,14 @@ void refreshBrowseRows() {
       String lower = name;
       lower.toLowerCase();
       if (folder == (pass == 0) && (folder || lower.endsWith(".wav"))) {
-        if (index >= first && index < first + 4) {
+        if (index >= first && index < first + kBrowseRows) {
           String path = browsePath == "/" ? "/" + name : browsePath + "/" + name;
           browseRows[index - first] = {name, path, folder};
         }
         ++index;
       }
       entry.close();
-      if (index >= first + 4) break;
+      if (index >= first + kBrowseRows) break;
     }
     directory.close();
   }
@@ -139,7 +260,7 @@ void pressBrowse() {
   if (!appSdReady()) { setMessage("SD nem elerheto"); return; }
   if (recorderState() != CaptureState::idle) { setMessage("Felvetel folyamatban"); return; }
   if (!browseTotal) return;
-  const BrowseRow &item = browseRows[browseSelected % 4];
+  const BrowseRow &item = browseRows[browseSelected % kBrowseRows];
   if (item.path.isEmpty()) return;
   if (item.directory) {
     if (item.name == "..") { browseParent(); return; }
@@ -172,8 +293,8 @@ void drawBrowse() {
   if (!appSdReady()) { oled.drawStr(0, 36, "SD nem elerheto"); return; }
   if (recorderState() != CaptureState::idle) { oled.drawStr(0, 36, "Felvetel folyamatban"); return; }
   if (!browseTotal) { oled.drawStr(0, 36, "Nincs WAV vagy mappa"); return; }
-  uint32_t first = (browseSelected / 4) * 4;
-  for (uint8_t row = 0; row < 4 && first + row < browseTotal; ++row) {
+  uint32_t first = (browseSelected / kBrowseRows) * kBrowseRows;
+  for (uint8_t row = 0; row < kBrowseRows && first + row < browseTotal; ++row) {
     const BrowseRow &item = browseRows[row];
     uint8_t y = 30 + row * 8;
     oled.drawStr(0, y, first + row == browseSelected ? ">" : " ");
@@ -218,8 +339,8 @@ void drawSettings() {
   tm local = {};
   if (!appClockLocal(local)) { local.tm_year = 126; local.tm_mday = 1; }
   for (uint8_t index = 0; index < kSettingsCount; ++index) {
-    uint8_t row = (setting / 4) * 4;
-    if (index < row || index >= row + 4) continue;
+    uint8_t row = (setting / kSettingsRows) * kSettingsRows;
+    if (index < row || index >= row + kSettingsRows) continue;
     uint8_t y = 30 + (index - row) * 8;
     oled.drawStr(0, y, setting == index ? (editing ? "*" : ">") : " ");
     switch (index) {
@@ -302,7 +423,7 @@ void drawBody(bool fullUpdate = true) {
   oled.clearBuffer();
   drawStatus(appDemoTimeSeconds());
   oled.setFont(u8g2_font_6x10_tf);
-  String heading = inSettings ? "Beallitasok" : tile == 2 && browsingFiles ?
+  String heading = inSettings ? "Beallitasok" : tile == kFileTile && browsingFiles ?
                    (choosingPlayback ? "Lejatszas" : browsePath == "/" ? "microSD" :
                     browsePath.substring(browsePath.lastIndexOf('/') + 1, browsePath.lastIndexOf('/') + 19)) : kTileNames[tile];
   oled.drawStr(0, 22, heading.c_str());
@@ -315,34 +436,21 @@ void drawBody(bool fullUpdate = true) {
     oled.drawStr(0, 34, state == CaptureState::idle ? "ADC: nyomas = indit" :
                  !adcRecording ? "MIC felvetel aktiv" : recorderStopping() ? "Lezaras..." :
                  state == CaptureState::starting ? "Indulas..." : "ADC REC: nyomas = stop");
-    if (adcRecording) oled.drawStr(0, 44, recorderName());
-  } else if (tile == 2) {
+    if (adcRecording) drawRecordingName(recorderName());
+  } else if (tile == kFileTile) {
     drawBrowse();
-  } else if (tile == 3) {
-    SignalStatus signal = recorderSignalStatus();
-    char meter[25];
-    snprintf(meter, sizeof(meter), "RMS %u  Csucs %u", signal.rms, signal.peak);
-    oled.drawStr(0, 36, signal.enabled ? "Nyomas: meres KI" : "Nyomas: meres BE");
-    oled.drawStr(0, 48, signal.active ? meter : signal.enabled ? "Meres indul..." : "Meres kikapcsolva");
-  } else if (tile == 4) {
+  } else if (isSignalTile(tile)) {
+    drawSignal();
+  } else if (tile == kDiagnosticsTile) {
     char firmware[24];
     snprintf(firmware, sizeof(firmware), "FW: v%s", appFirmwareVersion().c_str());
-    String buildTime = appFirmwareBuildDateTime();
     oled.drawStr(0, 32, appSdReady() ? "SD: OK" : "SD: hianyzik");
     oled.drawStr(0, 40, recorderAdcReady() ? "ADC: OK" : "ADC: hiba");
     oled.drawStr(0, 48, firmware);
-    oled.drawStr(0, 56, buildTime.c_str());
-  } else if (tile == 6) {
-    char mode[22];
-    char ssid[22];
-    char ip[22];
-    snprintf(mode, sizeof(mode), "Mod: %s", wifiManagerModeName().c_str());
-    snprintf(ssid, sizeof(ssid), "SSID: %.15s", wifiManagerSSID().c_str());
-    snprintf(ip, sizeof(ip), "IP: %s", wifiManagerIPAddress().c_str());
-    oled.drawStr(0, 34, mode);
-    oled.drawStr(0, 43, ssid);
-    oled.drawStr(0, 52, ip);
-  } else if (tile == 7) {
+    drawBuildDate();
+  } else if (tile == kWifiTile) {
+    drawWifi();
+  } else if (tile == kSettingsTile) {
     oled.drawStr(0, 37, "Nyomas = beallitasok");
   } else if (tile == 1) {
     CaptureState state = recorderState();
@@ -350,25 +458,30 @@ void drawBody(bool fullUpdate = true) {
     oled.drawStr(0, 35, !recorderMicReady() ? "I2S nem elerheto" :
                  micRecording ? (recorderStopping() ? "Lezaras..." : "MIC REC: nyomas = stop") :
                  state != CaptureState::idle ? "Masik felvetel aktiv" : "Nyomas = MIC indit");
-    if (micRecording) oled.drawStr(0, 46, recorderName());
-  } else if (tile == 5) {
+    if (micRecording) drawRecordingName(recorderName());
+  } else if (tile == kPttTile) {
     oled.drawStr(0, 36, "PTT teszt / GPIO10");
-    oled.drawStr(0, 48, pttTestActive() ? "AKTIV (max 1 mp)" : "Nyomas = 1 mp impulzus");
+    oled.drawStr(0, 48, pttTestActive() ? "AKTIV - nyomas: KI" : "Nyomas = BE");
+  } else if (tile == 2) {
+    oled.drawStr(0, 38, "Auto radio: kesobb");
+  } else if (tile == 3) {
+    oled.drawStr(0, 38, "Auto mikrofon: kesobb");
   } else {
-    oled.drawStr(0, 38, "Fajlkezelo kesobb");
+    oled.drawStr(0, 38, "Nem elerheto");
   }
-  oled.drawHLine(0, 56, 128);
+  bool inMenu = inSettings || (tile == kFileTile && browsingFiles) || (isSignalTile(tile) && graphMode);
+  if (!inMenu) oled.drawHLine(0, 56, 128);
   if (messagePending) {
+    if (inMenu) { oled.setDrawColor(0); oled.drawBox(0, 55, 128, 9); oled.setDrawColor(1); }
     oled.drawStr(0, 63, message);
     messagePending = false;
-  } else {
-    char footer[21];
-    snprintf(footer, sizeof(footer), inSettings || (tile == 2 && browsingFiles) ?
-         "Hosszu: vissza" : "< %u/%u >  Hosszu: vissza", tile + 1, kTileCount);
+  } else if (!inMenu) {
+    char footer[12];
+    snprintf(footer, sizeof(footer), "< %u/%u >", tile + 1, kTileCount);
     oled.drawStr(0, 63, footer);
   }
   if (fullUpdate) oled.sendBuffer();
-  else oled.updateDisplayArea(0, 3, 16, 4);
+  else oled.updateDisplayArea(0, 2, 16, 6);
   lastBodyAt = millis();
 }
 
@@ -403,7 +516,7 @@ void onPress() {
     else if (recorderState() == CaptureState::idle) {
       if (!appStartRecording()) setMessage("Felvetel nem indithato");
     } else if (recorderSource() == CaptureSource::adc && !recorderStopping()) appStopRecording();
-  } else if (tile == 2) {
+  } else if (tile == kFileTile) {
     if (browsingFiles) pressBrowse();
     else if (playbackGetState() != PlaybackState::idle) playbackStop();
     else {
@@ -416,20 +529,21 @@ void onPress() {
     if (recorderState() == CaptureState::idle) {
       if (!appStartMicRecording()) setMessage("MIC nem indithato");
     } else if (recorderSource() == CaptureSource::microphone && !recorderStopping()) appStopRecording();
-  } else if (tile == 3) {
-    if (!recorderAdcReady() || !recorderTaskReady()) setMessage("ADC nem elerheto");
-    else recorderSetSignal(!recorderSignalStatus().enabled);
-  } else if (tile == 7) {
+  } else if (isSignalTile(tile)) {
+    if (!selectedSignal().enabled) setMessage("Jelmeres nem elerheto");
+    else graphMode = !graphMode;
+  } else if (tile == kSettingsTile) {
     inSettings = true;
     setting = 0;
-  } else if (tile == 6) {
+  } else if (tile == kWifiTile) {
     if (wifiManagerHasCredentials()) {
       if (!wifiManagerForget()) setMessage("Wi-Fi elfelejtes sikertelen");
     } else {
       setMessage("Nincs mentett Wi-Fi");
     }
-  } else if (tile == 5) {
-    if (!startPttTest()) setMessage("PTT teszt mar aktiv");
+  } else if (tile == kPttTile) {
+    if (pttTestActive()) stopPttTest();
+    else if (!latchPttTest()) setMessage("PTT nem indithato");
   }
 }
 }
@@ -471,6 +585,7 @@ bool displayReady() { return ready; }
 
 void displaySleep() {
   if (!ready) return;
+  if (isSignalTile(tile)) stopDisplaySignal();
   oled.setPowerSave(1);
   screenSleeping = true;
 }
@@ -481,6 +596,7 @@ void displayWake() {
   if (screenSleeping) {
     oled.setPowerSave(0);
     screenSleeping = false;
+    if (isSignalTile(tile)) startDisplaySignal();
     drawBody();
   }
 }
@@ -522,6 +638,7 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
     if (!activity) return;
     oled.setPowerSave(0);
     screenSleeping = false;
+    if (isSignalTile(tile)) startDisplaySignal();
     drawBody();
     return;
   }
@@ -575,10 +692,16 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
         setting = (setting + (steps % kSettingsCount) + kSettingsCount) % kSettingsCount;
       }
     } else {
+      uint8_t previousTile = tile;
       tile = (tile + (steps % kTileCount) + kTileCount) % kTileCount;
+      if (tile != previousTile) {
+        if (isSignalTile(previousTile)) stopDisplaySignal();
+        if (isSignalTile(tile)) startDisplaySignal();
+      }
     }
     redraw = true;
   }
+  sampleDisplaySignal(now);
   uint32_t second = appDemoTimeSeconds();
   uint32_t elapsed = now - lastSpinnerAt;
   bool spinnerTick = elapsed >= 100;
@@ -590,7 +713,8 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   if (redraw) {
     lastSecond = second;
     drawBody();
-  } else if (!inSettings && (tile == 0 || tile == 1 || tile == 3 || tile == 5 || tile == 6) && now - lastBodyAt >= 500) {
+  } else if (!inSettings && (tile == 0 || tile == 1 || isSignalTile(tile) ||
+                              tile == kPttTile || tile == kWifiTile) && now - lastBodyAt >= 500) {
     bool secondChanged = second != lastSecond;
     lastSecond = second;
     drawBody(false);
@@ -598,7 +722,7 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
     else if (spinnerTick) oled.updateDisplayArea(0, 0, 1, 1);
   } else if (second != lastSecond) {
     lastSecond = second;
-    if (inSettings || tile == 2 || tile == 4) {
+    if (inSettings || tile == kFileTile || tile == kDiagnosticsTile) {
       drawBody(false);
       oled.updateDisplayArea(0, 0, 16, 2);
     } else {

@@ -9,7 +9,9 @@ from scripts.test_support import TestRun, firmware_at_least
 
 
 SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+) \(ADC\)")
-DISPLAY_TILES = ("Felvetel", "Mikrofon", "Lejatszo", "Elo jel", "Diagnosztika", "Radio", "Wi-Fi", "Beallitasok")
+DISPLAY_TILES = ("Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel",
+                 "Aut Mikrofon Felvetel", "Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel",
+                 "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok")
 SETTING_COUNT = 14
 
 
@@ -235,18 +237,18 @@ def test_display_all(device, report):
         validate_display_frames(setting_frames, SETTING_COUNT, "settings rows")
         device.write(b"b")
         state = menu_state(device)
-        for _ in range((2 - state[0]) % len(DISPLAY_TILES)):
+        for _ in range((4 - state[0]) % len(DISPLAY_TILES)):
             device.write(b"l")
             state = menu_state(device)
-        if state[0] != 2 or state[2]:
+        if state[0] != 4 or state[2]:
             raise AssertionError("Could not reach player tile for browser test")
         device.write(b"k")
         browser_frame = read_frame(device)
-        if browser_frame == tile_frames[2]:
+        if browser_frame == tile_frames[4]:
             raise AssertionError("Player short press did not open a distinct SD browser")
         device.write(b"b")
         device.write(b"l")
-        if menu_state(device)[0] != 3:
+        if menu_state(device)[0] != 5:
             raise AssertionError("Player browser long press did not restore tile navigation")
         report.detail("DISPLAY SD browser opened and exited without playback")
         return "all tiles/settings rendered; SD browser opens and exits"
@@ -277,24 +279,25 @@ def test_wake_input(device):
         raise AssertionError("Could not exit settings before wake test")
     original_tile = state[0]
     try:
-        for _ in range((5 - state[0]) % len(DISPLAY_TILES)):
+        for _ in range((7 - state[0]) % len(DISPLAY_TILES)):
             device.write(b"l")
             state = menu_state(device)
-        if state[0] != 5:
-            raise AssertionError("Could not reach safe Radio tile")
+        if state[0] != 7:
+            raise AssertionError("Could not reach safe Diagnostics tile")
         device.write(b"o")
         if not menu_state(device)[4]:
             raise AssertionError("Test sleep command did not put OLED to sleep")
         device.write(b"j")
         state = menu_state(device)
-        if state[4] or state[0] != 5:
+        if state[4] or state[0] != 7:
             raise AssertionError("First encoder input did not only wake OLED")
         device.write(b"l")
         state = menu_state(device)
-        if state[0] != 6:
+        if state[0] != 8:
             raise AssertionError("Second encoder input did not navigate")
-        device.write(b"l")
-        state = menu_state(device)
+        for _ in range(2):
+            device.write(b"l")
+            state = menu_state(device)
         if state[0] != len(DISPLAY_TILES) - 1:
             raise AssertionError("Could not reach Settings tile for button wake test")
 
