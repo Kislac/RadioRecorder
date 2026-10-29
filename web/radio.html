@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Radio Programming - Radio Recorder</title>
+    <link rel="stylesheet" href="/settings.css" />
+    <link rel="stylesheet" href="/radio.css" />
+  </head>
+  <body>
+    <header>RADIO RECORDER<nav><a href="/">Főoldal</a> · <a href="/files">Fájlkezelő</a> · <a href="/settings">Beállítások</a> · <a href="/radio" aria-current="page">Radio Programming</a></nav></header>
+    <main>
+      <h1>Radio Programming</h1>
+      <p class="model">BAOFENG UV-5R <span>Csak kiolvasás</span></p>
+      <section class="connection">
+        <h2>Csatlakozás</h2>
+        <dl><dt>ESP TX · GPIO17</dt><dd>3,5 mm sleeve · rádió RX</dd><dt>ESP RX · GPIO16</dt><dd>2,5 mm ring · rádió TX</dd><dt>ESP GND</dt><dd>2,5 mm sleeve · ellenőrzött adat-GND</dd></dl>
+        <p class="warning">Csak ellenőrzött, 3,3 V-kompatibilis jelszintekkel. A kamera, a külső PTT és a MIC/DAC/hangág legyen leválasztva. A 3,5 mm sleeve földre zárása adást indíthat.</p>
+        <label class="confirmation"><input id="wiring" type="checkbox" /> A bekötést és a jelszinteket ellenőriztem, a külső PTT/hangág leválasztva.</label>
+        <div class="actions"><button id="readRadio" type="button" disabled>Beállítások kiolvasása</button><a id="image" href="/api/radio/image" download hidden>Nyers mentés (.img)</a><button id="export" type="button" hidden>JSON letöltése</button></div>
+      </section>
+      <p id="radioStatus" role="status" aria-live="polite">Állapot betöltése...</p>
+      <progress id="progress" value="0" max="6464" aria-label="Kiolvasás állapota"></progress>
+      <section id="result" hidden>
+        <h2>Rádióbeállítások</h2>
+        <dl id="settings"></dl>
+        <h2>Csatornák <span id="count"></span></h2>
+        <div class="table-scroll"><table><thead><tr><th>CH</th><th>Név</th><th>RX MHz</th><th>TX MHz</th><th>RX tónus</th><th>TX tónus</th><th>Sáv</th><th>Telj.</th><th>Scan</th></tr></thead><tbody id="channels"></tbody></table></div>
+      </section>
+    </main>
+    <footer>ESP32-S3 / Radio Recorder / UV-5R</footer>
+    <script src="/radio.js"></script>
+  </body>
+</html>

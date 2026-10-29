@@ -16,6 +16,30 @@ The ESP-IDF Task Watchdog uses a 10-second timeout, monitors both core idle task
 
 ## Serial hardware
 
+### UV-5R konfiguráció kiolvasása
+
+A firmware **0.1.45** verziójától a `/radio` (**Radio Programming**) oldal kézi indítással kiolvassa a Baofeng UV-5R konfigurációját. Ez klónozási munkamenet, nem folyamatos élő frekvencia/RSSI lekérdezés és nem a rádió MCU-firmware-ének mentése. Rádióba írási API vagy memóriát író UART-parancs nincs. A rádió normál vétele a munkamenet közben megszakadhat.
+
+**Feltöltés és bekötés előtt** áramtalanítva válaszd le a kamerát; ellenőrizd a panel GPIO16/17 kivezetéseit és a 3,3 V-os logikai kompatibilitást. A rádió saját akkumulátorról működjön. A meglévő rádiós PTT-relé COM/NO, mikrofon/DAC és audio/ADC ág maradjon leválasztva. Kikapcsolt rádiónál csatlakoztasd a TRS dugókat:
+
+| ESP32-S3 | UV-5R |
+| --- | --- |
+| GPIO17, UART1 TX | 3,5 mm sleeve, rádió RX |
+| GPIO16, UART1 RX | 2,5 mm ring, rádió TX |
+| Ellenőrzött közös GND | 2,5 mm sleeve, adat-GND |
+
+Nem RS-232 és nem 5 V-os UART! A rádió adatjelét a programozási GND-hez képest műszerrel/oszcilloszkóppal ellenőrizd; szükség esetén megfelelő szintillesztővel használd. A korábban SPK tip–sleeve között mért DC önmagában nem igazolja a közös adat-GND biztonságát. A 3,5 mm sleeve földre zárása PTT-t aktiválhat; a szoftveres relétiltás nem véd hibás kábelezés vagy külső kapcsoló ellen. TRRS dugó helyett ellenőrzött TRS bekötés kell, a vezetékek színére ne hagyatkozz.
+
+Új firmware feltöltése külön engedélyezett művelet legyen, szabad COM-porttal. Utána kapcsold be a rádiót, nyisd meg a `/radio` oldalt, jelöld be a bekötés/jelszint/PTT-leválasztás megerősítését, majd indítsd a kiolvasást. Az oldalletöltés és a `GET /api/radio` nem aktiválja az UART-ot. `POST /api/radio/read?confirm=1` indít (202); megerősítés nélkül 400, aktív olvasás vagy PTT esetén 409. Olvasás közben az OLED/webes PTT-impulzus és tartós bekapcsolás is tiltott. A főciklus lépésenként kezeli a 9600 baud, 8N1 protokollt; a 10 másodperces watchdog végig engedélyezett. Egy válaszra legfeljebb 1,2 másodpercet, a teljes műveletre 45 másodpercet vár. Hibánál vagy sikeres befejezéskor leállítja az UART-ot, a GPIO16/17 visszaáll bemenetre.
+
+Modern kézfogásnál a 6144 bájtos főmemória és a 320 bájtos kiegészítő terület kerül RAM-ba, nyolcbájtos normalizált azonosítóval (6472 bájtos `.img`). A 0x1FCF bájt eldobásával érintett változatokon az utolsó 64 bájtot 16-os blokkokkal olvassa. Régi kézfogásra visszaesve konzervatívan csak a főmemóriát menti (6152 bájt), firmware-azonosító nélkül. Nem minden UV-5R feliratú új/klón modell kompatibilis; sikertelen azonosítás után ne próbálj más modellhez tartozó írási parancsot. Hibánál kapcsold ki/be a rádiót az újabb próbálkozás előtt.
+
+A táblázat a nem üres 0–127 memóriahelyeket mutatja: név, RX/TX frekvencia, CTCSS/DCS, sávszélesség, nyers teljesítménykód és scan. A beállítások között squelch, energiatakarékosság, VOX, háttérvilágítás, dual watch, gombhang, nyers adásidőkorlát, A/B memóriahely és VFO-frekvencia látszik. A változatfüggő mezők szándékosan nyers kóddal jelennek meg. `GET /api/radio/image` csak teljes, sikeres olvasás után tölthető le; a JSON is exportálható. SD/NVS írás nincs. Reset vagy új olvasás törli az előző RAM-mentést; mentsd le a PC-re. A `.img` CHIRP-szerű memóriakép, de a konkrét rádióval/CHIRP-verzióval való importálás külön ellenőrzendő; visszaírásra ebben a körben ne használd.
+
+Offline: `python -m unittest test.test_radio_programming test.test_web_preview -v`. A valódi C++ állapotgépet a teszt PC-s UART-szimulátorral fordítja és futtatja, rádió vagy COM-port nélkül. Ehhez helyi `g++` vagy Windows alatt `pio pkg install -g -t platformio/toolchain-gccmingw32` kell; hiányában a protokollteszt SKIP. A teszt ellenőrzi a modern/régi azonosítást, 12 bájtos azonosító normalizálását, töredezett adatot, a bájteldobási kerülőutat, óraátfordulást, hibás fejlécet/ACK-t/méretet, hiányos és elmaradt választ, valamint a kép és alapmezők tartalmát. A localhost `/radio` felület **szimulált** adatokat mutat, a nyers letöltése szándékosan `preview-only.bin`, nem feltölthető rádiókép.
+
+Valódi rádió, jelszint, UART-időzítés és AP ellenőrzése külön hardveres próba. A PC-s hardverteszt a szokásos PASS/FAIL/SKIP összesítést és időbélyeges `.test-logs/` naplót igényli; a meglévő read-only smoke tesztek nem indítanak rádióklónozást automatikusan. Protokollreferencia: [CHIRP UV-5R driver](https://github.com/kk7ds/chirp/blob/master/chirp/drivers/uv5r.py); csatlakozóirányok: [Miklor műszaki oldal](https://www.miklor.com/COM/UV_Technical.php) (a modul TX/RX feliratok helyett a rádió RX/TX irányát használd).
+
 ### PTT-relé próba (csak kifejezett opt-in)
 
 A build és az offline webteszt nem mérik a relé tényleges állását. A GPIO10 lábkiosztását és kamerától való leválasztását a panelen, a relémodul **aktív alacsony** polaritását, az ESP 3,3 V-os HIGH nyugalmi jelének biztos kikapcsoló hatását, a táp/GND bekötését és a COM–NO érintkezők nyitott alapállapotát a konkrét példányon ellenőrizd **feltöltés előtt**. A GPIO tápadáskor és a setup futása előtt bemenet: megfelelő, a modulhoz illő hardveres kikapcsolt alapállapot/előfeszítés nélkül boot közben továbbra is behúzhat a relé. Más aktív szintű vagy 5 V-os bemenetű modullal ne töltsd fel ezt a firmware-t; az alapállapot és a reset alatti állapot nem garantálható szoftverből. A rádió és a MIC/DAC maradjon leválasztva, a COM–NO érintkezőkön csak mérőműszer legyen.

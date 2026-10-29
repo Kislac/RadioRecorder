@@ -1,4 +1,5 @@
 #include "ptt_test.h"
+#include "radio_programming.h"
 
 #include <Arduino.h>
 #include <driver/gpio.h>
@@ -50,6 +51,7 @@ bool pttTestActive() {
 
 bool startPttTest() {
   pollPttTest();
+  if (radioProgrammingBusy()) return false;
   if (!initialized || active) return false;
   startedAt = millis();
   active = true;
@@ -63,6 +65,7 @@ bool startPttTest() {
 
 bool latchPttTest() {
   pollPttTest();
+  if (radioProgrammingBusy()) return false;
   if (!initialized || active) return false;
   latched = true;
   active = true;

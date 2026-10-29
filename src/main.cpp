@@ -9,6 +9,7 @@
 #include "watchdog.h"
 #include "wifi_manager.h"
 #include "ptt_test.h"
+#include "radio_programming.h"
 #include <SD_MMC.h>
 
 void printSetupStatus() {
@@ -110,6 +111,7 @@ void setup() {
 
 void loop() {
   pollPttTest();
+  radioProgrammingPoll();
   int32_t steps = takeEncoderSteps();
   pollSerialMeter();
   ButtonEvent button = pollEncoderButton();

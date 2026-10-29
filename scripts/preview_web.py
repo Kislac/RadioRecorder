@@ -92,6 +92,7 @@ class PreviewDevice:
         self.auto_stop_at = 0
         self.ptt_until = 0
         self.ptt_latched = False
+        self.radio_started = None
         self.scan_started = None
         self.pending_network = None
         self.wifi = {"mode": "AP", "ssid": "RadioRecorder", "ip": "192.168.4.1", "apIp": "192.168.4.1",
@@ -170,6 +171,28 @@ class PreviewDevice:
         self.tick()
         elapsed = time.monotonic() - self.started_at
         if method == "GET":
+            if path == "/api/radio":
+                reading = self.radio_started is not None and time.monotonic() - self.radio_started < 2
+                state = {"state": "idle" if self.radio_started is None else "reading" if reading else "done",
+                         "error": "", "bytesRead": 0 if self.radio_started is None else 2048 if reading else 6464,
+                         "totalBytes": 6464, "rxGpio": 16, "txGpio": 17}
+                if state["state"] == "done":
+                    state.update(firmware="PREVIEW ONLY", droppedByteWorkaround=False,
+                                 settings={"squelch": 3, "save": 1, "vox": 0, "backlight": 5,
+                                           "dualWatch": 1, "beep": 0, "timeoutRaw": 3,
+                                           "channelA": 0, "channelB": 1, "vfoAHz": 145500000,
+                                           "vfoBHz": 433500000},
+                                 channels=[{"number": 0, "name": "VHF SIM", "rxHz": 145500000,
+                                            "txHz": 145500000, "rxToneRaw": 0, "txToneRaw": 885,
+                                            "bandwidth": "Narrow", "powerRaw": 1, "scan": True},
+                                           {"number": 1, "name": "UHF SIM", "rxHz": 433500000,
+                                            "txHz": None, "rxToneRaw": 1, "txToneRaw": 106,
+                                            "bandwidth": "Wide", "powerRaw": 0, "scan": False}])
+                return 200, state
+            if path == "/api/radio/image":
+                if self.radio_started is None or time.monotonic() - self.radio_started < 2:
+                    return 409, "No complete radio image"
+                return 200, b"PREVIEW ONLY - NOT A RADIO IMAGE"
             if path == "/api/ptt-test":
                 return 200, {"active": bool(self.ptt_until or self.ptt_latched), "pulseMs": 1000}
             if path == "/api/status":
@@ -252,12 +275,24 @@ class PreviewDevice:
                 self.clock_source = "manual"
                 self.saved_day = local.date()
                 return 200, self.clock_info()
+            if path == "/api/radio/read":
+                if params.get("confirm") != "1":
+                    return 400, "Confirm verified wiring with confirm=1"
+                if (self.ptt_until or self.ptt_latched or
+                        self.radio_started is not None and time.monotonic() - self.radio_started < 2):
+                    return 409, "Radio read or PTT already active"
+                self.radio_started = time.monotonic()
+                return 202, self.api("GET", "/api/radio", {})[1]
             if path == "/api/ptt-test/on":
+                if self.radio_started is not None and time.monotonic() - self.radio_started < 2:
+                    return 409, "Radio read active"
                 if self.ptt_until or self.ptt_latched:
                     return 409, "PTT test already active"
                 self.ptt_until = time.monotonic() + 1
                 return 200, "PTT test pulse started"
             if path == "/api/ptt-test/latch":
+                if self.radio_started is not None and time.monotonic() - self.radio_started < 2:
+                    return 409, "Radio read active"
                 if self.ptt_until or self.ptt_latched:
                     return 409, "PTT already active"
                 self.ptt_latched = True
@@ -420,16 +455,20 @@ class PreviewHandler(BaseHTTPRequestHandler):
                                        'attachment; filename="' + folder.rsplit("/", 1)[-1] + '.zip"'})
                         return
                     status, payload = self.server.device.api(method, url.path, params)
-                    self.reply(status, payload)
+                    if url.path == "/api/radio/image" and status == 200:
+                        self.reply(status, payload, "application/octet-stream",
+                                   {"Content-Disposition": 'attachment; filename="preview-only.bin"'})
+                    else:
+                        self.reply(status, payload)
                     return
                 if url.path == "/file" and method == "GET":
                     self.send_audio(params)
                     return
             if method == "GET":
                 routes = {"/": "index.html", "/files": "files.html", "/settings": "settings.html",
-                          "/test": "test.html"}
+                          "/test": "test.html", "/radio": "radio.html"}
                 name = routes.get(url.path, url.path.lstrip("/"))
-                allowed = {page + extension for page in ("index", "files", "settings")
+                allowed = {page + extension for page in ("index", "files", "settings", "radio")
                            for extension in (".html", ".css", ".js")}
                 allowed.update(("test.html", "test.js"))
                 if name in allowed:

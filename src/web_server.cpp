@@ -16,6 +16,7 @@
 #include "wifi_manager.h"
 #include "ptt_test.h"
 #include "watchdog.h"
+#include "radio_programming.h"
 
 static WebServer server(80);
 static WebSocketsServer audioSocket(81);
@@ -681,6 +682,39 @@ void startSpeakerPlayback() {
 }
 
 void initWeb() {
+  server.on("/radio", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send_P(200, "text/html; charset=utf-8", kRadioPage);
+  });
+  server.on("/api/radio", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", radioProgrammingJson());
+  });
+  server.on("/api/radio/read", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (server.arg("confirm") != "1") {
+      server.send(400, "text/plain", "Confirm verified wiring and disconnected PTT/audio with confirm=1");
+      return;
+    }
+    if (!radioProgrammingStart()) {
+      server.send(409, "text/plain", "Radio read or PTT already active");
+      return;
+    }
+    server.send(202, "application/json", radioProgrammingJson());
+  });
+  server.on("/api/radio/image", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    size_t length = 0;
+    const uint8_t *image = radioProgrammingImage(length);
+    if (!image) { server.send(409, "text/plain", "No complete radio image"); return; }
+    server.sendHeader("Cache-Control", "no-store");
+    server.sendHeader("Content-Disposition", "attachment; filename=uv5r-readonly.img");
+    server.setContentLength(length);
+    server.send(200, "application/octet-stream", "");
+    server.sendContent(reinterpret_cast<const char *>(image), length);
+  });
   server.on("/", HTTP_GET, []() {
     wifiManagerNotifyActivity();
     server.sendHeader("Cache-Control", "no-store");

@@ -16,6 +16,19 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_radio_page_is_manual_read_only_and_embedded(self):
+        server = (WEB_ROOT.parent / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        script = (WEB_ROOT / "radio.js").read_text(encoding="utf-8")
+        self.assertIn('server.on("/radio", HTTP_GET', server)
+        self.assertIn('server.on("/api/radio/read", HTTP_POST', server)
+        self.assertIn('server.arg("confirm") != "1"', server)
+        self.assertIn('server.on("/api/radio/image", HTTP_GET', server)
+        self.assertNotIn('/api/radio/write', server)
+        self.assertIn('if (busy || !wiring.checked) return;', script)
+        self.assertNotIn('innerHTML', script)
+        self.assertIn('kRadioPage', PAGES.values())
+        self.assertIn('GPIO17', render_page("radio"))
+
     def test_file_manager_pages_folders_before_files_and_loads_on_scroll(self):
         server = (WEB_ROOT.parent / "src" / "web_server.cpp").read_text(encoding="utf-8")
         script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
@@ -202,7 +215,7 @@ class PreviewHttpTests(unittest.TestCase):
         return status, data, response_headers
 
     def test_pages_navigation_and_assets_are_available(self):
-        for path, name in (("/", "index"), ("/files", "files"), ("/settings", "settings"), ("/test", "test")):
+        for path, name in (("/", "index"), ("/files", "files"), ("/settings", "settings"), ("/test", "test"), ("/radio", "radio")):
             with self.subTest(path=path):
                 status, page, _ = self.request(path)
                 self.assertEqual(status, 200)
@@ -214,6 +227,29 @@ class PreviewHttpTests(unittest.TestCase):
                     self.assertGreater(len(asset), 100)
         self.assertEqual(self.request('/../platformio.ini')[0], 404)
         self.assertEqual(self.request('/test.css')[0], 404)
+
+    def test_radio_read_requires_confirmation_and_interlocks_ptt(self):
+        self.assertEqual(json.loads(self.request('/api/radio')[1])["state"], "idle")
+        self.assertEqual(self.request('/api/radio/image')[0], 409)
+        self.assertEqual(self.request('/api/radio/read', 'GET')[0], 404)
+        self.assertEqual(self.request('/api/radio/read', 'POST')[0], 400)
+        self.assertEqual(self.request('/api/ptt-test/latch', 'POST')[0], 200)
+        self.assertEqual(self.request('/api/radio/read', 'POST', {"confirm": "1"})[0], 409)
+        self.request('/api/ptt-test/off', 'POST')
+        self.assertEqual(self.request('/api/radio/read', 'POST', {"confirm": "1"})[0], 202)
+        self.assertEqual(self.request('/api/radio/read', 'POST', {"confirm": "1"})[0], 409)
+        self.assertEqual(self.request('/api/ptt-test/on', 'POST')[0], 409)
+        self.assertEqual(self.request('/api/ptt-test/latch', 'POST')[0], 409)
+        self.assertEqual(self.request('/api/radio/image')[0], 409)
+        self.server.device.radio_started -= 3
+        state = json.loads(self.request('/api/radio')[1])
+        self.assertEqual(state["state"], "done")
+        self.assertEqual(state["channels"][0]["rxHz"], 145500000)
+        status, payload, headers = self.request('/api/radio/image')
+        self.assertEqual(status, 200)
+        self.assertIn(b'PREVIEW ONLY', payload)
+        self.assertIn('preview-only.bin', headers['Content-Disposition'])
+        self.assertEqual(self.request('/api/radio/write', 'POST')[0], 404)
 
     def test_record_stop_and_audio_range(self):
         status, name, _ = self.request('/api/start', 'POST')

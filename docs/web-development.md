@@ -18,6 +18,8 @@ A főoldal, a `/files` fájlkezelő és a `/settings` beállítások ugyanazokat
 
 A fájlkezelő előbb a mappákat, majd a fájlokat adja vissza, legfeljebb 20 elemet kérésenként; görgetéskor automatikusan lekéri a következő oldalt, hibánál az Újrapróbálás gombbal folytatható.
 
+A `/radio` Radio Programming oldal is elérhető: megerősítés után kétmásodperces szimulált kiolvasást és két mintacsatornát mutat. Valódi UART-ot nem használ; a bináris letöltés `preview-only.bin` jelölőszöveg, nem rádiókép. A JSON szintén kizárólag mintabeállításokat tartalmaz. A készülékhez tartozó bekötést és próbalépéseket a [tesztelési útmutató](testing.md#uv-5r-konfiguráció-kiolvasása) ismerteti.
+
 ## Szerkeszthető fájlok
 
 | Oldal | HTML | Stílus | Viselkedés |
@@ -25,6 +27,7 @@ A fájlkezelő előbb a mappákat, majd a fájlokat adja vissza, legfeljebb 20 e
 | Főoldal | `web/index.html` | `web/index.css` | `web/index.js` |
 | Fájlkezelő | `web/files.html` | `web/files.css` | `web/files.js` |
 | Beállítások | `web/settings.html` | `web/settings.css` | `web/settings.js` |
+| Radio Programming | `web/radio.html` | `web/settings.css` + `web/radio.css` | `web/radio.js` |
 
 A fájlok formázott, különálló források; nem kell HTML-t C++ karakterláncban szerkeszteni. A meglévő megjelenés és működés megmaradt. Az oldalanként eltérő CSS külön maradt, így nincs véletlen stílusütközés.
 

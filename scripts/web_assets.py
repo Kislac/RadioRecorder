@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = ROOT / "web"
-PAGES = {"index": "kPage", "files": "kFilesPage", "settings": "kSettingsPage", "test": "kTestPage"}
+PAGES = {"index": "kPage", "files": "kFilesPage", "settings": "kSettingsPage", "test": "kTestPage", "radio": "kRadioPage"}
 
 
 class AssetReferences(HTMLParser):
