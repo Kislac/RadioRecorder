@@ -18,7 +18,7 @@ The ESP-IDF Task Watchdog uses a 10-second timeout, monitors both core idle task
 
 ### UV-5R konfiguráció kiolvasása
 
-A firmware **0.1.45** verziójától a `/radio` (**Radio Programming**) oldal kézi indítással kiolvassa a Baofeng UV-5R konfigurációját. Ez klónozási munkamenet, nem folyamatos élő frekvencia/RSSI lekérdezés és nem a rádió MCU-firmware-ének mentése. Rádióba írási API vagy memóriát író UART-parancs nincs. A rádió normál vétele a munkamenet közben megszakadhat.
+A firmware **0.1.45** verziójától a `/radio` (**Radio Programming**) oldal kézi indítással kiolvassa a Baofeng UV-5R konfigurációját. Ez klónozási munkamenet, nem folyamatos élő frekvencia/RSSI lekérdezés és nem a rádió MCU-firmware-ének mentése. **0.1.47-től külön opt-in írás és USB-s Python-kliens is van:** a [rádióprogramozási útmutató](radio-programming.md) írja le a mentési, előzetes összehasonlítási és visszaellenőrzési kapukat. A rádió normál vétele a munkamenet közben megszakadhat.
 
 **Feltöltés és bekötés előtt** áramtalanítva válaszd le a kamerát; ellenőrizd a panel GPIO16/17 kivezetéseit és a 3,3 V-os logikai kompatibilitást. A rádió saját akkumulátorról működjön. A meglévő rádiós PTT-relé COM/NO, mikrofon/DAC és audio/ADC ág maradjon leválasztva. Kikapcsolt rádiónál csatlakoztasd a TRS dugókat:
 

@@ -10,6 +10,7 @@
 #include "wifi_manager.h"
 #include "ptt_test.h"
 #include "radio_programming.h"
+#include "radio_serial.h"
 #include <SD_MMC.h>
 
 void printSetupStatus() {
@@ -117,7 +118,12 @@ void loop() {
   ButtonEvent button = pollEncoderButton();
   if (steps || button != ButtonEvent::none) wifiManagerNotifyActivity();
   bool frameRequested = false;
-  if (Serial.available()) handleSerialCommand(Serial.read(), steps, button, frameRequested);
+  radioSerialPoll();
+  for (uint16_t budget = 0; budget < 128 && Serial.available(); ++budget) {
+    char command = Serial.read();
+    if (!radioSerialConsume(command)) handleSerialCommand(command, steps, button, frameRequested);
+    if (!radioSerialReceiving()) break;
+  }
   pollDisplay(steps, button);
   if (frameRequested) printDisplayFrame();
   pollWeb();

@@ -90,13 +90,15 @@ async function request(path, options) {
   return response.json();
 }
 function render(state) {
-  busy = state.state === "reading";
+  busy = state.state === "reading" || state.state === "writing";
   readRadio.disabled = busy || !wiring.checked;
   wiring.disabled = busy;
-  progress.value = state.bytesRead;
-  progress.max = state.totalBytes;
+  progress.value = state.stage === "write" ? state.bytesWritten : state.bytesRead;
+  progress.max = state.stage === "write" ? state.writeBytes : state.totalBytes;
   radioStatus.classList.toggle("error", state.state === "error");
-  radioStatus.textContent = state.state === "error" ? state.error : busy ? `Kiolvasás: ${state.bytesRead} / ${state.totalBytes} bájt` : state.state === "done" ? `Kiolvasás kész · ${state.firmware}` : "Nincs kiolvasott rádió.";
+  const stage = state.stage === "preflight" ? "Előzetes összehasonlítás" : state.stage === "write" ? "Írás" : state.stage === "verify" ? "Visszaellenőrzés" : "Kiolvasás";
+  radioStatus.textContent = state.state === "error" ? state.error : busy ? `${stage}: ${progress.value} / ${progress.max} bájt` : state.state === "done" ? `${state.writeVerified ? "Írás visszaellenőrizve" : "Kiolvasás kész"} · ${state.firmware}` : "Nincs kiolvasott rádió.";
+  if (typeof radioEditorUpdate === "function") radioEditorUpdate(state);
   result.hidden = image.hidden = exportButton.hidden = state.state !== "done";
   if (state.state !== "done") { snapshot = null; return; }
   snapshot = state;

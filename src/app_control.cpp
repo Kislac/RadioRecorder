@@ -3,6 +3,7 @@
 #include "live_audio.h"
 #include "playback.h"
 #include "recorder.h"
+#include "radio_programming.h"
 #include "web_server.h"
 #include <Preferences.h>
 #include <esp_sntp.h>
@@ -10,7 +11,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.46";
+static constexpr char kFirmwareVersion[] = "0.1.47";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -226,6 +227,7 @@ bool appCanStartPlayback() {
 bool appCanConnectLiveAudio() { return playbackGetState() == PlaybackState::idle; }
 
 bool appStartWifiTest() {
+  if (radioProgrammingBusy()) return false;
   if (liveAudioClient() >= 0 || wifiTestPhase != 0 || !appStartRecording()) return false;
   wifiTestPhase = 1;
   return true;

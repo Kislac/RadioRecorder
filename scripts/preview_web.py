@@ -24,6 +24,31 @@ SCENARIOS = ("ready", "missing-sd", "recording", "wifi-failure")
 DEFAULT_EPOCH = 946684800
 
 
+def radio_schema():
+    groups = {
+        "settings": {"squelch": 9, "save": 4, "vox": 10, "backlight": 24, "dualWatch": 1,
+                     "beep": 1, "timeoutRaw": 39, "voiceRaw": 2, "dtmfSidetoneRaw": 3,
+                     "scanResumeRaw": 2, "pttIdRaw": 3, "pttDelayRaw": 50, "displayARaw": 2,
+                     "displayBRaw": 2, "busyLockRaw": 1, "autoLockRaw": 1, "standbyLedRaw": 3,
+                     "rxLedRaw": 3, "txLedRaw": 3, "alarmModeRaw": 2, "txPriorityRaw": 2,
+                     "tailEliminateRaw": 1, "repeaterTailRaw": 10, "repeaterDelayRaw": 10,
+                     "powerOnModeRaw": 1, "rogerRaw": 1, "activeLineRaw": 1,
+                     "fmRadioEnabledRaw": 1, "workModeRaw": 1, "keypadLockRaw": 1,
+                     "channelA": 127, "channelB": 127},
+        "vfo": {"frequencyHz": 520000000, "offsetHz": 999999000, "rxToneRaw": 65535,
+                "txToneRaw": 65535, "shiftRaw": 2, "signalCodeRaw": 14, "stepRaw": 7,
+                "powerRaw": 1, "bandwidthRaw": 1},
+        "channel": {"rxHz": 520000000, "txHz": 520000000, "rxToneRaw": 65535, "txToneRaw": 65535,
+                    "signalCodeRaw": 14, "powerRaw": 1, "bandwidthRaw": 1, "busyLockRaw": 1,
+                    "scanRaw": 1, "pttIdRaw": 3, "name": 7},
+        "dtmf": {"aniCode": 5, "alarmCode": 3, "aniModeRaw": 3, "toneOnRaw": 195, "toneOffRaw": 195,
+                 **{f"code{index}": 5 for index in range(1, 16)}}}
+    return {"fields": [{"group": group, "field": field, "max": maximum,
+                         "kind": "text" if field in ("name", "aniCode", "alarmCode") or field.startswith("code")
+                         else "tone" if field.endswith("ToneRaw") else "frequency" if field.endswith("Hz") else "number"}
+                        for group, values in groups.items() for field, maximum in values.items()]}
+
+
 def safe_sd_path(path):
     return (path == "/" or path.startswith("/") and len(path) <= 220 and
             all(segment not in ("", ".", "..") and not any(ord(character) < 32 or character in '\\:\"\x7f'
@@ -93,6 +118,9 @@ class PreviewDevice:
         self.ptt_until = 0
         self.ptt_latched = False
         self.radio_started = None
+        self.radio_revision = 1
+        self.radio_changes = []
+        self.radio_write = False
         self.scan_started = None
         self.pending_network = None
         self.wifi = {"mode": "AP", "ssid": "RadioRecorder", "ip": "192.168.4.1", "apIp": "192.168.4.1",
@@ -171,11 +199,19 @@ class PreviewDevice:
         self.tick()
         elapsed = time.monotonic() - self.started_at
         if method == "GET":
+            if path == "/api/radio/schema":
+                return 200, radio_schema()
             if path == "/api/radio":
                 reading = self.radio_started is not None and time.monotonic() - self.radio_started < 2
                 state = {"state": "idle" if self.radio_started is None else "reading" if reading else "done",
                          "error": "", "bytesRead": 0 if self.radio_started is None else 2048 if reading else 6464,
                          "totalBytes": 6464, "rxGpio": 16, "txGpio": 17}
+                state.update(revision=f"{self.radio_revision:08x}" if state["state"] == "done" else "",
+                             writeSupported=state["state"] == "done", writeVerified=self.radio_write and not reading,
+                             operation="write" if self.radio_write else "read", stage="preflight" if self.radio_write and reading else "read",
+                             bytesWritten=0 if reading else 16 if self.radio_write else 0, writeBytes=16 if self.radio_write else 0)
+                if self.radio_write and reading:
+                    state["state"] = "writing"
                 if state["state"] == "done":
                     state.update(firmware="PREVIEW ONLY", droppedByteWorkaround=False,
                                  settings={"squelch": 3, "save": 1, "vox": 0, "backlight": 5,
@@ -211,6 +247,16 @@ class PreviewDevice:
                         state["dtmf"][f"code{index}"] = f"{index:05d}"
                     for channel in state["channels"]:
                         channel.update(busyLockRaw=0, pttIdRaw=0, signalCodeRaw=0)
+                    for change in self.radio_changes:
+                        target = (next(channel for channel in state["channels"] if channel["number"] == change["index"])
+                                  if change["group"] == "channel" else state[change["group"]])
+                        field, value = change["field"], change["value"]
+                        if change["group"] == "channel" and field == "bandwidthRaw":
+                            target["bandwidth"] = "Wide" if value else "Narrow"
+                        elif change["group"] == "channel" and field == "scanRaw":
+                            target["scan"] = bool(value)
+                        else:
+                            target[field] = value
                 return 200, state
             if path == "/api/radio/image":
                 if self.radio_started is None or time.monotonic() - self.radio_started < 2:
@@ -305,6 +351,41 @@ class PreviewDevice:
                         self.radio_started is not None and time.monotonic() - self.radio_started < 2):
                     return 409, "Radio read or PTT already active"
                 self.radio_started = time.monotonic()
+                self.radio_write = False
+                return 202, self.api("GET", "/api/radio", {})[1]
+            if path == "/api/radio/write":
+                if params.get("confirm") != "WRITE UV5R":
+                    return 400, "WRITE UV5R confirmation required"
+                state = self.api("GET", "/api/radio", {})[1]
+                if state["state"] != "done" or self.ptt_until or self.ptt_latched:
+                    return 409, "Read radio first; radio or PTT busy"
+                patch = json.loads(params.get("patch", "{}"))
+                if (not isinstance(patch, dict) or set(patch) != {"revision", "changes"} or
+                        patch["revision"] != state["revision"] or not isinstance(patch["changes"], list) or
+                        not 1 <= len(patch["changes"]) <= 32):
+                    return 409, "Invalid patch or stale revision"
+                schema = radio_schema()["fields"]
+                for change in patch["changes"]:
+                    if not isinstance(change, dict) or not {"group", "field", "value"} <= set(change):
+                        return 400, "Invalid change"
+                    group = "vfo" if change["group"] in ("vfoA", "vfoB") else change["group"]
+                    field = next((field for field in schema if field["group"] == group and field["field"] == change["field"]), None)
+                    if not field or not set(change) <= {"group", "field", "value", "index"}:
+                        return 400, "Unsupported field"
+                    if group == "channel" and (type(change.get("index")) is not int or change["index"] not in (0, 1)):
+                        return 400, "Channel unavailable"
+                    value = change["value"]
+                    if field["kind"] == "text":
+                        if not isinstance(value, str) or len(value) > field["max"] or not value.isascii():
+                            return 400, "Invalid text"
+                    elif value is None and group == "channel" and change["field"] == "txHz":
+                        pass
+                    elif type(value) is not int or not 0 <= value <= field["max"]:
+                        return 400, "Invalid number"
+                self.radio_changes.extend(patch["changes"])
+                self.radio_revision += 1
+                self.radio_started = time.monotonic()
+                self.radio_write = True
                 return 202, self.api("GET", "/api/radio", {})[1]
             if path == "/api/ptt-test/on":
                 if self.radio_started is not None and time.monotonic() - self.radio_started < 2:
@@ -460,8 +541,11 @@ class PreviewHandler(BaseHTTPRequestHandler):
             if length > 8192:
                 self.reply(413, "Request too large")
                 return
-            params.update({key: values[-1] for key, values in
-                           parse_qs(self.rfile.read(length).decode("utf-8"), keep_blank_values=True).items()})
+            body = self.rfile.read(length).decode("utf-8")
+            if url.path == "/api/radio/write":
+                params["patch"] = body
+            else:
+                params.update({key: values[-1] for key, values in parse_qs(body, keep_blank_values=True).items()})
         if url.path == "/preview/live" and method == "GET":
             self.stream_audio()
             return
@@ -493,7 +577,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
                 name = routes.get(url.path, url.path.lstrip("/"))
                 allowed = {page + extension for page in ("index", "files", "settings", "radio")
                            for extension in (".html", ".css", ".js")}
-                allowed.update(("test.html", "test.js"))
+                allowed.update(("test.html", "test.js", "radio_edit.js"))
                 if name in allowed:
                     source = (WEB_ROOT / name).read_text(encoding="utf-8")
                     if name.endswith(".html"):

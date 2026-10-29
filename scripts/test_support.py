@@ -29,7 +29,7 @@ class TestRun:
     def detail(self, message):
         self._write(message)
 
-    def case(self, name, action):
+    def case(self, name, action, *, result_formatter=None):
         self.log(f"RUN: {name}")
         try:
             result = action()
@@ -39,7 +39,7 @@ class TestRun:
             self.detail(traceback.format_exc())
             return False, None
         self.results.append((name, True))
-        display_result = getattr(result, "port", result)
+        display_result = result_formatter(result) if result_formatter else getattr(result, "port", result)
         self.log(f"PASS: {name}" + (f" - {display_result}" if display_result else ""))
         return True, result
 

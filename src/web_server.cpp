@@ -17,6 +17,7 @@
 #include "ptt_test.h"
 #include "watchdog.h"
 #include "radio_programming.h"
+#include "radio_patch.h"
 
 static WebServer server(80);
 static WebSocketsServer audioSocket(81);
@@ -698,11 +699,30 @@ void initWeb() {
       server.send(400, "text/plain", "Confirm verified wiring and disconnected PTT/audio with confirm=1");
       return;
     }
-    if (!radioProgrammingStart()) {
+    if (appWifiTestActive() || !radioProgrammingStart()) {
       server.send(409, "text/plain", "Radio read or PTT already active");
       return;
     }
     server.send(202, "application/json", radioProgrammingJson());
+  });
+  server.on("/api/radio/schema", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", radioPatchSchemaJson());
+  });
+  server.on("/api/radio/write", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (server.arg("confirm") != "WRITE UV5R") { server.send(400, "text/plain", "WRITE UV5R confirmation required"); return; }
+    String origin = server.header("Origin");
+    if (!server.header("Content-Type").startsWith("application/json") ||
+        (origin.length() && origin != "http://" + server.hostHeader())) {
+      server.send(403, "text/plain", "Same-origin JSON request required"); return;
+    }
+    if (appWifiTestActive()) { server.send(409, "text/plain", "Wi-Fi test active"); return; }
+    String error;
+    if (!radioProgrammingWriteJson(server.arg("plain"), error)) { server.send(409, "text/plain", error); return; }
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(202, "application/json", radioProgrammingJson(false));
   });
   server.on("/api/radio/image", HTTP_GET, []() {
     wifiManagerNotifyActivity();
@@ -894,8 +914,8 @@ void initWeb() {
     else server.send(409, "text/plain", "Not recording");
   });
   server.onNotFound([]() { wifiManagerNotifyActivity(); server.send(404, "text/plain", "Not found"); });
-  const char *headers[] = {"Range"};
-  server.collectHeaders(headers, 1);
+  const char *headers[] = {"Range", "Content-Type", "Origin"};
+  server.collectHeaders(headers, 3);
   audioSocket.onEvent(onAudioSocket);
   routesReady = true;
 }

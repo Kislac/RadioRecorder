@@ -22,4 +22,14 @@ th, td { padding: 12px 9px; text-align: left; border-bottom: 1px solid var(--lin
 th { background: #e0e8e1; }
 tbody tr:nth-child(even) { background: #f9fbf8; }
 [hidden] { display: none !important; }
+#editor { margin-top: 24px; border-top: 1px solid var(--line); }
+.radio-edit-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.radio-edit-form label { display: grid; gap: 6px; flex: 1 1 180px; min-width: 0; }
+.radio-edit-form input, .radio-edit-form select { width: 100%; min-width: 0; }
+.radio-edit-form input[type="checkbox"] { width: 22px; height: 22px; }
+#pendingChanges { padding-left: 20px; }
+#pendingChanges li { overflow-wrap: anywhere; padding: 8px 0; }
+#pendingChanges button { margin: 0 0 0 10px; padding: 4px 8px; background: transparent; color: var(--ink); }
+#editError { min-height: 1.5em; color: #9c3025; }
+summary { cursor: pointer; margin-top: 24px; }
 @media (max-width: 480px) { h1 { font-size: 30px; } dl { grid-template-columns: 1fr; gap: 5px; } dd { margin-bottom: 10px; } }

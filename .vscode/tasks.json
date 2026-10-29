@@ -2,6 +2,30 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "RadioRecorder: Radio Status (USB, read-only)",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.radio_programmer", "--port", "${input:radioPort}", "status"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "RadioRecorder: Radio Read (USB)",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.radio_programmer", "--port", "${input:radioPort}", "read", "--confirm-read", "${input:radioReadConfirmation}"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
+      "label": "RadioRecorder: Radio Write (USB, opt-in)",
+      "type": "process",
+      "command": "python",
+      "args": ["-m", "scripts.radio_programmer", "--port", "${input:radioPort}", "write", "--patch", "${input:radioPatchPath}", "--confirm-write", "${input:radioWriteConfirmation}"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": []
+    },
+    {
       "label": "RadioRecorder: Web Preview (offline)",
       "type": "process",
       "command": "python",
@@ -89,6 +113,10 @@
     }
   ],
   "inputs": [
+    {"id": "radioPort", "type": "promptString", "description": "ESP USB COM port (close monitor/viewer first)", "default": "auto"},
+    {"id": "radioPatchPath", "type": "promptString", "description": "Path to edited patch.json from a radio backup"},
+    {"id": "radioReadConfirmation", "type": "pickString", "description": "Verified 3.3 V wiring, camera and PTT/audio disconnected?", "options": ["CANCEL", "READ UV5R"], "default": "CANCEL"},
+    {"id": "radioWriteConfirmation", "type": "pickString", "description": "Write radio memory with backup, preflight and verification? Keep power connected.", "options": ["CANCEL", "WRITE UV5R"], "default": "CANCEL"},
     {
       "id": "webPreviewScenario",
       "type": "pickString",

@@ -11,7 +11,7 @@
     <header>RADIO RECORDER<nav><a href="/">Főoldal</a> · <a href="/files">Fájlkezelő</a> · <a href="/settings">Beállítások</a> · <a href="/radio" aria-current="page">Radio Programming</a></nav></header>
     <main>
       <h1>Radio Programming</h1>
-      <p class="model">BAOFENG UV-5R <span>Csak kiolvasás</span></p>
+      <p class="model">BAOFENG UV-5R <span>Kiolvasás és ellenőrzött írás</span></p>
       <section class="connection">
         <h2>Csatlakozás</h2>
         <dl><dt>ESP TX · GPIO17</dt><dd>3,5 mm sleeve · rádió RX</dd><dt>ESP RX · GPIO16</dt><dd>2,5 mm ring · rádió TX</dd><dt>ESP GND</dt><dd>2,5 mm sleeve · ellenőrzött adat-GND</dd></dl>
@@ -21,6 +21,23 @@
       </section>
       <p id="radioStatus" role="status" aria-live="polite">Állapot betöltése...</p>
       <progress id="progress" value="0" max="6464" aria-label="Kiolvasás állapota"></progress>
+      <p id="writeAvailability" role="status"></p>
+      <section id="editor" hidden>
+        <h2>Módosítások</h2>
+        <form id="editForm" class="radio-edit-form">
+          <label>Csoport<select id="editGroup"><option value="settings">Globális</option><option value="vfoA">VFO A</option><option value="vfoB">VFO B</option><option value="channel">Csatorna</option><option value="dtmf">DTMF</option></select></label>
+          <label id="editChannelLabel" hidden>Csatorna<select id="editChannel"></select></label>
+          <label>Beállítás<select id="editField"></select></label>
+          <label>Új érték<span id="editValue"></span></label>
+          <button type="submit">Hozzáadás</button>
+        </form>
+        <p id="editError" role="alert"></p>
+        <ul id="pendingChanges"></ul>
+        <button id="discardChanges" type="button" disabled>Módosítások elvetése</button>
+        <p class="warning">Az írás módosítja a rádió memóriáját. Ne bontsd a tápot vagy a kábeleket; megszakításkor részleges módosítás maradhat.</p>
+        <label class="confirmation"><input id="writeConfirm" type="checkbox" /> Az eredeti mentést letöltöttem, a bekötés ellenőrzött, a felsorolt módosítások írását engedélyezem.</label>
+        <button id="writeRadio" type="button" disabled>Írás a rádióba</button>
+      </section>
       <section id="result" hidden>
         <h2>Rádióbeállítások</h2>
         <dl id="settings"></dl>
@@ -33,5 +50,6 @@
     </main>
     <footer>ESP32-S3 / Radio Recorder / UV-5R</footer>
     <script src="/radio.js"></script>
+    <script src="/radio_edit.js"></script>
   </body>
 </html>

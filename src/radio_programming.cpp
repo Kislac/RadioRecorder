@@ -6,9 +6,18 @@
 
 namespace {
 HardwareSerial radioSerial(1);
-enum class Phase { idle, magic, magicAck, ident, identAck, block, pause, retry, done, failed };
+enum class Phase { idle, magic, magicAck, ident, identAck, block, pause, retry, writeAck, writePause, done, failed };
+enum class WriteStage { none, preflight, writing, verifying };
 Phase phase = Phase::idle;
+WriteStage writeStage = WriteStage::none;
 uint8_t image[0x1948] = {};
+uint8_t baselineImage[sizeof(image)] = {};
+uint8_t desiredImage[sizeof(image)] = {};
+size_t writeLength = 0;
+uint16_t writeCursor = 8;
+uint16_t bytesWritten = 0;
+uint16_t writeBytes = 0;
+bool writeVerified = false;
 uint8_t reply[80] = {};
 size_t received = 0;
 size_t identLength = 0;
@@ -61,6 +70,48 @@ void beginAttempt() {
   probe = 0;
   phase = Phase::magic;
   deadline = millis();
+}
+
+void nextWriteBlock() {
+  while (writeCursor < 0x1808 && !memcmp(baselineImage + writeCursor, desiredImage + writeCursor, 16)) writeCursor += 16;
+  if (writeCursor == 0x1808) {
+    writeStage = WriteStage::verifying;
+    completed = 0;
+    probe = 4;
+    requestBlock(0, 64);
+    return;
+  }
+  uint16_t target = writeCursor - 8;
+  uint8_t packet[20] = {0x58, static_cast<uint8_t>(target >> 8), static_cast<uint8_t>(target), 16};
+  memcpy(packet + 4, desiredImage + writeCursor, 16);
+  received = 0;
+  radioSerial.write(packet, sizeof(packet));
+  phase = Phase::writeAck;
+  deadline = millis() + 1200;
+}
+
+void finishRead() {
+  if (writeStage == WriteStage::preflight) {
+    size_t length = auxiliary ? sizeof(image) : 0x1808;
+    if (length != writeLength || memcmp(image, baselineImage, length)) {
+      fail("Radio changed since backup; no writes sent. Read again");
+      return;
+    }
+    while (radioSerial.available()) radioSerial.read();
+    writeStage = WriteStage::writing;
+    writeCursor = 8;
+    nextWriteBlock();
+    return;
+  }
+  if (writeStage == WriteStage::verifying) {
+    if (memcmp(image, desiredImage, writeLength)) {
+      fail("Write verification failed; radio may be partially changed. Keep the backup");
+      return;
+    }
+    writeVerified = true;
+  }
+  phase = Phase::done;
+  releaseUart();
 }
 
 void addNumber(cJSON *object, const char *name, int value) { cJSON_AddNumberToObject(object, name, value); }
@@ -145,6 +196,9 @@ bool radioProgrammingBusy() {
 
 bool radioProgrammingStart() {
   if (radioProgrammingBusy() || pttTestActive()) return false;
+  writeStage = WriteStage::none;
+  writeVerified = false;
+  bytesWritten = writeBytes = 0;
   memset(image, 0, sizeof(image));
   failure = "";
   completed = 0;
@@ -155,10 +209,48 @@ bool radioProgrammingStart() {
   return true;
 }
 
+String radioProgrammingRevision() {
+  size_t length = 0;
+  const uint8_t *data = radioProgrammingImage(length);
+  if (!data) return "";
+  uint32_t hash = 2166136261UL;
+  for (size_t index = 0; index < length; ++index) hash = (hash ^ data[index]) * 16777619UL;
+  char text[9];
+  snprintf(text, sizeof(text), "%08lx", static_cast<unsigned long>(hash));
+  return text;
+}
+
+bool radioProgrammingCanWrite() {
+  return phase == Phase::done && auxiliary && !memcmp(image + 0x1838, "N5R2407BFB297", 13);
+}
+
+bool radioProgrammingWriteImage(const uint8_t *desired, size_t length, const char *revision, String &error) {
+  if (!radioProgrammingCanWrite() || pttTestActive()) { error = "Read supported radio first; radio/PTT may be busy"; return false; }
+  if (!revision || radioProgrammingRevision() != revision) { error = "Stale radio revision; read again"; return false; }
+  if (!desired || length != sizeof(image) || memcmp(desired, image, 8) ||
+      memcmp(desired + 0x1808, image + 0x1808, sizeof(image) - 0x1808) ||
+      memcmp(desired + 0xCF8, image + 0xCF8, 16) || memcmp(desired + 0xDF8, image + 0xDF8, 16)) {
+    error = "Protected image region or incompatible image";
+    return false;
+  }
+  uint16_t changed = 0;
+  for (size_t offset = 8; offset < 0x1808; offset += 16) if (memcmp(desired + offset, image + offset, 16)) changed += 16;
+  if (!changed) { error = "No changes"; return false; }
+  memcpy(baselineImage, image, length);
+  memcpy(desiredImage, desired, length);
+  writeLength = length;
+  if (!radioProgrammingStart()) { error = "Radio busy"; return false; }
+  writeStage = WriteStage::preflight;
+  writeBytes = changed;
+  return true;
+}
+
 void radioProgrammingPoll() {
   if (!radioProgrammingBusy()) return;
   uint32_t now = millis();
-  if (now - startedAt > 45000) { fail("Read timed out; power-cycle the radio before retrying"); return; }
+  if (now - startedAt > (writeStage == WriteStage::none ? 45000UL : 120000UL)) {
+    fail("Radio operation timed out; keep the backup and power-cycle before retrying"); return;
+  }
   if (phase == Phase::retry) {
     if (expired(now)) beginAttempt();
     return;
@@ -170,6 +262,10 @@ void radioProgrammingPoll() {
     if (magicByte == 7) { phase = Phase::magicAck; deadline = now + 1200; }
     return;
   }
+  if (phase == Phase::writePause) {
+    if (expired(now)) nextWriteBlock();
+    return;
+  }
   if (phase == Phase::pause) {
     if (!expired(now)) return;
     if (probe == 1) { requestBlock(0x1EC0, 64); return; }
@@ -177,17 +273,27 @@ void radioProgrammingPoll() {
     if (probe == 3) { probe = 4; requestBlock(0, 64); return; }
     if (address < 0x1800 && address + blockSize < 0x1800) { requestBlock(address + blockSize, 64); return; }
     if (address < 0x1800 && auxiliary) { requestBlock(0x1EC0, 64); return; }
-    if (address < 0x1800) { phase = Phase::done; releaseUart(); return; }
+    if (address < 0x1800) { finishRead(); return; }
     if (address + blockSize < 0x2000) {
       uint16_t next = address + blockSize;
       requestBlock(next, droppedByte && next >= 0x1FC0 ? 16 : 64);
       return;
     }
-    phase = Phase::done;
-    releaseUart();
+    finishRead();
     return;
   }
   while (radioSerial.available() && received < sizeof(reply)) reply[received++] = radioSerial.read();
+  if (phase == Phase::writeAck) {
+    if (received == 1 && reply[0] == 0x06) {
+      bytesWritten += 16;
+      writeCursor += 16;
+      phase = Phase::writePause;
+      deadline = now + 50;
+    } else if (received || expired(now)) {
+      fail("Write ACK missing or invalid; radio may be partially changed. Keep the backup");
+    }
+    return;
+  }
   if (phase == Phase::magicAck) {
     if (received && reply[0] == 0x06) {
       radioSerial.write(static_cast<uint8_t>(0x02));
@@ -257,16 +363,23 @@ const uint8_t *radioProgrammingImage(size_t &length) {
   return length ? image : nullptr;
 }
 
-String radioProgrammingJson() {
+String radioProgrammingJson(bool details) {
   cJSON *root = cJSON_CreateObject();
   if (!root) return "{}";
-  cJSON_AddStringToObject(root, "state", radioProgrammingBusy() ? "reading" : phase == Phase::done ? "done" : phase == Phase::failed ? "error" : "idle");
+  cJSON_AddStringToObject(root, "state", radioProgrammingBusy() ? (writeStage == WriteStage::none ? "reading" : "writing") : phase == Phase::done ? "done" : phase == Phase::failed ? "error" : "idle");
+  cJSON_AddStringToObject(root, "operation", writeStage == WriteStage::none ? "read" : "write");
+  cJSON_AddStringToObject(root, "stage", writeStage == WriteStage::preflight ? "preflight" : writeStage == WriteStage::writing ? "write" : writeStage == WriteStage::verifying ? "verify" : "read");
+  cJSON_AddStringToObject(root, "revision", radioProgrammingRevision().c_str());
+  cJSON_AddBoolToObject(root, "writeSupported", radioProgrammingCanWrite());
+  cJSON_AddBoolToObject(root, "writeVerified", writeVerified);
+  addNumber(root, "bytesWritten", bytesWritten);
+  addNumber(root, "writeBytes", writeBytes);
   cJSON_AddStringToObject(root, "error", failure);
   addNumber(root, "bytesRead", completed);
   addNumber(root, "totalBytes", auxiliary ? 0x1940 : 0x1800);
   addNumber(root, "rxGpio", 16);
   addNumber(root, "txGpio", 17);
-  if (phase == Phase::done) {
+  if (phase == Phase::done && details) {
     char firmware[15] = {};
     for (size_t index = 0; index < 14; ++index) {
       uint8_t value = image[0x1838 + index];

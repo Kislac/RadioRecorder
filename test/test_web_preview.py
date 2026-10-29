@@ -23,7 +23,8 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('server.on("/api/radio/read", HTTP_POST', server)
         self.assertIn('server.arg("confirm") != "1"', server)
         self.assertIn('server.on("/api/radio/image", HTTP_GET', server)
-        self.assertNotIn('/api/radio/write', server)
+        self.assertIn('server.on("/api/radio/write", HTTP_POST', server)
+        self.assertIn('server.arg("confirm") != "WRITE UV5R"', server)
         self.assertIn('if (busy || !wiring.checked) return;', script)
         self.assertNotIn('innerHTML', script)
         self.assertIn('kRadioPage', PAGES.values())
@@ -249,7 +250,22 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b'PREVIEW ONLY', payload)
         self.assertIn('preview-only.bin', headers['Content-Disposition'])
-        self.assertEqual(self.request('/api/radio/write', 'POST')[0], 404)
+        self.assertEqual(self.request('/api/radio/write', 'POST')[0], 400)
+
+    def test_radio_write_is_revision_bound_and_requires_explicit_confirmation(self):
+        device = self.server.device
+        self.assertEqual(device.api("POST", "/api/radio/write", {})[0], 400)
+        device.radio_started = time.monotonic() - 3
+        revision = device.api("GET", "/api/radio", {})[1]["revision"]
+        patch = {"revision": revision, "changes": [{"group": "settings", "field": "squelch", "value": 7}]}
+        self.assertEqual(device.api("POST", "/api/radio/write", {"confirm": "WRITE UV5R", "patch": json.dumps(patch)})[0], 202)
+        self.assertEqual(device.api("POST", "/api/ptt-test/on", {})[0], 409)
+        device.radio_started -= 3
+        state = device.api("GET", "/api/radio", {})[1]
+        self.assertTrue(state["writeVerified"])
+        self.assertEqual(state["settings"]["squelch"], 7)
+        self.assertNotEqual(state["revision"], revision)
+        self.assertEqual(device.api("POST", "/api/radio/write", {"confirm": "WRITE UV5R", "patch": json.dumps(patch)})[0], 409)
 
     def test_record_stop_and_audio_range(self):
         status, name, _ = self.request('/api/start', 'POST')

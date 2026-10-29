@@ -14,7 +14,19 @@ ARDUINO = r"""
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <cstdarg>
+#include <cstdio>
 using String = std::string;
+struct SerialMock {
+  std::string output;
+  void printf(const char *format, ...) {
+    char text[512]; va_list arguments; va_start(arguments, format);
+    vsnprintf(text, sizeof(text), format, arguments); va_end(arguments); output += text;
+  }
+  void println(const String &value) { output += value + "\n"; }
+  void print(const String &value) { output += value; }
+};
+static SerialMock Serial;
 extern uint32_t testNow;
 inline uint32_t millis() { return testNow; }
 #define SERIAL_8N1 0
@@ -42,7 +54,7 @@ public:
   void write(const uint8_t *bytes, size_t length) {
     assert(enabled);
     transmissions.emplace_back(bytes, bytes + length);
-    if (length > 1) assert(length == 4 && bytes[0] == 0x53);
+    if (length > 1) assert((length == 4 && bytes[0] == 0x53) || (length == 20 && bytes[0] == 0x58));
   }
 };
 """
@@ -51,7 +63,39 @@ JSON = r"""
 #pragma once
 #include <map>
 #include <cstdlib>
-struct cJSON { std::string path; };
+struct cJSON {
+  std::string path;
+  int type = 0;
+  double valuedouble = 0;
+  char *valuestring = nullptr;
+  char *string = nullptr;
+  cJSON *child = nullptr;
+  cJSON *next = nullptr;
+  explicit cJSON(std::string prefix = "") : path(prefix) {}
+};
+static cJSON *parsedRequest = nullptr;
+inline cJSON *cJSON_ParseWithOpts(const char *, const char **, bool) { cJSON *result = parsedRequest; parsedRequest = nullptr; return result; }
+inline bool cJSON_IsObject(cJSON *item) { return item && item->type == 0; }
+inline bool cJSON_IsNumber(cJSON *item) { return item && item->type == 1; }
+inline bool cJSON_IsString(cJSON *item) { return item && item->type == 2; }
+inline bool cJSON_IsArray(cJSON *item) { return item && item->type == 3; }
+inline bool cJSON_IsNull(cJSON *item) { return item && item->type == 4; }
+inline bool cJSON_IsTrue(cJSON *item) { return item && item->type == 5; }
+inline cJSON *cJSON_GetObjectItemCaseSensitive(cJSON *object, const char *name) {
+  for (cJSON *item = object ? object->child : nullptr; item; item = item->next)
+    if (item->string && !strcmp(item->string, name)) return item;
+  return nullptr;
+}
+inline int cJSON_GetArraySize(cJSON *array) { int count = 0; for (cJSON *item = array ? array->child : nullptr; item; item = item->next) ++count; return count; }
+inline cJSON *number(double value) { cJSON *item = new cJSON; item->type = 1; item->valuedouble = value; return item; }
+inline cJSON *text(const char *value) { cJSON *item = new cJSON; item->type = 2; item->valuestring = strdup(value); return item; }
+inline void attach(cJSON *parent, const char *key, cJSON *item) {
+  if (key) item->string = strdup(key);
+  cJSON **tail = &parent->child; while (*tail) tail = &(*tail)->next; *tail = item;
+}
+inline cJSON *change(const char *group, const char *field, cJSON *value) {
+  cJSON *item = new cJSON; attach(item, "group", text(group)); attach(item, "field", text(field)); attach(item, "value", value); return item;
+}
 static std::map<std::string, double> numbers;
 static std::map<std::string, std::string> strings;
 inline cJSON *cJSON_CreateObject() { return new cJSON; }
@@ -81,10 +125,72 @@ uint32_t testNow = 0;
 bool pttActive = false;
 bool pttTestActive() { return pttActive; }
 #include "radio_programming.cpp"
+#include "radio_patch.cpp"
+#include "radio_serial.cpp"
 
 int main(int argc, char **argv) {
   assert(argc == 2 || argc == 3);
   std::string scenario = argv[1];
+  if (scenario == "patch") {
+    memset(image, 0xA5, sizeof(image));
+    memcpy(image + 0x1838, "N5R2407BFB297", 13);
+    image[8] = 0;
+    phase = Phase::done;
+    auxiliary = true;
+    assert(encodeChange(image, change("settings", "scanResumeRaw", number(2))));
+    assert(image[0xE3A] == 0xA6);
+    assert(!encodeChange(image, change("settings", "squelch", number(99))));
+    assert(!encodeChange(image, change("settings", "squelch", number(1.5))));
+    assert(!encodeChange(image, change("settings", "calibration", number(1))));
+    assert(encodeChange(image, change("vfoA", "frequencyHz", number(145500000))));
+    assert(!(image[0xF22] & 1) && image[0xF10] == 1 && image[0xF17] == 0);
+    assert(!encodeChange(image, change("vfoB", "frequencyHz", number(200000000))));
+    assert(!encodeChange(image, change("vfoA", "rxToneRaw", number(211))));
+    assert(encodeChange(image, change("dtmf", "code1", text("12*#D"))));
+    assert(image[0xB0A] == 11 && image[0xB0C] == 16);
+    cJSON *channelChange = change("channel", "txHz", new cJSON);
+    channelChange->child->next->next->type = 4;
+    attach(channelChange, "index", number(0));
+    assert(encodeChange(image, channelChange));
+    assert(image[12] == 255 && image[15] == 255);
+    auto prepare = [&](const char *field) {
+      cJSON *root = new cJSON; attach(root, "revision", text(radioProgrammingRevision().c_str()));
+      cJSON *items = new cJSON; items->type = 3; attach(root, "changes", items);
+      attach(items, nullptr, change("settings", "squelch", number(7)));
+      if (field) attach(items, nullptr, change("settings", field, number(1)));
+      parsedRequest = root;
+    };
+    String error;
+    uint8_t before[sizeof(image)]; memcpy(before, image, sizeof(image));
+    prepare("calibration");
+    assert(!radioProgrammingWriteJson("{}", error));
+    assert(!memcmp(image, before, sizeof(image)) && radioSerial.transmissions.empty());
+    prepare(nullptr);
+    assert(radioProgrammingWriteJson("{}", error));
+    assert(desiredImage[0xE28] == 7 && !memcmp(baselineImage, before, sizeof(image)));
+    std::cout << "PASS patch" << std::endl;
+    return 0;
+  }
+  if (scenario == "serial") {
+    assert(!radioSerialConsume('i'));
+    assert(radioSerialConsume('@'));
+    for (char value : std::string("RR {\"data\":\"wrx\"}")) assert(radioSerialConsume(value));
+    testNow += 5001; radioSerialPoll();
+    assert(radioSerialConsume('w') && radioSerialReceiving());
+    assert(radioSerialConsume('\n') && !radioSerialReceiving());
+    assert(Serial.output.find("RR_REPLY 0") != std::string::npos);
+    Serial.output.clear();
+    assert(radioSerialConsume('@'));
+    for (int index = 0; index < 6000; ++index) assert(radioSerialConsume('w'));
+    radioSerialConsume('\n');
+    assert(Serial.output.find("RR_REPLY 0") != std::string::npos);
+    parsedRequest = new cJSON;
+    attach(parsedRequest, "id", number(42)); attach(parsedRequest, "command", text("hello"));
+    for (char value : std::string("@RR {}\n")) assert(radioSerialConsume(value));
+    assert(Serial.output.find("RR_REPLY 42 {\"protocol\":1}") != std::string::npos);
+    std::cout << "PASS serial" << std::endl;
+    return 0;
+  }
   if (scenario == "capture") {
     assert(argc == 3);
     std::ifstream saved(argv[2], std::ios::binary);
@@ -114,7 +220,7 @@ int main(int argc, char **argv) {
   std::copy(channel, channel + 16, memory.begin());
   const char name[] = "TEST";
   std::copy(name, name + 4, memory.begin() + 0x1000);
-  const char firmware[] = "BFB297 TEST1234";
+  const char *firmware = scenario.find("write") == 0 ? "N5R2407BFB297 " : "BFB297 TEST1234";
   std::copy(firmware, firmware + 14, memory.begin() + 0x1EF0);
   memory[0x1FCF] = scenario == "dropped" ? 0xFF : 0x42;
   memory[0xE20] = 3;
@@ -148,6 +254,8 @@ int main(int argc, char **argv) {
   size_t serviced = 0;
   std::vector<uint16_t> addresses;
   std::vector<uint8_t> sizes;
+  unsigned writes = 0;
+  auto pump = [&]() {
   for (uint32_t tick = 0; tick < 7000 && radioProgrammingBusy(); ++tick) {
     size_t chunk = scenario == "fragmented" ? 3 : 80;
     while (chunk-- && !pending.empty()) {
@@ -166,6 +274,14 @@ int main(int argc, char **argv) {
         pending.insert(pending.end(), ident.begin(), ident.end());
       } else if (phase == Phase::identAck) {
         pending.push_back(scenario == "refused" ? 0 : 0x06);
+      } else if (phase == Phase::writeAck) {
+        const auto &packet = radioSerial.transmissions.back();
+        assert(packet.size() == 20 && packet[0] == 0x58 && writeStage == WriteStage::writing);
+        uint16_t target = packet[1] * 256 + packet[2];
+        assert(target == 0xE20 || (scenario == "write-multiple" && target == 0xE30));
+        if (scenario != "write-verifybad") std::copy(packet.begin() + 4, packet.end(), memory.begin() + target);
+        ++writes;
+        if (scenario != "write-silent") pending.push_back(scenario == "write-badack" ? 0 : 0x06);
       } else if (phase == Phase::block) {
         addresses.push_back(address);
         sizes.push_back(blockSize);
@@ -180,6 +296,8 @@ int main(int argc, char **argv) {
     }
     testNow += 10;
   }
+  };
+  pump();
   assert(!radioProgrammingBusy() && !radioSerial.enabled);
   const uint8_t *dump = radioProgrammingImage(length);
   bool expectedFailure = scenario == "silent" || scenario == "badident" || scenario == "refused" ||
@@ -225,6 +343,36 @@ int main(int argc, char **argv) {
     assert((strings.count("startup.line1") != 0) == (scenario != "legacy"));
     assert(numbers["bytesRead"] == (scenario == "legacy" ? 6144 : 6464));
   }
+  if (scenario.find("write") == 0) {
+    assert(radioProgrammingCanWrite());
+    uint8_t desired[sizeof(image)];
+    memcpy(desired, image, sizeof(image));
+    desired[0xE28] = 7;
+    if (scenario == "write-multiple") desired[0xE38] = 2;
+    String revision = radioProgrammingRevision();
+    String error;
+    assert(!radioProgrammingWriteImage(desired, sizeof(desired), "stale", error));
+    desired[0x1908] ^= 1;
+    assert(!radioProgrammingWriteImage(desired, sizeof(desired), revision.c_str(), error));
+    desired[0x1908] ^= 1;
+    desired[0xCF8] ^= 1;
+    assert(!radioProgrammingWriteImage(desired, sizeof(desired), revision.c_str(), error));
+    desired[0xCF8] ^= 1;
+    if (scenario == "write-changed") memory[0x100] ^= 1;
+    assert(radioProgrammingWriteImage(desired, sizeof(desired), revision.c_str(), error));
+    assert(!radioProgrammingStart());
+    pump();
+    assert(!radioProgrammingBusy() && !radioSerial.enabled);
+    if (scenario == "write" || scenario == "write-multiple") {
+      unsigned expected = scenario == "write-multiple" ? 2 : 1;
+      assert(writeVerified && phase == Phase::done && writes == expected && bytesWritten == expected * 16);
+      assert(!memcmp(image, desired, sizeof(image)));
+    } else {
+      assert(phase == Phase::failed && !writeVerified);
+      assert(writes == (scenario == "write-changed" ? 0U : 1U));
+      assert(!radioProgrammingImage(length));
+    }
+  }
   assert(radioProgrammingStart());
   assert(!radioProgrammingImage(length) && length == 0);
   std::cout << "PASS " << scenario << std::endl;
@@ -246,6 +394,7 @@ class RadioProtocolTests(unittest.TestCase):
         directory = Path(cls.directory.name)
         (directory / "driver").mkdir()
         for name, content in {"Arduino.h": ARDUINO, "HardwareSerial.h": UART, "cJSON.h": JSON,
+                              "app_control.h": "#pragma once\ninline bool appWifiTestActive() { return false; }\n",
                               "driver/gpio.h": "#pragma once\n#define GPIO_NUM_16 16\n#define GPIO_NUM_17 17\ninline void gpio_reset_pin(int) {}\n",
                               "harness.cpp": '#include "Arduino.h"\n' + HARNESS}.items():
             (directory / name).write_text(content, encoding="utf-8")
@@ -259,7 +408,16 @@ class RadioProtocolTests(unittest.TestCase):
 
     def test_actual_firmware_uart_state_machine(self):
         for scenario in ("modern", "legacy", "ident12", "fragmented", "dropped", "wrap", "silent",
-                         "badident", "refused", "badheader", "badsize", "badack", "short"):
+                         "badident", "refused", "badheader", "badsize", "badack", "short",
+                         "write", "write-multiple", "write-changed", "write-verifybad", "write-badack", "write-silent"):
+            with self.subTest(scenario=scenario):
+                result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True,
+                                        timeout=5, env=self.environment)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("PASS " + scenario, result.stdout)
+
+    def test_patch_encoder_and_serial_quarantine(self):
+        for scenario in ("patch", "serial"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True,
                                         timeout=5, env=self.environment)
