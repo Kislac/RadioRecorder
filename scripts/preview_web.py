@@ -113,6 +113,7 @@ class PreviewDevice:
         self.directories = {"/Archive"}
         self.recording_name = self.next_recording_name(self.record_source) if self.recording else ""
         self.playing = ""
+        self.playback_target = "speaker"
         self.play_until = 0
         self.auto_stop_at = 0
         self.ptt_until = 0
@@ -273,8 +274,10 @@ class PreviewDevice:
                              "liveReady": True, "audioGpio": 1, "screenOffMinutes": self.screen_minutes,
                              "lowpass": self.lowpass,
                              "state": "recording" if self.recording else "idle", "stopping": False,
-                             "speakerReady": True, "speakerVolume": self.volume, "speakerBoost": self.boost,
+                             "speakerReady": True, "radioReady": True,
+                             "speakerVolume": self.volume, "speakerBoost": self.boost,
                              "playback": "playing" if self.playing else "idle", "playbackPath": self.playing,
+                             "playbackTarget": self.playback_target,
                              "playbackError": "", "hasRecordings": bool(self.files) and self.sd_ready,
                              "error": "" if self.sd_ready else "SD unavailable", "wifi": dict(self.wifi)}
             if path == "/api/settings":
@@ -470,12 +473,16 @@ class PreviewDevice:
                 self.boost = boost
                 return 200, str(boost)
             if path == "/api/play":
+                target = params.get("target", "speaker")
+                if target not in ("speaker", "radio"):
+                    return 400, "Invalid playback target"
                 if self.recording or not self.sd_ready or self.playing:
-                    return 409, "Speaker unavailable or busy"
+                    return 409, "Audio output unavailable or busy"
                 if params.get("path") not in self.files:
                     return 404, "WAV not found"
+                self.playback_target = target
                 self.playing, self.play_until = params["path"], time.monotonic() + 2
-                return 200, "Playing on simulated speaker"
+                return 200, "Playing on simulated " + target
             if path == "/api/play/stop":
                 self.playing = ""
                 return 200, "Stopping speaker"

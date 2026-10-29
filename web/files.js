@@ -107,9 +107,9 @@ async function refreshSpeaker() {
     renderDemoClock();
     speakerStop.disabled = !playing;
     speakerStatus.textContent = playing
-      ? "ESP hangszóró: " +
+      ? (data.playbackTarget === "radio" ? "Rádió DAC: " : "ESP hangszóró: ") +
         (data.playback === "starting" ? "indul..." : data.playbackPath)
-      : data.playbackError || "ESP hangszóró: kikapcsolva";
+      : data.playbackError || "Lejátszás: kikapcsolva";
     if (!volumeSending) {
       speakerVolume.value = data.speakerVolume;
       speakerVolumeValue.textContent = data.speakerVolume + "%";
@@ -118,13 +118,15 @@ async function refreshSpeaker() {
     if (!boostUpdating) speakerBoost.value = String(data.speakerBoost);
     for (const button of listEl.querySelectorAll("[data-esp-play]"))
       button.disabled = playing || data.state !== "idle" || !data.speakerReady;
+    for (const button of listEl.querySelectorAll("[data-radio-play]"))
+      button.disabled = playing || data.state !== "idle" || !data.radioReady;
   } catch {
     speakerStatus.textContent = "ESP-lejátszás állapota nem elérhető.";
   }
 }
-async function playOnEsp(path) {
+async function playOnEsp(path, target = "speaker") {
   try {
-    const response = await fetch("/api/play?path=" + encodeURIComponent(path), {
+    const response = await fetch("/api/play?path=" + encodeURIComponent(path) + "&target=" + target, {
       method: "POST",
     });
     if (!response.ok) throw Error(await response.text());
@@ -215,9 +217,11 @@ function render(item) {
     actions.append(download);
   } else {
     if (sound(item.name)) {
-      const radio = actionButton("Rádión", "Rádiós lejátszás később", () => {});
-      radio.disabled = true;
-      actions.append(radio);
+      if (/\.wav$/i.test(item.name)) {
+        const radio = actionButton("Rádión", "Lejátszás a rádió DAC-kimenetén", () => playOnEsp(item.path, "radio"));
+        radio.dataset.radioPlay = item.path;
+        actions.append(radio);
+      }
       const play = actionButton("Telefonon", "Lejátszás ezen a készüléken", () => {
         const existing = info.querySelector("audio");
         if (existing) {

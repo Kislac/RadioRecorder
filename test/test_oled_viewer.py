@@ -209,7 +209,7 @@ class FrameTests(unittest.TestCase):
         self.assertIn("WiFi.softAPIP().toString()", source)
         self.assertIn('"%04d.%02u.%02d %s"', source)
 
-    def test_oled_sd_browser_and_inert_radio_playback(self):
+    def test_oled_sd_browser_and_radio_dac_playback(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "src" / "display.cpp").read_text(encoding="utf-8")
         browser = source.split("void refreshBrowseRows()", 1)[1].split("String shortBrowseName", 1)[0]
@@ -218,10 +218,11 @@ class FrameTests(unittest.TestCase):
         self.assertIn("folder == (pass == 0)", browser)
         self.assertIn('lower.endsWith(".wav")', browser)
         self.assertIn('browseRows[0] = {".."', browser)
-        self.assertIn("if (playbackChoice == 1) { setMessage", playback)
+        self.assertIn("PlaybackTarget target = playbackChoice == 1 ? PlaybackTarget::radio", playback)
         self.assertIn("appCanStartPlayback()", playback)
         self.assertIn("findPcmData(file, remaining)", playback)
         self.assertIn("playbackStart(selectedFile)", playback)
+        self.assertIn("playbackStart(selectedFile, PlaybackTarget::radio)", playback)
         self.assertNotIn("startPttTest", playback)
 
     def test_wifi_boot_connect_fallback_and_keep_ap_contract(self):
@@ -310,7 +311,7 @@ class FrameTests(unittest.TestCase):
         self.assertIn("playbackPlayCue(PlaybackCue::recordingStopped)", recorder_source)
         self.assertIn('static_assert(sizeof(kStartupImageBits) == 1024', startup_image)
         self.assertIn("sinf(phase)", playback_source)
-        self.assertIn("if (speakerReady && xTaskCreatePinnedToCore", playback_source)
+        self.assertIn("if ((speakerReady || recorderRadioHandle()) &&", playback_source)
         self.assertIn("cuePlaying.compare_exchange_strong", playback_source)
         self.assertIn("cuePlaying.load() ? PlaybackState::playing", playback_source)
         self.assertIn('playbackPlayCue(PlaybackCue::startup)', (root / "src" / "main.cpp").read_text(encoding="utf-8"))

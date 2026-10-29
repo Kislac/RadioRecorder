@@ -55,7 +55,23 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('server.on("/api/files/download", HTTP_GET, downloadSdFolder)', server)
         self.assertIn('server.arg("confirm") != "1"', server)
         self.assertIn('confirm(`Biztosan törlöd', files_script)
-        self.assertIn('radio.disabled = true', files_script)
+        self.assertIn('radio.dataset.radioPlay = item.path', files_script)
+
+    def test_radio_dac_uses_shared_i2s_clocks_and_separate_playback_target(self):
+        root = WEB_ROOT.parent
+        recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
+        playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        display = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        self.assertIn('i2s_new_channel(&channel, &radioHandle, &micHandle)', recorder)
+        self.assertIn('config.gpio_cfg.dout = GPIO_NUM_9', recorder)
+        self.assertIn('PlaybackTarget::radio', playback)
+        self.assertIn('cuePlaying.load() ? PlaybackTarget::speaker : playbackTarget', playback)
+        self.assertIn('playbackStart(selectedFile, PlaybackTarget::radio)', display)
+        self.assertIn('i2s_channel_write(outputHandle, radio ?', playback)
+        self.assertIn('source * 0.05f * 65536.0f', playback)
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        self.assertIn('targetArg == "radio" ? PlaybackTarget::radio', server)
+        self.assertIn('data.radioReady', (root / "web" / "files.js").read_text(encoding="utf-8"))
 
     def test_clock_firmware_contract(self):
         root = WEB_ROOT.parent
@@ -229,6 +245,23 @@ class PreviewHttpTests(unittest.TestCase):
 
     def setUp(self):
         self.server.device = PreviewDevice()
+
+    def test_radio_dac_playback_reports_target_and_stops_without_ptt(self):
+        status, _, _ = self.request("/api/play?path=%2FREC00001.wav&target=invalid", "POST")
+        self.assertEqual(status, 400)
+        status, _, _ = self.request("/api/play?path=%2FREC00001.wav&target=radio", "POST")
+        self.assertEqual(status, 200)
+        status, data, _ = self.request("/api/status")
+        self.assertEqual(status, 200)
+        playback = json.loads(data)
+        self.assertTrue(playback["radioReady"])
+        self.assertEqual(playback["playbackTarget"], "radio")
+        self.assertEqual(playback["playback"], "playing")
+        self.assertFalse(self.server.device.ptt_latched)
+        status, _, _ = self.request("/api/play/stop", "POST")
+        self.assertEqual(status, 200)
+        status, data, _ = self.request("/api/status")
+        self.assertEqual(json.loads(data)["playback"], "idle")
 
     def request(self, path, method="GET", params=None, headers=None):
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)

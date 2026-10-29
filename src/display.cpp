@@ -256,8 +256,11 @@ void browseParent() {
 void pressBrowse() {
   if (choosingPlayback) {
     if (playbackChoice == 2) { choosingPlayback = false; return; }
-    if (playbackChoice == 1) { setMessage("Radio: meg nem elerheto"); return; }
-    if (!appSdReady() || !playbackStatus().ready) { setMessage("SD/hangszoro hianyzik"); return; }
+    PlaybackTarget target = playbackChoice == 1 ? PlaybackTarget::radio : PlaybackTarget::speaker;
+    PlaybackStatus status = playbackStatus();
+    if (!appSdReady() || (target == PlaybackTarget::radio ? !status.radioReady : !status.ready)) {
+      setMessage("SD/hangkimenet hianyzik"); return;
+    }
     if (!appCanStartPlayback()) { setMessage("Lejatszas nem indithato"); return; }
     if (selectedFile.length() > 220) { setMessage("Tul hosszu fajlnev"); return; }
     File file = SD_MMC.open(selectedFile, FILE_READ);
@@ -265,7 +268,8 @@ void pressBrowse() {
     bool supported = file && !file.isDirectory() && findPcmData(file, remaining);
     if (file) file.close();
     if (!supported) { setMessage("Nem tamogatott WAV"); return; }
-    playbackStart(selectedFile);
+    if (target == PlaybackTarget::radio) playbackStart(selectedFile, PlaybackTarget::radio);
+    else playbackStart(selectedFile);
     choosingPlayback = false;
     browsingFiles = false;
     return;
@@ -294,7 +298,7 @@ void drawBrowse() {
   if (choosingPlayback) {
     oled.drawStr(0, 30, shortBrowseName(selectedFile.substring(selectedFile.lastIndexOf('/') + 1)).c_str());
     oled.drawStr(0, 38, playbackChoice == 0 ? "> Hangszoro" : "  Hangszoro");
-    oled.drawStr(0, 46, playbackChoice == 1 ? "> Radio (kesobb)" : "  Radio (kesobb)");
+    oled.drawStr(0, 46, playbackChoice == 1 ? "> Radio DAC" : "  Radio DAC");
     oled.drawStr(0, 54, playbackChoice == 2 ? "> Vissza" : "  Vissza");
     return;
   }

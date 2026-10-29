@@ -571,7 +571,7 @@ async function refresh() {
     wifiTest.disabled = !data.ready || busy || playing || !!liveSocket;
     speakerStop.disabled = !playing;
     speakerStatus.textContent = playing
-      ? "ESP hangszóró: " +
+      ? (data.playbackTarget === "radio" ? "Rádió DAC: " : "ESP hangszóró: ") +
         (data.playback === "starting" ? "indul..." : data.playbackPath)
       : data.playbackError || "ESP hangszóró: kikapcsolva";
     if (!volumeSending) {

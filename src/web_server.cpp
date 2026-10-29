@@ -141,9 +141,11 @@ void sendStatus() {
   PlaybackStatus speaker = playbackStatus();
   PlaybackState playback = speaker.state;
   json += ",\"speakerReady\":" + String(speaker.ready ? "true" : "false");
+  json += ",\"radioReady\":" + String(speaker.radioReady ? "true" : "false");
   json += ",\"speakerVolume\":" + String(speaker.volume);
   json += ",\"speakerBoost\":" + String(speaker.boost);
   json += ",\"playback\":\"" + String(playback == PlaybackState::idle ? "idle" : playback == PlaybackState::starting ? "starting" : "playing") + "\"";
+  json += ",\"playbackTarget\":\"" + String(speaker.target == PlaybackTarget::radio ? "radio" : "speaker") + "\"";
   json += ",\"playbackPath\":\"" + speaker.path + "\"";
   json += ",\"playbackError\":\"" + speaker.error + "\"";
   json += ",\"stopping\":" + String(recorderStopping() ? "true" : "false");
@@ -651,8 +653,15 @@ void sendFile() {
 
 void startSpeakerPlayback() {
   wifiManagerNotifyActivity();
-  if (!appSdReady() || !playbackStatus().ready) {
-    server.send(503, "text/plain", "Speaker or SD unavailable");
+  String targetArg = server.arg("target");
+  if (targetArg != "" && targetArg != "speaker" && targetArg != "radio") {
+    server.send(400, "text/plain", "Invalid playback target");
+    return;
+  }
+  PlaybackTarget target = targetArg == "radio" ? PlaybackTarget::radio : PlaybackTarget::speaker;
+  PlaybackStatus status = playbackStatus();
+  if (!appSdReady() || (target == PlaybackTarget::radio ? !status.radioReady : !status.ready)) {
+    server.send(503, "text/plain", "Audio output or SD unavailable");
     return;
   }
   if (!appCanStartPlayback()) {
@@ -678,8 +687,8 @@ void startSpeakerPlayback() {
     server.send(415, "text/plain", "Only mono 16-bit 22050 Hz PCM WAV is supported");
     return;
   }
-  playbackStart(path);
-  server.send(200, "text/plain", "Playing on ESP speaker");
+  playbackStart(path, target);
+  server.send(200, "text/plain", target == PlaybackTarget::radio ? "Playing on radio DAC" : "Playing on ESP speaker");
 }
 
 void initWeb() {

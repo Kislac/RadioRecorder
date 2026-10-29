@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cmath>
 #include "driver/i2s_std.h"
+#include "recorder.h"
 #include "wav.h"
 #include "watchdog.h"
 
@@ -30,6 +31,7 @@ static TaskHandle_t playbackTask = nullptr;
 static char playbackPath[221] = {};
 static char playbackError[80] = {};
 static bool speakerReady = false;
+static PlaybackTarget playbackTarget = PlaybackTarget::speaker;
 
 struct CueNote {
   uint16_t frequency;
@@ -87,12 +89,15 @@ PlaybackState playbackGetState() {
 
 PlaybackStatus playbackStatus() {
   PlaybackState state = playbackGetState();
-  return {state, speakerReady && playbackTask != nullptr, speakerVolume.load(), speakerBoost.load(),
+  return {state, speakerReady && playbackTask != nullptr, recorderRadioHandle() && playbackTask != nullptr,
+      cuePlaying.load() ? PlaybackTarget::speaker : playbackTarget, speakerVolume.load(), speakerBoost.load(),
           state == PlaybackState::idle ? "" : cuePlaying.load() ? "Firmware cue" : playbackPath, playbackError};
 }
 
-void playbackStart(const String &path) {
-  if (playbackGetState() != PlaybackState::idle) return;
+void playbackStart(const String &path, PlaybackTarget target) {
+  if (playbackGetState() != PlaybackState::idle || !playbackTask ||
+      (target == PlaybackTarget::radio ? !recorderRadioHandle() : !speakerReady)) return;
+  playbackTarget = target;
   path.toCharArray(playbackPath, sizeof(playbackPath));
   playbackError[0] = '\0';
   playbackStopRequested.store(false);
@@ -162,19 +167,22 @@ static void speakerLoop(void *) {
     }
     if (playbackState.load() != PlaybackState::starting) continue;
     bool playbackWatchdog = watchdogSubscribeCurrentTask();
+    bool radio = playbackTarget == PlaybackTarget::radio;
+    i2s_chan_handle_t outputHandle = radio ? recorderRadioHandle() : speakerHandle;
     File file = SD_MMC.open(playbackPath, FILE_READ);
     uint32_t remaining = 0;
     bool enabled = false;
     if (!file || !findPcmData(file, remaining)) {
       snprintf(playbackError, sizeof(playbackError), "Cannot read PCM WAV");
     } else if (!playbackStopRequested.load()) {
-      enabled = i2s_channel_enable(speakerHandle) == ESP_OK;
+      enabled = i2s_channel_enable(outputHandle) == ESP_OK;
       if (!enabled) {
-        snprintf(playbackError, sizeof(playbackError), "Cannot start speaker");
+        snprintf(playbackError, sizeof(playbackError), radio ? "Cannot start radio DAC" : "Cannot start speaker");
       } else {
         playbackState.store(PlaybackState::playing);
         uint8_t input[512];
         int16_t output[512];
+        int32_t radioOutput[512];
         float appliedGain = 0;
         while (remaining && !playbackStopRequested.load()) {
           if (playbackWatchdog) watchdogResetCurrentTask();
@@ -193,28 +201,37 @@ static void speakerLoop(void *) {
           float limitedGain = peak ? min(requestedGain, 32767.0f / peak) : requestedGain;
           appliedGain = min(limitedGain, appliedGain + 0.1f);
           for (size_t index = 0; index < count / 2; ++index) {
-            int16_t sample = constrain(static_cast<int32_t>(static_cast<int16_t>(wav16(input + index * 2)) * appliedGain),
-                                       -32767, 32767);
-            output[index * 2] = sample;
-            output[index * 2 + 1] = sample;
+            int16_t source = static_cast<int16_t>(wav16(input + index * 2));
+            if (radio) {
+              int32_t sample = static_cast<int32_t>(source * 0.05f * 65536.0f);
+              radioOutput[index * 2] = sample;
+              radioOutput[index * 2 + 1] = sample;
+            } else {
+              int16_t sample = constrain(static_cast<int32_t>(source * appliedGain), -32767, 32767);
+              output[index * 2] = sample;
+              output[index * 2 + 1] = sample;
+            }
           }
           size_t written = 0;
-          if (i2s_channel_write(speakerHandle, output, count * 2, &written, 1000) != ESP_OK || written != count * 2) {
-            snprintf(playbackError, sizeof(playbackError), "Speaker output failed");
+          size_t bytes = count * (radio ? 4 : 2);
+          if (i2s_channel_write(outputHandle, radio ? static_cast<void *>(radioOutput) : static_cast<void *>(output),
+                                bytes, &written, 1000) != ESP_OK || written != bytes) {
+            snprintf(playbackError, sizeof(playbackError), radio ? "Radio DAC output failed" : "Speaker output failed");
             break;
           }
         }
         if (!remaining && !playbackStopRequested.load() && !playbackError[0]) {
-          int16_t silence[512] = {};
+          int32_t silence[512] = {};
           for (int index = 0; index < 4; ++index) {
             size_t written = 0;
-            if (i2s_channel_write(speakerHandle, silence, sizeof(silence), &written, 1000) != ESP_OK) break;
+            size_t bytes = radio ? sizeof(silence) : sizeof(silence) / 2;
+            if (i2s_channel_write(outputHandle, silence, bytes, &written, 1000) != ESP_OK) break;
           }
           vTaskDelay(pdMS_TO_TICKS(30));
         }
       }
     }
-    if (enabled) i2s_channel_disable(speakerHandle);
+    if (enabled) i2s_channel_disable(outputHandle);
     if (file) file.close();
     playbackState.store(PlaybackState::idle);
     watchdogUnsubscribeCurrentTask(playbackWatchdog);
@@ -250,8 +267,9 @@ void initPlayback(bool sdReady) {
   speakerVolume.store(savedSpeakerVolume);
   speakerBoost.store(savedSpeakerBoost);
   speakerReady = initSpeaker();
-  if (speakerReady && xTaskCreatePinnedToCore(speakerLoop, "speaker", 12288, nullptr, 2, &playbackTask, 0) != pdPASS) {
-    Serial.println("Cannot create speaker task");
+  if ((speakerReady || recorderRadioHandle()) &&
+      xTaskCreatePinnedToCore(speakerLoop, "speaker", 12288, nullptr, 2, &playbackTask, 0) != pdPASS) {
+    Serial.println("Cannot create playback task");
   }
   if (!sdReady) Serial.println("Speaker cues available without SD; file playback disabled");
 }
