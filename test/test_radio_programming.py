@@ -255,9 +255,11 @@ int main(int argc, char **argv) {
   std::vector<uint16_t> addresses;
   std::vector<uint8_t> sizes;
   unsigned writes = 0;
+  bool radioFirstRead = true;
+  bool previousCommandWasWrite = false;
   auto pump = [&]() {
   for (uint32_t tick = 0; tick < 7000 && radioProgrammingBusy(); ++tick) {
-    size_t chunk = scenario == "fragmented" ? 3 : 80;
+    size_t chunk = scenario == "fragmented" || scenario == "write-no-readack-fragmented" ? 3 : 80;
     while (chunk-- && !pending.empty()) {
       radioSerial.incoming.push_back(pending.front());
       pending.pop_front();
@@ -273,6 +275,7 @@ int main(int argc, char **argv) {
         if (scenario == "badident") ident = {1,2,3,0xDD};
         pending.insert(pending.end(), ident.begin(), ident.end());
       } else if (phase == Phase::identAck) {
+        radioFirstRead = true;
         pending.push_back(scenario == "refused" ? 0 : 0x06);
       } else if (phase == Phase::writeAck) {
         const auto &packet = radioSerial.transmissions.back();
@@ -281,17 +284,22 @@ int main(int argc, char **argv) {
         assert(target == 0xE20 || (scenario == "write-multiple" && target == 0xE30));
         if (scenario != "write-verifybad") std::copy(packet.begin() + 4, packet.end(), memory.begin() + target);
         ++writes;
+        previousCommandWasWrite = true;
         if (scenario != "write-silent") pending.push_back(scenario == "write-badack" ? 0 : 0x06);
       } else if (phase == Phase::block) {
         addresses.push_back(address);
         sizes.push_back(blockSize);
-        if (!firstBlock) pending.push_back(scenario == "badack" ? 0 : 0x06);
+        bool verificationShort = scenario == "write-verify-short" && previousCommandWasWrite;
+        bool omitReadAck = (scenario.find("write-no-readack") == 0 || verificationShort) && previousCommandWasWrite;
+        if (!radioFirstRead && !omitReadAck) pending.push_back(scenario == "badack" ? 0 : 0x06);
+        radioFirstRead = false;
+        previousCommandWasWrite = false;
         pending.push_back(scenario == "badheader" ? 0x59 : 0x58);
         pending.push_back(address >> 8);
         pending.push_back(address & 255);
         pending.push_back(scenario == "badsize" ? 16 : blockSize);
         for (size_t index = 0; index < blockSize; ++index) pending.push_back(memory[address + index]);
-        if (scenario == "short") pending.pop_back();
+        if (scenario == "short" || verificationShort) pending.pop_back();
       }
     }
     testNow += 10;
@@ -363,7 +371,7 @@ int main(int argc, char **argv) {
     assert(!radioProgrammingStart());
     pump();
     assert(!radioProgrammingBusy() && !radioSerial.enabled);
-    if (scenario == "write" || scenario == "write-multiple") {
+    if (scenario == "write" || scenario == "write-multiple" || scenario.find("write-no-readack") == 0) {
       unsigned expected = scenario == "write-multiple" ? 2 : 1;
       assert(writeVerified && phase == Phase::done && writes == expected && bytesWritten == expected * 16);
       assert(!memcmp(image, desired, sizeof(image)));
@@ -371,6 +379,9 @@ int main(int argc, char **argv) {
       assert(phase == Phase::failed && !writeVerified);
       assert(writes == (scenario == "write-changed" ? 0U : 1U));
       assert(!radioProgrammingImage(length));
+      if (scenario == "write-verify-short") {
+        assert(bytesWritten == 16 && strstr(failure, "Verification read incomplete") && strstr(failure, "67/68 bytes"));
+      }
     }
   }
   assert(radioProgrammingStart());
@@ -409,7 +420,8 @@ class RadioProtocolTests(unittest.TestCase):
     def test_actual_firmware_uart_state_machine(self):
         for scenario in ("modern", "legacy", "ident12", "fragmented", "dropped", "wrap", "silent",
                          "badident", "refused", "badheader", "badsize", "badack", "short",
-                         "write", "write-multiple", "write-changed", "write-verifybad", "write-badack", "write-silent"):
+                         "write", "write-multiple", "write-no-readack", "write-no-readack-fragmented", "write-verify-short",
+                         "write-changed", "write-verifybad", "write-badack", "write-silent"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True,
                                         timeout=5, env=self.environment)

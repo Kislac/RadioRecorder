@@ -334,9 +334,23 @@ void radioProgrammingPoll() {
   }
   if (phase == Phase::block) {
     size_t prefix = firstBlock ? 0 : 1;
+    if (writeStage == WriteStage::verifying && completed == 0 && address == 0) {
+      prefix = received && reply[0] == 0x06 ? 1 : 0;
+    }
     size_t expected = prefix + 4 + blockSize;
     if (received < expected) {
-      if (expired(now)) fail("Incomplete memory block; check cable and power-cycle radio");
+      if (expired(now)) {
+        static char blockError[192];
+        if (writeStage == WriteStage::verifying) {
+          snprintf(blockError, sizeof(blockError),
+                   "Verification read incomplete at 0x%04X (%u/%u bytes); %u write bytes acknowledged. Read radio again; do not repeat write",
+                   address, static_cast<unsigned>(received), static_cast<unsigned>(expected), bytesWritten);
+        } else {
+          snprintf(blockError, sizeof(blockError), "Incomplete memory block at 0x%04X (%u/%u bytes); check wiring and radio power",
+                   address, static_cast<unsigned>(received), static_cast<unsigned>(expected));
+        }
+        fail(blockError);
+      }
       return;
     }
     if (received != expected || (prefix && reply[0] != 0x06) || reply[prefix] != 0x58 ||
