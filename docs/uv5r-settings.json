@@ -1,0 +1,223 @@
+{
+  "state": "done",
+  "error": "",
+  "bytesRead": 6464,
+  "totalBytes": 6464,
+  "rxGpio": 16,
+  "txGpio": 17,
+  "firmware": "N5R2407BFB297 ",
+  "droppedByteWorkaround": false,
+  "settings": {
+    "squelch": 5,
+    "save": 3,
+    "vox": 0,
+    "backlight": 5,
+    "dualWatch": 0,
+    "beep": 0,
+    "timeoutRaw": 3,
+    "channelA": 3,
+    "channelB": 9,
+    "vfoAHz": 420420000,
+    "vfoBHz": 446031250
+  },
+  "channels": [
+    {
+      "number": 0,
+      "name": "       ",
+      "rxHz": 420420000,
+      "txHz": 420420000,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    },
+    {
+      "number": 1,
+      "name": "       ",
+      "rxHz": 446006250,
+      "txHz": 446006250,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 0,
+      "scan": true
+    },
+    {
+      "number": 2,
+      "name": "       ",
+      "rxHz": 446018750,
+      "txHz": 446018750,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 0,
+      "scan": true
+    },
+    {
+      "number": 3,
+      "name": "       ",
+      "rxHz": 446031250,
+      "txHz": 446031250,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 0,
+      "scan": true
+    },
+    {
+      "number": 4,
+      "name": "       ",
+      "rxHz": 446043750,
+      "txHz": 446043750,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 0,
+      "scan": true
+    },
+    {
+      "number": 5,
+      "name": "       ",
+      "rxHz": 446056250,
+      "txHz": 446056250,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 0,
+      "scan": true
+    },
+    {
+      "number": 6,
+      "name": "       ",
+      "rxHz": 446068750,
+      "txHz": 446068750,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 0,
+      "scan": true
+    },
+    {
+      "number": 7,
+      "name": "       ",
+      "rxHz": 446081250,
+      "txHz": 446081250,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 0,
+      "scan": true
+    },
+    {
+      "number": 8,
+      "name": "       ",
+      "rxHz": 446093750,
+      "txHz": 446093750,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 0,
+      "scan": true
+    },
+    {
+      "number": 9,
+      "name": "       ",
+      "rxHz": 446106250,
+      "txHz": 446106250,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    },
+    {
+      "number": 10,
+      "name": "       ",
+      "rxHz": 446118750,
+      "txHz": 446118750,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    },
+    {
+      "number": 11,
+      "name": "       ",
+      "rxHz": 446131250,
+      "txHz": 446131250,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    },
+    {
+      "number": 12,
+      "name": "       ",
+      "rxHz": 446143750,
+      "txHz": 446143750,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    },
+    {
+      "number": 13,
+      "name": "       ",
+      "rxHz": 446156250,
+      "txHz": 446156250,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    },
+    {
+      "number": 14,
+      "name": "       ",
+      "rxHz": 446168750,
+      "txHz": 446168750,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    },
+    {
+      "number": 15,
+      "name": "       ",
+      "rxHz": 446181250,
+      "txHz": 446181250,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    },
+    {
+      "number": 16,
+      "name": "       ",
+      "rxHz": 446193750,
+      "txHz": 446193750,
+      "rxToneRaw": 0,
+      "txToneRaw": 0,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    },
+    {
+      "number": 127,
+      "name": "       ",
+      "rxHz": 450450000,
+      "txHz": 450450000,
+      "rxToneRaw": 1000,
+      "txToneRaw": 1000,
+      "bandwidth": "Wide",
+      "powerRaw": 1,
+      "scan": true
+    }
+  ]
+}

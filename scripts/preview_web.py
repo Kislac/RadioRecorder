@@ -188,6 +188,29 @@ class PreviewDevice:
                                            {"number": 1, "name": "UHF SIM", "rxHz": 433500000,
                                             "txHz": None, "rxToneRaw": 1, "txToneRaw": 106,
                                             "bandwidth": "Wide", "powerRaw": 0, "scan": False}])
+                    state["settings"].update(stepRaw=1, voiceRaw=1, dtmfSidetoneRaw=3, scanResumeRaw=0,
+                                             pttIdRaw=0, pttDelayRaw=5, displayARaw=2, displayBRaw=2,
+                                             busyLockRaw=0, autoLockRaw=0, shiftRaw=0, standbyLedRaw=2,
+                                             rxLedRaw=0, txLedRaw=0, alarmModeRaw=1, bandRaw=0,
+                                             txPriorityRaw=0, tailEliminateRaw=1, repeaterTailRaw=5,
+                                             repeaterDelayRaw=0, powerOnModeRaw=1, rogerRaw=0,
+                                             rogerRxRaw=1, activeLineRaw=0, fmRadioEnabledRaw=1,
+                                             alarmEnabledRaw=1, resetMenuEnabledRaw=1, menusEnabledRaw=1,
+                                             workModeRaw=0, keypadLockRaw=0)
+                    state.update(vfoA={"frequencyHz": 145500000, "offsetHz": 600000, "rxToneRaw": 0,
+                                       "txToneRaw": 885, "bandRaw": 0, "shiftRaw": 2, "signalCodeRaw": 0,
+                                       "stepRaw": 1, "powerRaw": 1, "bandwidthRaw": 1},
+                                 vfoB={"frequencyHz": 433500000, "offsetHz": 0, "rxToneRaw": 1,
+                                       "txToneRaw": 106, "bandRaw": 1, "shiftRaw": 0, "signalCodeRaw": 1,
+                                       "stepRaw": 4, "powerRaw": 0, "bandwidthRaw": 0},
+                                 dtmf={"aniCode": "12345", "alarmCode": "123", "aniModeRaw": 0,
+                                       "toneOnRaw": 3, "toneOffRaw": 3},
+                                 startup={"line1": "PREVIEW", "line2": "ONLY", "alternateLine1": "SIMULAT",
+                                          "alternateLine2": "ED DATA"})
+                    for index in range(1, 16):
+                        state["dtmf"][f"code{index}"] = f"{index:05d}"
+                    for channel in state["channels"]:
+                        channel.update(busyLockRaw=0, pttIdRaw=0, signalCodeRaw=0)
                 return 200, state
             if path == "/api/radio/image":
                 if self.radio_started is None or time.monotonic() - self.radio_started < 2:

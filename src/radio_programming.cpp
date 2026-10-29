@@ -92,6 +92,51 @@ void addVfo(cJSON *object, const char *name, size_t offset) {
   }
   cJSON_AddNumberToObject(object, name, units * 10UL);
 }
+
+void addText(cJSON *object, const char *name, size_t offset, size_t length) {
+  char text[17] = {};
+  if (length >= sizeof(text)) return;
+  for (size_t index = 0; index < length; ++index) {
+    uint8_t value = image[offset + index];
+    text[index] = value >= 32 && value < 127 ? value : ' ';
+  }
+  while (length && text[length - 1] == ' ') text[--length] = '\0';
+  cJSON_AddStringToObject(object, name, text);
+}
+
+void addVfoDetails(cJSON *root, const char *name, size_t offset) {
+  cJSON *vfo = cJSON_AddObjectToObject(root, name);
+  addVfo(vfo, "frequencyHz", offset);
+  uint32_t shift = 0;
+  bool valid = true;
+  for (uint8_t index = 0; index < 6; ++index) {
+    uint8_t digit = image[offset + 8 + index];
+    if (digit > 9) valid = false;
+    shift = shift * 10 + digit;
+  }
+  if (valid) cJSON_AddNumberToObject(vfo, "offsetHz", shift * 1000UL);
+  else cJSON_AddNullToObject(vfo, "offsetHz");
+  addNumber(vfo, "rxToneRaw", image[offset + 14] | image[offset + 15] << 8);
+  addNumber(vfo, "txToneRaw", image[offset + 16] | image[offset + 17] << 8);
+  addNumber(vfo, "bandRaw", image[offset + 18] & 1);
+  addNumber(vfo, "shiftRaw", (image[offset + 20] >> 4) & 3);
+  addNumber(vfo, "signalCodeRaw", image[offset + 20] & 15);
+  addNumber(vfo, "stepRaw", (image[offset + 22] >> 4) & 7);
+  addNumber(vfo, "powerRaw", image[offset + 23] >> 7);
+  addNumber(vfo, "bandwidthRaw", (image[offset + 23] >> 6) & 1);
+}
+
+void addDtmfCode(cJSON *object, const char *name, size_t offset, size_t length) {
+  const char alphabet[] = "0123456789 *#ABCD";
+  char code[6] = {};
+  size_t used = 0;
+  for (size_t index = 0; index < length; ++index) {
+    uint8_t value = image[offset + index];
+    if (value == 0xFF || value == 0x1F) continue;
+    code[used++] = value < sizeof(alphabet) - 1 ? alphabet[value] : '?';
+  }
+  cJSON_AddStringToObject(object, name, code);
+}
 }
 
 bool radioProgrammingBusy() {
@@ -237,10 +282,60 @@ String radioProgrammingJson() {
     addNumber(settings, "dualWatch", image[0xE2F]);
     addNumber(settings, "beep", image[0xE30]);
     addNumber(settings, "timeoutRaw", image[0xE31]);
+    addNumber(settings, "stepRaw", image[0xE29]);
+    addNumber(settings, "voiceRaw", image[0xE36]);
+    addNumber(settings, "dtmfSidetoneRaw", image[0xE38]);
+    addNumber(settings, "scanResumeRaw", image[0xE3A] & 3);
+    addNumber(settings, "pttIdRaw", image[0xE3B]);
+    addNumber(settings, "pttDelayRaw", image[0xE3C]);
+    addNumber(settings, "displayARaw", image[0xE3D]);
+    addNumber(settings, "displayBRaw", image[0xE3E]);
+    addNumber(settings, "busyLockRaw", image[0xE3F]);
+    addNumber(settings, "autoLockRaw", image[0xE40]);
+    addNumber(settings, "shiftRaw", image[0xE41]);
+    addNumber(settings, "standbyLedRaw", image[0xE45]);
+    addNumber(settings, "rxLedRaw", image[0xE46]);
+    addNumber(settings, "txLedRaw", image[0xE47]);
+    addNumber(settings, "alarmModeRaw", image[0xE48]);
+    addNumber(settings, "bandRaw", image[0xE49]);
+    addNumber(settings, "txPriorityRaw", image[0xE4A]);
+    addNumber(settings, "tailEliminateRaw", image[0xE4B]);
+    addNumber(settings, "repeaterTailRaw", image[0xE4C]);
+    addNumber(settings, "repeaterDelayRaw", image[0xE4D]);
+    addNumber(settings, "powerOnModeRaw", image[0xE4E]);
+    addNumber(settings, "rogerRaw", image[0xE4F]);
+    addNumber(settings, "rogerRxRaw", image[0xE50]);
+    addNumber(settings, "activeLineRaw", (image[0xE52] >> 7) & 1);
+    addNumber(settings, "fmRadioEnabledRaw", (image[0xE52] >> 4) & 1);
+    addNumber(settings, "alarmEnabledRaw", (image[0xE52] >> 3) & 1);
+    addNumber(settings, "resetMenuEnabledRaw", (image[0xE52] >> 1) & 1);
+    addNumber(settings, "menusEnabledRaw", image[0xE52] & 1);
+    addNumber(settings, "workModeRaw", image[0xE54]);
+    addNumber(settings, "keypadLockRaw", image[0xE55]);
     addNumber(settings, "channelA", image[0xE7E] & 127);
     addNumber(settings, "channelB", image[0xE7F] & 127);
     addVfo(settings, "vfoAHz", 0xF10);
     addVfo(settings, "vfoBHz", 0xF30);
+    addVfoDetails(root, "vfoA", 0xF10);
+    addVfoDetails(root, "vfoB", 0xF30);
+    cJSON *dtmf = cJSON_AddObjectToObject(root, "dtmf");
+    addDtmfCode(dtmf, "aniCode", 0xCB2, 5);
+    addDtmfCode(dtmf, "alarmCode", 0xC92, 3);
+    addNumber(dtmf, "aniModeRaw", image[0xCB7] & 3);
+    addNumber(dtmf, "toneOnRaw", image[0xCBA]);
+    addNumber(dtmf, "toneOffRaw", image[0xCBB]);
+    for (uint8_t index = 0; index < 15; ++index) {
+      char name[8];
+      snprintf(name, sizeof(name), "code%u", index + 1);
+      addDtmfCode(dtmf, name, 0xB08 + index * 16, 5);
+    }
+    if (auxiliary) {
+      cJSON *startup = cJSON_AddObjectToObject(root, "startup");
+      addText(startup, "line1", 0x1828, 7);
+      addText(startup, "line2", 0x182F, 7);
+      addText(startup, "alternateLine1", 0x1818, 7);
+      addText(startup, "alternateLine2", 0x181F, 7);
+    }
     cJSON *channels = cJSON_AddArrayToObject(root, "channels");
     for (uint16_t index = 0; index < 128; ++index) {
       const uint8_t *channel = image + 8 + index * 16;
@@ -259,6 +354,9 @@ String radioProgrammingJson() {
       addNumber(item, "txToneRaw", channel[10] | channel[11] << 8);
       cJSON_AddStringToObject(item, "bandwidth", channel[15] & 0x40 ? "Wide" : "Narrow");
       addNumber(item, "powerRaw", channel[14] & 3);
+      addNumber(item, "busyLockRaw", (channel[15] >> 3) & 1);
+      addNumber(item, "pttIdRaw", channel[15] & 3);
+      addNumber(item, "signalCodeRaw", channel[12] & 15);
       cJSON_AddBoolToObject(item, "scan", channel[15] & 4);
       cJSON_AddItemToArray(channels, item);
     }
