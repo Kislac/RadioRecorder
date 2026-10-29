@@ -74,6 +74,25 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
   if (command == 'r' && !appStartRecording()) Serial.println("Cannot start recording");
   if (command == 's') Serial.println(appStopRecording() ? "Stop requested" : "Not recording");
   if (command == 'i') printSetupStatus();
+  if (command == 'q') {
+    time_t rtcEpoch = 0;
+    if (!appRtcReadUtc(rtcEpoch)) Serial.println("RTC_TIME_ERROR invalid or unavailable");
+    else Serial.printf("RTC_TIME rtc=%llu system=%llu source=%c offline=%u\n",
+                       static_cast<unsigned long long>(rtcEpoch),
+                       static_cast<unsigned long long>(time(nullptr)), appClockIndicator(),
+                       wifiManagerModeName() == "AP" && !wifiManagerHasCredentials() ? 1 : 0);
+  }
+  if (command == 'y') {
+    if (wifiManagerModeName() != "AP" || wifiManagerHasCredentials() ||
+        recorderState() != CaptureState::idle || playbackGetState() != PlaybackState::idle ||
+        radioProgrammingBusy() || pttTestActive() || appWifiTestActive()) {
+      Serial.println("RTC_RESTART refused: offline AP and idle device required");
+    } else {
+      Serial.println("RTC_RESTART accepted");
+      Serial.flush();
+      ESP.restart();
+    }
+  }
   if (command == 'm') recorderToggleSerialMeter();
   if (command == 'f') {
     bool enabled = !recorderLowpass();

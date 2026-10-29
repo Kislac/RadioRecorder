@@ -10,11 +10,11 @@ Az írás első támogatott célja a már kiolvasott **N5R2407BFB297** firmware-
 
 ## PC / VS Code
 
-Telepítés: `python -m pip install -r scripts/requirements-test.txt` (pyserial). A taskok a projekt Python-parancsát használják:
+Telepítés: `python -m pip install -r scripts/requirements-test.txt` (pyserial). A rádióműveletek külön VS Code taskokként és CLI-parancsokként érhetők el, nem részei a két összesített tesztnek:
 
 - **RadioRecorder: Radio Status (USB, read-only)**: csak az ESP állapotát kérdezi, a rádió UART-ját nem aktiválja.
 - **RadioRecorder: Radio Read (USB)**: COM-port (`auto` vagy például `COM3`), majd `READ UV5R` megerősítés. Mentés a `.test-logs/radio-backup-<időbélyeg>/` könyvtárba: `radio.img`, `radio.json` és `patch.json` sablon.
-- **RadioRecorder: Radio Write (USB, opt-in)**: a módosított `patch.json` elérési útja, COM-port és `WRITE UV5R` megerősítés kell. Az alapválasztás CANCEL. A kliens újraolvassa a rádiót, külön eredeti mentést készít, és csak az egyező kiinduló revision alapján ír. A sikeresen visszaellenőrzött eredményt külön `-verified` könyvtárba menti.
+- **RadioRecorder: Radio Write (USB, opt-in)**: a módosított `patch.json` elérési útja, COM-port és `WRITE UV5R` megerősítés kell. A kliens újraolvassa a rádiót, külön eredeti mentést készít, és csak az egyező kiinduló revision alapján ír. A sikeresen visszaellenőrzött eredményt külön `-verified` könyvtárba menti.
 
 Parancssorból:
 

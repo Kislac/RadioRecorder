@@ -9,10 +9,74 @@ from scripts.test_support import TestRun, firmware_at_least
 
 
 SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+) \(ADC\)")
+RTC_PATTERN = re.compile(r"RTC_TIME rtc=(\d+) system=(\d+) source=([A-Z-]) offline=([01])")
 DISPLAY_TILES = ("Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel",
                  "Aut Mikrofon Felvetel", "Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel",
                  "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok")
 SETTING_COUNT = 14
+
+
+def verify_rtc_progress(before, after, elapsed, reboot=False):
+    if not before["offline"] or not after["offline"] or "N" in (before["source"], after["source"]):
+        raise AssertionError("RTC check requires AP-only mode with no saved station/NTP")
+    if reboot and after["source"] != "R":
+        raise AssertionError("ESP did not restore its time from RTC after reboot")
+    if abs(before["rtc"] - before["system"]) > 3 or abs(after["rtc"] - after["system"]) > 3:
+        raise AssertionError("RTC and ESP system time differ")
+    advanced = after["rtc"] - before["rtc"]
+    if advanced < 1 or advanced > elapsed + 3:
+        raise AssertionError("RTC did not advance with elapsed wall time")
+    return "RTC advanced {}s in {:.1f}s; ESP time agrees{}".format(
+        advanced, elapsed, " after software reboot" if reboot else "")
+
+
+def rtc_snapshot(device, report):
+    device.write(b"q")
+    lines = read_until(device, lambda line: line.startswith(("RTC_TIME ", "RTC_TIME_ERROR ")),
+                       report=report)
+    match = RTC_PATTERN.fullmatch(lines[-1])
+    if not match:
+        raise AssertionError("RTC did not return valid UTC time: " + lines[-1])
+    rtc, system, source, offline = match.groups()
+    return {"rtc": int(rtc), "system": int(system), "source": source, "offline": offline == "1"}
+
+
+def rtc_live_check(device, report, reboot=False):
+    before = rtc_snapshot(device, report)
+    if not before["offline"] or before["source"] == "N":
+        raise AssertionError("NTP-free test requires AP-only mode and no saved STA credentials")
+    if abs(before["rtc"] - before["system"]) > 3:
+        raise AssertionError("ESP clock and RTC disagree before test")
+    started = time.monotonic()
+    if reboot:
+        device.write(b"y")
+        response = read_until(device, lambda line: line.startswith("RTC_RESTART "), timeout=3, report=report)
+        if response[-1] != "RTC_RESTART accepted":
+            raise AssertionError(response[-1])
+        read_until(device, lambda line: line == "RadioRecorder setup starting", timeout=10, report=report)
+        boot = read_until(device, lambda line: line.startswith("Wi-Fi mode: "), timeout=20, report=report)
+        if boot[-1] != "Wi-Fi mode: AP" or any("connecting to saved SSID" in line for line in boot):
+            raise AssertionError("Boot was not AP-only; NTP-free RTC test invalid")
+    else:
+        device.timeout = 0.25
+        try:
+            while time.monotonic() - started < 2.2:
+                line = device.readline().decode("utf-8", errors="replace").strip()
+                if line:
+                    report.detail("SERIAL: " + line)
+        finally:
+            device.timeout = 1
+    after = rtc_snapshot(device, report)
+    return verify_rtc_progress(before, after, time.monotonic() - started, reboot=reboot)
+
+
+def rtc_firmware_version(device, report):
+    device.write(b"i")
+    lines = read_until(device, lambda line: line.startswith("Wi-Fi mode: "), report=report)
+    firmware = next((line.split("Firmware: ", 1)[1] for line in lines if line.startswith("Firmware: v")), None)
+    if not firmware:
+        raise AssertionError("Firmware version missing from serial status")
+    return firmware
 
 
 def read_until(device, predicate, timeout=3, report=None):
@@ -375,49 +439,69 @@ def main():
     parser.add_argument("--port", help="ESP serial port (default: auto-detect)")
     parser.add_argument("--record", action="store_true", help="Write and verify a brief WAV on the SD card")
     parser.add_argument("--display-only", action="store_true", help="Test every OLED tile and setting row")
+    parser.add_argument("--rtc", action="store_true", help="Check RTC against elapsed time, AP-only without NTP")
+    parser.add_argument("--rtc-reboot", action="store_true", help="Also reboot ESP and verify RTC recovery (opt-in)")
     args = parser.parse_args()
-    report = TestRun("display" if args.display_only else "device")
+    if args.display_only and (args.rtc or args.rtc_reboot) or args.record and (args.rtc or args.rtc_reboot):
+        parser.error("RTC tests cannot be combined with --record or --display-only")
+    report = TestRun("rtc-reboot" if args.rtc_reboot else "rtc" if args.rtc else
+                     "display" if args.display_only else "device")
     successful = False
     try:
         connected, device = report.case("ESP serial connection", lambda: find_device(args.port))
         if connected:
             report.detail("Connected to " + device.port)
             with device:
-                readiness = "OLED status" if args.display_only else "SD, ADC, recorder and OLED status"
-                ready, firmware_version = report.case(readiness,
-                                                       lambda: status(device, report, display_only=args.display_only))
-                if ready:
-                    if args.display_only:
-                        report.case("All OLED tiles and settings rows", lambda: test_display_all(device, report))
-                        report.case("Wake consumes first encoder/button input", lambda: test_wake_input(device))
+                if args.rtc or args.rtc_reboot:
+                    ready, firmware_version = report.case("RTC test firmware", lambda: rtc_firmware_version(device, report))
+                    if ready and firmware_at_least(firmware_version, (0, 1, 54)):
+                        passed, _ = report.case("RTC advances without NTP", lambda: rtc_live_check(device, report))
+                        if args.rtc_reboot and passed:
+                            report.case("RTC after software restart without NTP",
+                                        lambda: rtc_live_check(device, report, reboot=True))
+                        elif args.rtc_reboot:
+                            report.skip("RTC after software restart", "read-only RTC check failed")
                     else:
-                        signal_ok, _ = report.case("Live ADC sample", lambda: test_signal(device, report))
-                        if signal_ok:
-                            oled_ok, _ = report.case("OLED and encoder controls", lambda: test_oled_navigation(device))
-                        else:
-                            report.skip("OLED and encoder controls", "live ADC check failed")
-                            oled_ok = False
-                        if args.record and oled_ok:
-                            report.case("Record, verify and delete test WAV",
-                                        lambda: test_recording(device, report, firmware_version))
-                        elif args.record:
-                            report.skip("SD recording/deletion", "a previous check failed")
-                        else:
-                            report.skip("SD recording/deletion", "pass --record to opt in")
+                        report.skip("RTC without NTP", "upload firmware 0.1.54 or newer")
+                        if args.rtc_reboot:
+                            report.skip("RTC after software restart", "RTC probe unavailable")
                 else:
-                    if args.display_only:
-                        report.skip("All OLED tiles and settings rows", "OLED status check failed")
+                    readiness = "OLED status" if args.display_only else "SD, ADC, recorder and OLED status"
+                    ready, firmware_version = report.case(readiness,
+                                                           lambda: status(device, report, display_only=args.display_only))
+                    if ready:
+                        if args.display_only:
+                            report.case("All OLED tiles and settings rows", lambda: test_display_all(device, report))
+                            report.case("Wake consumes first encoder/button input", lambda: test_wake_input(device))
+                        else:
+                            signal_ok, _ = report.case("Live ADC sample", lambda: test_signal(device, report))
+                            if signal_ok:
+                                oled_ok, _ = report.case("OLED and encoder controls", lambda: test_oled_navigation(device))
+                            else:
+                                report.skip("OLED and encoder controls", "live ADC check failed")
+                                oled_ok = False
+                            if args.record and oled_ok:
+                                report.case("Record, verify and delete test WAV",
+                                            lambda: test_recording(device, report, firmware_version))
+                            elif args.record:
+                                report.skip("SD recording/deletion", "a previous check failed")
+                            else:
+                                report.skip("SD recording/deletion", "pass --record to opt in")
                     else:
-                        report.skip("Live ADC sample", "device readiness check failed")
-                        report.skip("OLED and encoder controls", "device readiness check failed")
-                        report.skip("SD recording/deletion", "device readiness check failed")
+                        if args.display_only:
+                            report.skip("All OLED tiles and settings rows", "OLED status check failed")
+                        else:
+                            report.skip("Live ADC sample", "device readiness check failed")
+                            report.skip("OLED and encoder controls", "device readiness check failed")
+                            report.skip("SD recording/deletion", "device readiness check failed")
         else:
-            report.skip("Device checks", "ESP serial connection failed")
-            report.skip("SD recording/deletion", "device checks did not run")
+            report.skip("RTC checks" if args.rtc or args.rtc_reboot else "Device checks", "ESP serial connection failed")
+            if not (args.rtc or args.rtc_reboot):
+                report.skip("SD recording/deletion", "device checks did not run")
     finally:
         successful = report.summary()
     return 0 if successful else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

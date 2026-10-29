@@ -1,116 +1,64 @@
 {
   "version": "2.0.0",
   "tasks": [
-    {
-      "label": "RadioRecorder: Radio Status (USB, read-only)",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.radio_programmer", "--port", "${input:radioPort}", "status"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Radio Read (USB)",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.radio_programmer", "--port", "${input:radioPort}", "read", "--confirm-read", "${input:radioReadConfirmation}"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Radio Write (USB, opt-in)",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.radio_programmer", "--port", "${input:radioPort}", "write", "--patch", "${input:radioPatchPath}", "--confirm-write", "${input:radioWriteConfirmation}"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Web Preview (offline)",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.preview_web", "--scenario", "${input:webPreviewScenario}"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Device Test (read-only)",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.test_device"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Display Test",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.test_device", "--display-only"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Watchdog Reset Test (reboots ESP)",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.test_watchdog"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Device Test (record to SD)",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.test_device", "--record"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: OLED Viewer",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.oled_viewer"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Wi-Fi API Test (read-only)",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "scripts.test_wifi"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Offline Tests",
-      "type": "process",
-      "command": "python",
-      "args": ["-m", "unittest", "discover", "-s", "test", "-p", "test_*.py", "-v"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: Firmware Build",
-      "type": "process",
-      "command": "${env:USERPROFILE}\\.platformio\\penv\\Scripts\\platformio.exe",
-      "args": ["run", "-e", "esp32-s3-devkitc-1"],
-      "options": {"cwd": "${workspaceFolder}"},
-      "problemMatcher": []
-    },
-    {
-      "label": "RadioRecorder: All Tests (read-only)",
-      "dependsOn": [
-        "RadioRecorder: Offline Tests",
-        "RadioRecorder: Firmware Build",
-        "RadioRecorder: Device Test (read-only)",
-        "RadioRecorder: Display Test",
-        "RadioRecorder: Wi-Fi API Test (read-only)"
-      ],
-      "dependsOrder": "sequence",
-      "problemMatcher": []
-    }
+            {
+              "label": "RadioRecorder: Radio Status (USB, read-only)",
+              "type": "process",
+              "command": "python",
+              "args": ["-m", "scripts.radio_programmer", "--port", "${input:radioPort}", "status"],
+              "options": {"cwd": "${workspaceFolder}"},
+              "problemMatcher": []
+            },
+            {
+              "label": "RadioRecorder: Radio Read (USB)",
+              "type": "process",
+              "command": "python",
+              "args": ["-m", "scripts.radio_programmer", "--port", "${input:radioPort}", "read", "--confirm-read", "${input:radioReadConfirmation}"],
+              "options": {"cwd": "${workspaceFolder}"},
+              "problemMatcher": []
+            },
+            {
+              "label": "RadioRecorder: Radio Write (USB, opt-in)",
+              "type": "process",
+              "command": "python",
+              "args": ["-m", "scripts.radio_programmer", "--port", "${input:radioPort}", "write", "--patch", "${input:radioPatchPath}", "--confirm-write", "${input:radioWriteConfirmation}"],
+              "options": {"cwd": "${workspaceFolder}"},
+              "problemMatcher": []
+            },
+            {
+              "label": "RadioRecorder: Web Preview (offline)",
+              "type": "process",
+              "command": "python",
+              "args": ["-m", "scripts.preview_web", "--scenario", "${input:webPreviewScenario}"],
+              "options": {"cwd": "${workspaceFolder}"},
+              "isBackground": true,
+              "problemMatcher": []
+            },
+            {
+              "label": "RadioRecorder: OLED Viewer",
+              "type": "process",
+              "command": "python",
+              "args": ["-m", "scripts.oled_viewer"],
+              "options": {"cwd": "${workspaceFolder}"},
+              "isBackground": true,
+              "problemMatcher": []
+            },
+            {
+              "label": "RadioRecorder: Offline Tests",
+              "type": "process",
+              "command": "python",
+              "args": ["-m", "scripts.run_tests", "offline"],
+              "options": {"cwd": "${workspaceFolder}"},
+              "problemMatcher": []
+            },
+            {
+              "label": "RadioRecorder: Online Tests",
+              "type": "process",
+              "command": "python",
+              "args": ["-m", "scripts.run_tests", "online"],
+              "options": {"cwd": "${workspaceFolder}"},
+              "problemMatcher": []
+            }
   ],
   "inputs": [
     {"id": "radioPort", "type": "promptString", "description": "ESP USB COM port (close monitor/viewer first)", "default": "auto"},

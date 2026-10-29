@@ -91,6 +91,10 @@ class WebAssetTests(unittest.TestCase):
         self.assertLess(control.index('rtcWriteUtc(now)'), control.index('clockSynced = true;', control.index('void appClockPoll()')))
         self.assertIn('clockFromRtc ? "rtc"', control)
         self.assertIn('appRtcStatus()', main)
+        self.assertIn('appRtcReadUtc(rtcEpoch)', main)
+        self.assertIn('if (command == \'y\')', main)
+        self.assertIn('wifiManagerHasCredentials()', main)
+        self.assertIn('RTC_RESTART accepted', main)
         self.assertIn('appRtcStatus()', display)
         self.assertNotIn('Wire.begin(kSdaGpio, kSclGpio)', display)
         for page in ("index.js", "files.js", "settings.js"):

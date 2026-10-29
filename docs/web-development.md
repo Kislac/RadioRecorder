@@ -2,7 +2,7 @@
 
 ## Helyi előnézet
 
-VS Code: **Terminal > Run Task > RadioRecorder: Web Preview (offline)**. Indításkor válassz állapotot:
+VS Code: **Terminal > Run Task > RadioRecorder: Web Preview (offline)**. A `--scenario` értékével válassz állapotot:
 
 | Állapot | Példa |
 | --- | --- |

@@ -1,17 +1,22 @@
+import json
 import sys
+import subprocess
 import unittest
 from contextlib import redirect_stdout
 from itertools import count
 from io import StringIO
 from pathlib import Path
+from urllib.error import URLError
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 from scripts.oled_viewer import FRAME_BYTES, KEY_COMMANDS, body_pixels, find_device, parse_frame, pixel, read_frame
-from scripts.test_device import delete_test_recording, menu_state, valid_signal, validate_display_frames
+from scripts.test_device import (delete_test_recording, menu_state, rtc_live_check, rtc_snapshot,
+                                 valid_signal, validate_display_frames, verify_rtc_progress)
 from scripts.test_support import TestRun, firmware_at_least
+from scripts.run_tests import run_suite
 from scripts.test_wifi import wifi_profile
 from scripts.web_assets import PAGES, render_page
 
@@ -32,6 +37,116 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_vscode_tasks_keep_utilities_and_only_two_test_suites(self):
+        tasks_file = Path(__file__).resolve().parents[1] / ".vscode" / "tasks.json"
+        config = json.loads(tasks_file.read_text(encoding="utf-8"))
+        tasks = {task["label"]: task for task in config["tasks"]}
+        self.assertEqual(len(tasks), 7)
+        self.assertEqual(set(tasks), {
+            "RadioRecorder: Radio Status (USB, read-only)",
+            "RadioRecorder: Radio Read (USB)",
+            "RadioRecorder: Radio Write (USB, opt-in)",
+            "RadioRecorder: Web Preview (offline)",
+            "RadioRecorder: OLED Viewer",
+            "RadioRecorder: Offline Tests",
+            "RadioRecorder: Online Tests",
+        })
+        self.assertIn("--confirm-read", tasks["RadioRecorder: Radio Read (USB)"]["args"])
+        self.assertIn("--confirm-write", tasks["RadioRecorder: Radio Write (USB, opt-in)"]["args"])
+        for label in ("RadioRecorder: Web Preview (offline)", "RadioRecorder: OLED Viewer"):
+            self.assertTrue(tasks[label]["isBackground"])
+        input_ids = {item["id"] for item in config["inputs"]}
+        for task in tasks.values():
+            for argument in task["args"]:
+                if argument.startswith("${input:"):
+                    self.assertIn(argument[8:-1], input_ids)
+
+    def test_test_runner_skips_unreachable_wifi_and_reports_only_failures_at_end(self):
+        outputs = []
+        with TemporaryDirectory() as folder, patch("scripts.run_tests.TestRun", side_effect=lambda name: TestRun(name, folder)):
+            with patch("scripts.run_tests.urlopen", side_effect=URLError("no route")):
+                def online_command(command, **kwargs):
+                    outputs.append(command)
+                    if "--rtc-reboot" in command:
+                        return subprocess.CompletedProcess(command, 0, "SKIP: RTC without NTP - upload firmware 0.1.54 or newer\nSUMMARY: 2 passed, 0 failed, 1 skipped\n")
+                    return subprocess.CompletedProcess(command, 0, "SUMMARY: 4 passed, 0 failed, 0 skipped\n")
+
+                with redirect_stdout(StringIO()) as console:
+                    self.assertEqual(run_suite("online", run=online_command), 0)
+                self.assertEqual(len(outputs), 3)
+                self.assertIn("--record", outputs[0])
+                self.assertIn("--rtc-reboot", outputs[2])
+                self.assertIn("SKIP: Wi-Fi", console.getvalue())
+                self.assertIn("SKIP: RTC without NTP and software restart - upload firmware 0.1.54 or newer", console.getvalue())
+                self.assertNotIn("FAILED CASES", console.getvalue())
+
+            outputs.clear()
+
+            def offline_command(command, **kwargs):
+                outputs.append(command)
+                return subprocess.CompletedProcess(command, 1 if len(outputs) == 1 else 0, "unit failure\n")
+
+            with redirect_stdout(StringIO()) as console:
+                self.assertEqual(run_suite("offline", run=offline_command), 1)
+            self.assertEqual(len(outputs), 2)
+            self.assertEqual(console.getvalue().count("FAILED CASES"), 1)
+            self.assertIn("Offline unit tests", console.getvalue().split("FAILED CASES", 1)[1])
+            self.assertNotIn("Firmware build", console.getvalue().split("FAILED CASES", 1)[1])
+
+    def test_test_runner_reports_reachable_broken_wifi_api_as_failure(self):
+        outputs = []
+
+        def command_result(command, **kwargs):
+            outputs.append(command)
+            if "scripts.test_wifi" in command:
+                return subprocess.CompletedProcess(command, 1, "FAIL: Wi-Fi pages and read-only APIs: HTTP 500\nSUMMARY: 0 passed, 1 failed, 0 skipped\n")
+            return subprocess.CompletedProcess(command, 0, "SUMMARY: 3 passed, 0 failed, 0 skipped\n")
+
+        with TemporaryDirectory() as folder, patch("scripts.run_tests.TestRun", side_effect=lambda name: TestRun(name, folder)):
+            with patch("scripts.run_tests.urlopen"):
+                with redirect_stdout(StringIO()) as console:
+                    self.assertEqual(run_suite("online", run=command_result), 1)
+        self.assertEqual(len(outputs), 4)
+        self.assertIn("--record", outputs[3])
+        self.assertIn("FAIL: Wi-Fi API and recording", console.getvalue().split("FAILED CASES", 1)[1])
+        self.assertIn("HTTP 500", console.getvalue().split("FAILED CASES", 1)[1])
+        self.assertNotIn("FAIL: Device recording and cleanup", console.getvalue().split("FAILED CASES", 1)[1])
+
+    def test_rtc_progress_requires_offline_clock_and_elapsed_time(self):
+        before = {"rtc": 1793270000, "system": 1793270000, "source": "R", "offline": True}
+        after = {"rtc": 1793270003, "system": 1793270003, "source": "R", "offline": True}
+        self.assertIn("3s", verify_rtc_progress(before, after, 3.2, reboot=True))
+        for invalid in ({**after, "offline": False}, {**after, "source": "N"},
+                        {**after, "rtc": before["rtc"]}, {**after, "system": after["rtc"] + 20}):
+            with self.subTest(invalid=invalid), self.assertRaises(AssertionError):
+                verify_rtc_progress(before, invalid, 3.2, reboot=True)
+
+    def test_rtc_serial_probe_rejects_ntp_and_refused_reboot(self):
+        class Report:
+            def detail(self, message):
+                pass
+
+        report = Report()
+        online = FakeDevice(b"RTC_TIME rtc=1793270000 system=1793270000 source=N offline=0\n")
+        with self.assertRaisesRegex(AssertionError, "NTP-free"):
+            rtc_live_check(online, report, reboot=True)
+        self.assertEqual(online.commands, [b"q"])
+
+        refused = FakeDevice(b"RTC_TIME rtc=1793270000 system=1793270000 source=R offline=1\n",
+                             b"RTC_RESTART refused: busy\n")
+        with self.assertRaisesRegex(AssertionError, "refused"):
+            rtc_live_check(refused, report, reboot=True)
+        self.assertEqual(refused.commands, [b"q", b"y"])
+        self.assertEqual(rtc_snapshot(FakeDevice(b"RTC_TIME rtc=1793270002 system=1793270002 source=R offline=1\n"),
+                                      report)["rtc"], 1793270002)
+
+        recovered = FakeDevice(b"RTC_TIME rtc=1793270000 system=1793270000 source=R offline=1\n",
+                       b"RTC_RESTART accepted\n", b"RadioRecorder setup starting\n",
+                       b"Wi-Fi mode: AP\n",
+                       b"RTC_TIME rtc=1793270001 system=1793270001 source=R offline=1\n")
+        self.assertIn("after software reboot", rtc_live_check(recovered, report, reboot=True))
+        self.assertEqual(recovered.commands, [b"q", b"y", b"q"])
+
     def test_oled_rms_max_rescales_history_and_resets_on_entry(self):
         source = (Path(__file__).resolve().parents[1] / "src" / "display.cpp").read_text(encoding="utf-8")
         start = source.split("void startDisplaySignal()", 1)[1].split("void stopDisplaySignal()", 1)[0]

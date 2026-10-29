@@ -17,7 +17,7 @@ Ez a jegyzék a jelenlegi firmware ([src/main.cpp](../src/main.cpp)) lábkioszt�
 | RELC-1CH-5V-UNI teszt-PTT relé | GPIO10 = kimenet, HIGH nyugalom / LOW aktív | 5 V-os modultáp; az OLED/impulzusgomb legfeljebb 1 másodpercig kapcsol, a webes toggle kézzel lekapcsolásig aktív. A setup előtt a GPIO nem kimenet: a modul megfelelő alapállapotú bemenetét/előfeszítését, a 3,3 V-os HIGH kikapcsoló hatását és a GPIO10 tényleges bekötését a konkrét példányon ellenőrizni kell. COM/NO nincs rádióra kötve. |
 | INMP441-M I2S mikrofon | GPIO6 = BCLK, GPIO7 = WS, GPIO8 = SD (I2S0 RX) | L/R = GND (bal csatorna), VDD = 3V3, közös GND. A firmware 22 050 Hz-es sztereó 32 bites I2S-keret bal csatornájából ment 16 bites mono WAV-ot és méri a webes szintet; a tényleges hangút még nincs hardveresen igazolva. |
 | [D096-12864-I2C-GV-WH OLED](https://www.hestore.hu/prod_10048304.html) | SDA = GPIO4, SCL = GPIO5 | Bekötve, 3V3 és közös GND; SH1106-ként inicializálva, az RTC-vel közös I2C-buszon. A konkrét vezérlőtípus hardveres igazolása még szükséges. |
-| [DS3231+AT24C32 RTCM](https://www.hestore.hu/prod_10038042.html) | SDA = GPIO4, SCL = GPIO5 | Bekötve, 3V3 és közös GND; DS3231 (0x68) UTC-óra támogatott, az AT24C32 EEPROM nincs használatban. SQW/32K nincs bekötve; a tartalék elem és töltőáramkör ellenőrzése szükséges. |
+| [DS3231+AT24C32 RTCM](https://www.hestore.hu/prod_10038042.html) | SDA = GPIO4, SCL = GPIO5 | Bekötve, 3V3 és közös GND; DS3231 (0x68) UTC-óra támogatott, az AT24C32 EEPROM nincs használatban. A SQW és a 32K órajelkimenet nincs bekötve: egyik sem az elem feszültsége. A tartalék elem és töltőáramkör ellenőrzése szükséges. |
 
 ## Tervezett modulok, firmware-támogatás nélkül
 
@@ -28,6 +28,8 @@ Ez a jegyzék a jelenlegi firmware ([src/main.cpp](../src/main.cpp)) lábkioszt�
 | PCM5102A I2S DAC a rádió mikrofonhangjához | BCK -> **GPIO6**, LRCK/WS -> **GPIO7**, DIN -> **GPIO9** (I2S0 TX) | A megvett modul tápját, SCK/MCLK igényét és kimeneti szintjét ellenőrizni kell. A DAC analóg kimenete **nem** közvetlen rádió-MIC bekötés. |
 
 Az OLED és RTC közös I2C-busza 3,3 V-os legyen: a modulok felhúzóellenállásai és a busz nyugalmi szintje ne vigye 3,3 V fölé az ESP GPIO-jait. Címütközést I2C-szkenneléssel kell kizárni (a DS3231 szokásos címe 0x68; az OLED és az EEPROM tényleges címét a modulon kell ellenőrizni). Az RTC elemtartójába csak a konkrét panel tartalék-elem/esetleges töltőáramkörének ellenőrzése után kerüljön megfelelő elem: a forgalmazó CR2032-t ajánl, de a termékoldal nem igazolja, hogy a panel nem próbálja tölteni a nem tölthető elemet.
+
+A DS3231 nem ad VBAT-feszültséget I2C-n; a SQW és 32K kimenetek sem erre valók (egy "32L" jelölést a panelen külön azonosítani kell). ESP ADC-vel csak az elemtartó VBAT pontjáról vezetett, megfelelően leválasztott és méretezett külön mérővezetékkel lehetne mérni, a modul töltőútjának és a GPIO biztonságos feszültségének ellenőrzése után. A CR2032 nem tölthető. Például egy 210 mAh elem 3 uA *feltételezett* teljes tartalékáramnál elméletben kb. 8 évet adna, de a konkrét panel fogyasztása/szivárgása és elemállapota nem ismert; ez nem mért vagy garantált üzemidő.
 
 Az OLED-et a firmware SH1106-ként kezeli U8g2-vel, de a konkrét modul vezérlőtípusa **még nincs hardveresen igazolva**. A firmware induláskor 0x3C és 0x3D I2C-címet vizsgál, a soros monitor jelzi a választ vagy a hibát. A kijelző hiánya esetén a régi enkóderes gyorsparancsok nem futnak. Az RTC ettől függetlenül inicializálódik; az érvénytelen oszcillátorjelzőt külön hibaként mutatja.
 
