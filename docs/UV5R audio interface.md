@@ -5,12 +5,12 @@ Figyelem: ez a telefonos kábel bekötési jegyzete, nem az ESP32 ADC-bemenetén
 
 
 Baofeng side:
-2,5mm Audio jack
+2,5mm Audio jack (TRS)
 1. Sleeve: SPK - PPT
 2. Ring: TX data
 3. Tip: SPK+
 
-3,5mm Audio jack
+3,5mm Audio jack (TRS)
 1. Sleeve: Mic-
 2. Ring: Mic+
 3. Tip: +V
