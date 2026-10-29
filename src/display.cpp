@@ -458,8 +458,10 @@ void drawBody(bool fullUpdate = true) {
   } else if (tile == kDiagnosticsTile) {
     char firmware[24];
     snprintf(firmware, sizeof(firmware), "FW: v%s", appFirmwareVersion().c_str());
-    oled.drawStr(0, 32, appSdReady() ? "SD: OK" : "SD: hianyzik");
-    oled.drawStr(0, 40, recorderAdcReady() ? "ADC: OK" : "ADC: hiba");
+    oled.drawStr(0, 32, strcmp(appRtcStatus(), "ready") == 0 ? "RTC: OK" :
+                 strcmp(appRtcStatus(), "unavailable") == 0 ? "RTC: hianyzik" : "RTC: hibas ido");
+    oled.drawStr(0, 40, appSdReady() ? (recorderAdcReady() ? "SD: OK   ADC: OK" : "SD: OK   ADC: hiba") :
+                 (recorderAdcReady() ? "SD: nincs ADC: OK" : "SD: nincs ADC: hiba"));
     oled.drawStr(0, 48, firmware);
     drawBuildDate();
   } else if (tile == kWifiTile) {
@@ -564,10 +566,6 @@ void onPress() {
 
 void initDisplay() {
 #if RADIORECORDER_OLED_ENABLED
-  if (!Wire.begin(kSdaGpio, kSclGpio)) {
-    Serial.println("OLED: I2C initialization failed on SDA=GPIO4, SCL=GPIO5");
-    return;
-  }
   uint8_t address = 0;
   for (uint8_t candidate : {0x3c, 0x3d}) {
     Wire.beginTransmission(candidate);

@@ -53,7 +53,7 @@ function renderDemoClock() {
     (demoBase + Math.floor((performance.now() - demoSyncedAt) / 1000)) % 86400;
   document.querySelector("#demoClock").textContent =
     (clockSource === "unset" ? "IDŐ NINCS" :
-      ({ internet: "NTP ", manual: "KÉZI ", saved: "MENTETT ", default: "ALAP " })[clockSource] || "") +
+      ({ internet: "NTP ", manual: "KÉZI ", rtc: "RTC ", saved: "MENTETT ", default: "ALAP " })[clockSource] || "") +
     (clockSource === "unset" ? "" :
     [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
       .map((value) => String(value).padStart(2, "0"))

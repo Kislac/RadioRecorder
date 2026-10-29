@@ -6,12 +6,13 @@
 #include "radio_programming.h"
 #include "web_server.h"
 #include <Preferences.h>
+#include <Wire.h>
 #include <esp_sntp.h>
 #include <esp_timer.h>
 #include <sys/time.h>
 #include <time.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.52";
+static constexpr char kFirmwareVersion[] = "0.1.53";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -20,6 +21,7 @@ static constexpr char kScreenOffKey[] = "screenOffMin";
 static constexpr char kEpochKey[] = "clockEpoch";
 static constexpr char kZoneKey[] = "clockZone";
 static constexpr time_t kMinEpoch = 946684800;
+static constexpr uint8_t kRtcAddress = 0x68;
 static uint16_t screenOffMinutes = kDefaultScreenOffMinutes;
 static uint8_t clockZone = 0;
 static bool clockKnown = false;
@@ -27,6 +29,9 @@ static bool clockOnline = false;
 static bool clockSynced = false;
 static bool clockManual = false;
 static bool clockDefault = true;
+static bool clockFromRtc = false;
+static bool rtcAvailable = false;
+static bool rtcValid = false;
 static int32_t savedDay = -1;
 static uint32_t lastDayCheck = 0;
 static uint32_t lastSyncAt = 0;
@@ -82,6 +87,73 @@ static bool saveClock(time_t instant) {
   return saved;
 }
 
+static uint8_t rtcBcd(uint8_t value) { return (value / 10) << 4 | (value % 10); }
+static uint8_t rtcDecimal(uint8_t value) { return (value >> 4) * 10 + (value & 0x0f); }
+static bool rtcLeapYear(int year) { return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0); }
+
+static bool rtcReadRegisters(uint8_t reg, uint8_t *values, uint8_t count) {
+  Wire.beginTransmission(kRtcAddress);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(kRtcAddress, count) != count) return false;
+  for (uint8_t index = 0; index < count; ++index) values[index] = Wire.read();
+  return true;
+}
+
+static bool rtcReadUtc(time_t &instant) {
+  uint8_t status = 0;
+  uint8_t values[7] = {};
+  if (!rtcReadRegisters(0x0f, &status, 1) || !rtcReadRegisters(0x00, values, 7) || (status & 0x80)) return false;
+  if ((values[0] & 0x80) || (values[1] & 0x80) || (values[2] & 0x40) || (values[5] & 0x80)) return false;
+  for (uint8_t index : {0, 1, 2, 4, 5, 6}) {
+    if ((values[index] & 0x0f) > 9) return false;
+  }
+  tm utc = {};
+  utc.tm_sec = rtcDecimal(values[0] & 0x7f);
+  utc.tm_min = rtcDecimal(values[1] & 0x7f);
+  utc.tm_hour = rtcDecimal(values[2] & 0x3f);
+  utc.tm_mday = rtcDecimal(values[4] & 0x3f);
+  utc.tm_mon = rtcDecimal(values[5] & 0x1f) - 1;
+  utc.tm_year = 100 + rtcDecimal(values[6]);
+  if (utc.tm_year > 199 || utc.tm_mon < 0 || utc.tm_mon > 11 || utc.tm_mday < 1 || utc.tm_mday > 31 ||
+      utc.tm_hour > 23 || utc.tm_min > 59 || utc.tm_sec > 59) return false;
+  tm expected = utc;
+  static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  instant = kMinEpoch;
+  for (int year = 2000; year < utc.tm_year + 1900; ++year) instant += (rtcLeapYear(year) ? 366 : 365) * 86400LL;
+  for (int month = 0; month < utc.tm_mon; ++month)
+    instant += (monthDays[month] + (month == 1 && rtcLeapYear(utc.tm_year + 1900))) * 86400LL;
+  instant += (utc.tm_mday - 1) * 86400LL + utc.tm_hour * 3600 + utc.tm_min * 60 + utc.tm_sec;
+  tm roundtrip = {};
+  if (instant < kMinEpoch || !gmtime_r(&instant, &roundtrip) || roundtrip.tm_year != expected.tm_year ||
+      roundtrip.tm_mon != expected.tm_mon || roundtrip.tm_mday != expected.tm_mday) return false;
+  return true;
+}
+
+static bool rtcWriteUtc(time_t instant) {
+  if (!rtcAvailable || instant < kMinEpoch || instant > 4102444799LL) return false;
+  tm utc = {};
+  if (!gmtime_r(&instant, &utc)) return false;
+  Wire.beginTransmission(kRtcAddress);
+  Wire.write(0x00);
+  Wire.write(rtcBcd(utc.tm_sec));
+  Wire.write(rtcBcd(utc.tm_min));
+  Wire.write(rtcBcd(utc.tm_hour));
+  Wire.write(rtcBcd(utc.tm_wday + 1));
+  Wire.write(rtcBcd(utc.tm_mday));
+  Wire.write(rtcBcd(utc.tm_mon + 1));
+  Wire.write(rtcBcd(utc.tm_year - 100));
+  if (Wire.endTransmission() != 0) { rtcValid = false; return false; }
+  uint8_t status = 0;
+  if (!rtcReadRegisters(0x0f, &status, 1)) { rtcValid = false; return false; }
+  Wire.beginTransmission(kRtcAddress);
+  Wire.write(0x0f);
+  Wire.write(status & ~0x80);
+  rtcValid = Wire.endTransmission() == 0;
+  return rtcValid;
+}
+
+const char *appRtcStatus() { return !rtcAvailable ? "unavailable" : rtcValid ? "ready" : "time invalid"; }
+
 bool appClockKnown() { return clockKnown; }
 bool appClockLocal(tm &local) {
   if (!clockKnown) return false;
@@ -89,7 +161,7 @@ bool appClockLocal(tm &local) {
   return localtime_r(&now, &local) != nullptr;
 }
 static bool clockFreshSync() { return clockOnline && clockSynced && millis() - lastSyncAt < 86400000UL; }
-char appClockIndicator() { return !clockKnown ? '-' : clockFreshSync() ? 'N' : clockManual ? 'K' : clockDefault ? 'A' : 'M'; }
+char appClockIndicator() { return !clockKnown ? '-' : clockFreshSync() ? 'N' : clockManual ? 'K' : clockFromRtc ? 'R' : clockDefault ? 'A' : 'M'; }
 uint8_t appClockTimezone() { return clockZone; }
 
 String appClockJson() {
@@ -102,7 +174,7 @@ String appClockJson() {
                 String(clockKnown ? static_cast<uint64_t>(now) : 0);
   json += ",\"zone\":" + String(clockZone);
   json += ",\"source\":\"" + String(!clockKnown ? "unset" : clockFreshSync() ? "internet" :
-                                           clockManual ? "manual" : clockDefault ? "default" : "saved") + "\"}";
+                                           clockManual ? "manual" : clockFromRtc ? "rtc" : clockDefault ? "default" : "saved") + "\"}";
   return json;
 }
 
@@ -146,6 +218,8 @@ bool appClockSetLocal(const String &text) {
   clockSynced = false;
   clockManual = true;
   clockDefault = false;
+  clockFromRtc = false;
+  rtcWriteUtc(instant);
   return true;
 }
 
@@ -162,10 +236,12 @@ void appClockPoll() {
   if (clockOnline && sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED && time(nullptr) >= kMinEpoch) {
     time_t now = time(nullptr);
     if (!clockSynced || !clockKnown || clockDay(now) != savedDay) saveClock(now);
+    rtcWriteUtc(now);
     clockKnown = true;
     clockSynced = true;
     clockManual = false;
     clockDefault = false;
+    clockFromRtc = false;
     lastSyncAt = millis();
   }
   if (!clockKnown || millis() - lastDayCheck < 60000UL) return;
@@ -178,21 +254,32 @@ bool appInitSettings() {
   timeval fallback = {kMinEpoch, 0};
   clockKnown = settimeofday(&fallback, nullptr) == 0;
   if (clockKnown) savedDay = clockDay(kMinEpoch);
+  if (Wire.begin(4, 5)) {
+    Wire.beginTransmission(kRtcAddress);
+    rtcAvailable = Wire.endTransmission() == 0;
+  }
+  time_t rtcEpoch = 0;
+  rtcValid = rtcAvailable && rtcReadUtc(rtcEpoch);
   Preferences preferences;
-  if (!preferences.begin(kSettingsNamespace, true)) return false;
-  screenOffMinutes = preferences.getUShort(kScreenOffKey, kDefaultScreenOffMinutes);
-  clockZone = preferences.getUChar(kZoneKey, 0);
-  uint64_t savedEpoch = preferences.getULong64(kEpochKey, 0);
-  preferences.end();
+  bool nvsReady = preferences.begin(kSettingsNamespace, true);
+  uint64_t savedEpoch = 0;
+  if (nvsReady) {
+    screenOffMinutes = preferences.getUShort(kScreenOffKey, kDefaultScreenOffMinutes);
+    clockZone = preferences.getUChar(kZoneKey, 0);
+    savedEpoch = preferences.getULong64(kEpochKey, 0);
+    preferences.end();
+  }
   if (screenOffMinutes > kMaxScreenOffMinutes) screenOffMinutes = kDefaultScreenOffMinutes;
   if (clockZone > 28) clockZone = 0;
   applyClockTimezone();
-  if (savedEpoch >= static_cast<uint64_t>(kMinEpoch) && savedEpoch <= 4102444799ULL) {
-    timeval tv = {static_cast<time_t>(savedEpoch), 0};
+  bool savedValid = savedEpoch >= static_cast<uint64_t>(kMinEpoch) && savedEpoch <= 4102444799ULL;
+  if (rtcValid || savedValid) {
+    bool useRtc = rtcValid && (!savedValid || rtcEpoch > static_cast<time_t>(savedEpoch));
+    timeval tv = {useRtc ? rtcEpoch : static_cast<time_t>(savedEpoch), 0};
     clockKnown = settimeofday(&tv, nullptr) == 0;
-    if (clockKnown) { savedDay = clockDay(static_cast<time_t>(savedEpoch)); clockDefault = false; }
+    if (clockKnown) { savedDay = clockDay(tv.tv_sec); clockDefault = false; clockFromRtc = useRtc; }
   }
-  return true;
+  return nvsReady;
 }
 
 uint16_t appScreenOffMinutes() { return screenOffMinutes; }

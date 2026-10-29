@@ -75,6 +75,27 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('server.on("/api/time", HTTP_POST, setClock)', server)
         self.assertIn('server.on("/api/time/zone", HTTP_POST, setClockZone)', server)
 
+    def test_rtc_boot_sync_and_diagnostics_contract(self):
+        root = WEB_ROOT.parent
+        control = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
+        display = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        main = (root / "src" / "main.cpp").read_text(encoding="utf-8")
+        self.assertIn('Wire.begin(4, 5)', control)
+        self.assertIn('rtcReadUtc(rtcEpoch)', control)
+        self.assertIn('(status & 0x80)', control)
+        self.assertIn('instant = kMinEpoch;', control)
+        self.assertIn('rtcValid && (!savedValid || rtcEpoch > static_cast<time_t>(savedEpoch))', control)
+        self.assertIn('rtcEpoch > static_cast<time_t>(savedEpoch)', control)
+        self.assertIn('rtcWriteUtc(instant)', control)
+        self.assertIn('rtcWriteUtc(now)', control)
+        self.assertLess(control.index('rtcWriteUtc(now)'), control.index('clockSynced = true;', control.index('void appClockPoll()')))
+        self.assertIn('clockFromRtc ? "rtc"', control)
+        self.assertIn('appRtcStatus()', main)
+        self.assertIn('appRtcStatus()', display)
+        self.assertNotIn('Wire.begin(kSdaGpio, kSclGpio)', display)
+        for page in ("index.js", "files.js", "settings.js"):
+            self.assertIn('rtc:', (WEB_ROOT / page).read_text(encoding="utf-8"))
+
     def test_microphone_firmware_capture_contract(self):
         root = WEB_ROOT.parent
         recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")

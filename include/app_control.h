@@ -17,6 +17,7 @@ String appFirmwareVersion();
 String appFirmwareBuildDateTime();
 uint32_t appDemoTimeSeconds();
 bool appClockKnown();
+const char *appRtcStatus();
 bool appClockLocal(tm &local);
 char appClockIndicator();
 String appClockJson();

@@ -25,6 +25,7 @@ void printSetupStatus() {
   Serial.printf("I2S microphone GPIO6/7/8: %s\n", recorderMicReady() ? "initialized" : "unavailable");
   Serial.printf("Recorder: %s\n", appSdReady() && recorderTaskReady() ? "ready" : "unavailable");
   Serial.printf("OLED: %s\n", displayReady() ? "ready" : "unavailable (check GPIO4/5, 3V3, GND and I2C address)");
+  Serial.printf("RTC DS3231 GPIO4/5: %s\n", appRtcStatus());
   Serial.printf("Wi-Fi mode: %s\n", wifiManagerModeName().c_str());
   Serial.printf("Wi-Fi SSID: %s\n", wifiManagerSSID().c_str());
   Serial.printf("Wi-Fi IP: %s\n", wifiManagerIPAddress().c_str());
