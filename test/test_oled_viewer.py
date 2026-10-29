@@ -32,6 +32,45 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_oled_rms_max_rescales_history_and_resets_on_entry(self):
+        source = (Path(__file__).resolve().parents[1] / "src" / "display.cpp").read_text(encoding="utf-8")
+        start = source.split("void startDisplaySignal()", 1)[1].split("void stopDisplaySignal()", 1)[0]
+        sample = source.split("void sampleDisplaySignal(uint32_t now)", 1)[1].split("void drawSignal()", 1)[0]
+        graph = source.split("void drawSignal()", 1)[1].split("void drawRecordingName", 1)[0]
+        self.assertIn("graphMaxRms = 0", start)
+        self.assertIn("signalActiveAt = 0", start)
+        self.assertIn("kSignalSettlingMs = 2000", source)
+        self.assertIn("if (!signal.enabled || !signal.active) { signalActiveAt = 0; return; }", sample)
+        self.assertIn("if (!signalActiveAt) { signalActiveAt = now; lastGraphSampleAt = now; }", sample)
+        settling = "if (static_cast<uint32_t>(now - signalActiveAt) < kSignalSettlingMs) return;"
+        self.assertIn(settling, sample)
+        self.assertLess(sample.index(settling), sample.index("if (signal.rms > graphMaxRms)"))
+        self.assertLess(sample.index(settling), sample.index("graphSamples[graphNext] = signal.rms"))
+        self.assertIn("if (signal.rms > graphMaxRms) graphMaxRms = signal.rms", sample)
+        self.assertIn("graphSamples[graphNext] = signal.rms", sample)
+        self.assertIn("graphNext = (graphNext + 1) % kGraphSamples", sample)
+        self.assertIn("graphCount < kGraphSamples", sample)
+        self.assertIn("sample) * 24 / graphMaxRms", graph)
+        self.assertIn('"Max RMS %u"', graph)
+
+    def test_speaker_settings_are_debounced_and_restored(self):
+        root = Path(__file__).resolve().parents[1]
+        playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        main = (root / "src" / "main.cpp").read_text(encoding="utf-8")
+        setters = playback.split("void playbackSetVolume", 1)[1].split("void playbackPollSettings", 1)[0]
+        poll = playback.split("void playbackPollSettings", 1)[1].split("static void speakerLoop", 1)[0]
+        initialization = playback.split("void initPlayback(bool sdReady)", 1)[1]
+        self.assertIn("speakerSettingsChangedAt = millis()", setters)
+        self.assertNotIn("putUChar", setters)
+        self.assertIn("kSpeakerSaveDelayMs = 1000", playback)
+        self.assertIn("millis() - speakerSettingsChangedAt) < kSpeakerSaveDelayMs", poll)
+        self.assertIn("volume == savedSpeakerVolume && boost == savedSpeakerBoost", poll)
+        self.assertIn("putUChar(kSpeakerVolumeKey, volume)", poll)
+        self.assertIn("putUChar(kSpeakerBoostKey, boost)", poll)
+        self.assertIn("getUChar(kSpeakerVolumeKey", initialization)
+        self.assertIn("getUChar(kSpeakerBoostKey", initialization)
+        self.assertIn("playbackPollSettings();", main)
+
     def test_oled_menu_redesign_contract(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "src" / "display.cpp").read_text(encoding="utf-8")

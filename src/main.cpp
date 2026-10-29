@@ -127,6 +127,7 @@ void loop() {
   pollDisplay(steps, button);
   if (frameRequested) printDisplayFrame();
   pollWeb();
+  playbackPollSettings();
   wifiManagerPoll();
   appClockPoll();
   appPollWifiTest();

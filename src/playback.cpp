@@ -1,6 +1,7 @@
 #include "playback.h"
 
 #include <SD_MMC.h>
+#include <Preferences.h>
 #include <atomic>
 #include <cmath>
 #include "driver/i2s_std.h"
@@ -17,6 +18,14 @@ static std::atomic<bool> cuePlaying{false};
 static std::atomic<uint8_t> requestedCue{0};
 static std::atomic<uint8_t> speakerVolume{25};
 static std::atomic<uint8_t> speakerBoost{1};
+static constexpr char kSpeakerSettingsNamespace[] = "radio-recorder";
+static constexpr char kSpeakerVolumeKey[] = "spkVol";
+static constexpr char kSpeakerBoostKey[] = "spkBoost";
+static constexpr uint32_t kSpeakerSaveDelayMs = 1000;
+static uint8_t savedSpeakerVolume = 25;
+static uint8_t savedSpeakerBoost = 1;
+static uint32_t speakerSettingsChangedAt = 0;
+static bool speakerSettingsDirty = false;
 static TaskHandle_t playbackTask = nullptr;
 static char playbackPath[221] = {};
 static char playbackError[80] = {};
@@ -106,11 +115,38 @@ bool playbackStop() {
 }
 
 void playbackSetVolume(uint8_t volume) {
+  if (speakerVolume.load() == volume) return;
   speakerVolume.store(volume);
+  speakerSettingsChangedAt = millis();
+  speakerSettingsDirty = true;
 }
 
 void playbackSetBoost(uint8_t boost) {
+  if (speakerBoost.load() == boost) return;
   speakerBoost.store(boost);
+  speakerSettingsChangedAt = millis();
+  speakerSettingsDirty = true;
+}
+
+void playbackPollSettings() {
+  if (!speakerSettingsDirty || static_cast<uint32_t>(millis() - speakerSettingsChangedAt) < kSpeakerSaveDelayMs) return;
+  uint8_t volume = speakerVolume.load();
+  uint8_t boost = speakerBoost.load();
+  if (volume == savedSpeakerVolume && boost == savedSpeakerBoost) { speakerSettingsDirty = false; return; }
+  Preferences preferences;
+  if (!preferences.begin(kSpeakerSettingsNamespace, false)) {
+    speakerSettingsChangedAt = millis();
+    return;
+  }
+  if (volume == savedSpeakerVolume || preferences.putUChar(kSpeakerVolumeKey, volume) == sizeof(volume)) {
+    savedSpeakerVolume = volume;
+  }
+  if (boost == savedSpeakerBoost || preferences.putUChar(kSpeakerBoostKey, boost) == sizeof(boost)) {
+    savedSpeakerBoost = boost;
+  }
+  preferences.end();
+  speakerSettingsDirty = volume != savedSpeakerVolume || boost != savedSpeakerBoost;
+  if (speakerSettingsDirty) speakerSettingsChangedAt = millis();
 }
 
 static void speakerLoop(void *) {
@@ -203,6 +239,16 @@ static bool initSpeaker() {
 }
 
 void initPlayback(bool sdReady) {
+  Preferences preferences;
+  if (preferences.begin(kSpeakerSettingsNamespace, true)) {
+    uint8_t volume = preferences.getUChar(kSpeakerVolumeKey, savedSpeakerVolume);
+    uint8_t boost = preferences.getUChar(kSpeakerBoostKey, savedSpeakerBoost);
+    if (volume <= 100) savedSpeakerVolume = volume;
+    if (boost == 1 || boost == 2 || boost == 4) savedSpeakerBoost = boost;
+    preferences.end();
+  }
+  speakerVolume.store(savedSpeakerVolume);
+  speakerBoost.store(savedSpeakerBoost);
   speakerReady = initSpeaker();
   if (speakerReady && xTaskCreatePinnedToCore(speakerLoop, "speaker", 12288, nullptr, 2, &playbackTask, 0) != pdPASS) {
     Serial.println("Cannot create speaker task");

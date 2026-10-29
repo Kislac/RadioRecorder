@@ -22,3 +22,4 @@ void playbackPlayCue(PlaybackCue cue);
 bool playbackStop();
 void playbackSetVolume(uint8_t volume);
 void playbackSetBoost(uint8_t boost);
+void playbackPollSettings();

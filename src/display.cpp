@@ -54,10 +54,14 @@ bool choosingPlayback = false;
 bool graphMode = false;
 bool ownsRadioSignal = false;
 bool ownsMicSignal = false;
-uint8_t graphSamples[120] = {};
+uint16_t graphSamples[120] = {};
+constexpr uint8_t kGraphSamples = sizeof(graphSamples) / sizeof(graphSamples[0]);
+constexpr uint32_t kSignalSettlingMs = 2000;
 uint8_t graphCount = 0;
 uint8_t graphNext = 0;
 uint32_t lastGraphSampleAt = 0;
+uint32_t signalActiveAt = 0;
+uint16_t graphMaxRms = 0;
 String browsePath = "/";
 String selectedFile;
 uint32_t browseSelected = 0;
@@ -89,6 +93,8 @@ SignalStatus selectedSignal() {
 void startDisplaySignal() {
   graphMode = false;
   graphCount = graphNext = 0;
+  graphMaxRms = 0;
+  signalActiveAt = 0;
   lastGraphSampleAt = millis();
   if (tile == kRadioSignalTile && !recorderSignalStatus().enabled && recorderAdcReady() && recorderTaskReady()) {
     recorderSetSignal(true);
@@ -108,14 +114,15 @@ void stopDisplaySignal() {
 void sampleDisplaySignal(uint32_t now) {
   if (!isSignalTile(tile)) return;
   SignalStatus signal = selectedSignal();
-  if (!signal.enabled || !signal.active) return;
+  if (!signal.enabled || !signal.active) { signalActiveAt = 0; return; }
+  if (!signalActiveAt) { signalActiveAt = now; lastGraphSampleAt = now; }
+  if (static_cast<uint32_t>(now - signalActiveAt) < kSignalSettlingMs) return;
+  if (signal.rms > graphMaxRms) graphMaxRms = signal.rms;
   if (static_cast<uint32_t>(now - lastGraphSampleAt) < 1000) return;
   lastGraphSampleAt = now;
-  uint16_t limit = tile == kRadioSignalTile ? 4095 : 32767;
-  float normalized = static_cast<float>(signal.rms) / limit;
-  graphSamples[graphNext] = static_cast<uint8_t>(fminf(24, sqrtf(normalized) * 24));
-  graphNext = (graphNext + 1) % sizeof(graphSamples);
-  if (graphCount < sizeof(graphSamples)) ++graphCount;
+  graphSamples[graphNext] = signal.rms;
+  graphNext = (graphNext + 1) % kGraphSamples;
+  if (graphCount < kGraphSamples) ++graphCount;
 }
 
 void drawSignal() {
@@ -123,13 +130,20 @@ void drawSignal() {
   if (!signal.enabled) { oled.drawStr(0, 36, "Jelmeres nem elerheto"); return; }
   if (!signal.active) { oled.drawStr(0, 36, "Meres indul..."); return; }
   char meter[27];
-  snprintf(meter, sizeof(meter), "RMS %u  Csucs %u", signal.rms, signal.peak);
+  snprintf(meter, sizeof(meter), graphMode ? "RMS %u  Max %u" : "RMS %u  Csucs %u", signal.rms,
+           graphMode ? graphMaxRms : signal.peak);
   oled.drawStr(0, 33, meter);
-  if (!graphMode) { oled.drawStr(0, 48, "Nyomas: grafikon"); return; }
+  if (!graphMode) {
+    snprintf(meter, sizeof(meter), "Max RMS %u", graphMaxRms);
+    oled.drawStr(0, 45, meter);
+    oled.drawStr(0, 53, "Nyomas: grafikon");
+    return;
+  }
   oled.drawHLine(0, 62, 128);
   for (uint8_t index = 0; index < graphCount; ++index) {
-    uint8_t sample = graphSamples[(graphNext + sizeof(graphSamples) - graphCount + index) % sizeof(graphSamples)];
-    oled.drawVLine(8 + index, 61 - sample, sample + 1);
+    uint16_t sample = graphSamples[(graphNext + kGraphSamples - graphCount + index) % kGraphSamples];
+    uint8_t height = graphMaxRms ? static_cast<uint32_t>(sample) * 24 / graphMaxRms : 0;
+    oled.drawVLine(8 + index, 61 - height, height + 1);
   }
 }
 
