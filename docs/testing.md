@@ -58,7 +58,9 @@ Run `python -m scripts.test_device` for a non-recording check. It scans serial p
 
 Run `python -m scripts.test_device --record` only when an SD write is intended. Firmware 0.1.43 or newer is required. In addition to the checks above, it starts a short recording, requests stop, verifies a finalized WAV with non-zero audio data, then deletes that exact test-created file and confirms removal. This is destructive test data on the card; use it only with the correct device and an available SD card. The firmware accepts only a matching dated `RadioMan` recording path (or legacy `RECxxxxx.wav`) and refuses deletion while recording; arbitrary paths and other file types cannot be deleted with this command.
 
-Run `python -m scripts.test_device --display-only` for the display-only test. It checks OLED readiness, captures every home tile and each of the 14 settings rows, rejects blank or visually duplicate views, and restores the original tile without toggling settings or writing to SD.
+Run `python -m scripts.test_device --display-only` for the display-only test. It checks OLED readiness, captures every home tile and each of the 14 settings rows, rejects blank or visually duplicate views, opens the SD browser and exits it without starting playback, and restores the original tile without toggling settings or writing to SD.
+
+Az OLED **Lejátszó** csempén rövid nyomással nyílik a microSD böngésző; forgatással négy soronként lapozható. Először a mappák, majd a WAV-fájlok szerepelnek; `..` és a hosszú nyomás a szülőmappába, gyökérben vissza a csempéhez vezet. WAV-on nyomva a **Hangszóró** indítja a támogatott PCM-fájlt az ESP-n, a **Rádió (később)** csak üzenetet mutat (nem kapcsol PTT-t), a **Vissza** kilép. A lejátszás alatt a csempén rövid nyomás leállítja a hangot. A read-only kijelzőteszt nem választ ki WAV-ot; a hang hallható működését külön, tudatosan indított lejátszással ellenőrizd.
 
 ### Időszinkron és kézi óra
 

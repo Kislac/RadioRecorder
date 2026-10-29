@@ -1,6 +1,7 @@
 #include "display.h"
 
 #include <Arduino.h>
+#include <SD_MMC.h>
 #include <Wire.h>
 #include <U8g2lib.h>
 #include "startup_image.h"
@@ -10,6 +11,7 @@
 #include "web_server.h"
 #include "wifi_manager.h"
 #include "ptt_test.h"
+#include "wav.h"
 
 #ifndef RADIORECORDER_OLED_ENABLED
 #define RADIORECORDER_OLED_ENABLED 0
@@ -35,6 +37,19 @@ bool inSettings = false;
 bool editing = false;
 bool messagePending = false;
 bool screenSleeping = false;
+bool browsingFiles = false;
+bool choosingPlayback = false;
+String browsePath = "/";
+String selectedFile;
+uint32_t browseSelected = 0;
+uint32_t browseTotal = 0;
+uint8_t playbackChoice = 0;
+struct BrowseRow {
+  String name;
+  String path;
+  bool directory = false;
+};
+BrowseRow browseRows[4];
 tm clockEdit = {};
 uint8_t zoneEdit = 0;
 char message[26] = {};
@@ -42,6 +57,130 @@ char message[26] = {};
 void setMessage(const char *text) {
   snprintf(message, sizeof(message), "%s", text);
   messagePending = true;
+}
+
+void refreshBrowseRows() {
+  for (auto &row : browseRows) row = {};
+  browseTotal = 0;
+  if (!appSdReady() || recorderState() != CaptureState::idle) return;
+  File directory = SD_MMC.open(browsePath, FILE_READ);
+  if (!directory || !directory.isDirectory()) return;
+  bool hasParent = browsePath != "/";
+  browseTotal = hasParent ? 1 : 0;
+  File entry;
+  while ((entry = directory.openNextFile())) {
+    String name = entry.name();
+    name.toLowerCase();
+    if (entry.isDirectory() || name.endsWith(".wav")) ++browseTotal;
+    entry.close();
+  }
+  directory.close();
+  if (browseTotal && browseSelected >= browseTotal) browseSelected = browseTotal - 1;
+  uint32_t first = (browseSelected / 4) * 4;
+  if (hasParent && first == 0) {
+    int separator = browsePath.lastIndexOf('/');
+    browseRows[0] = {"..", separator == 0 ? "/" : browsePath.substring(0, separator), true};
+  }
+  uint32_t index = hasParent ? 1 : 0;
+  for (uint8_t pass = 0; pass < 2 && index < first + 4; ++pass) {
+    directory = SD_MMC.open(browsePath, FILE_READ);
+    if (!directory) break;
+    while ((entry = directory.openNextFile())) {
+      bool folder = entry.isDirectory();
+      String name = entry.name();
+      name = name.substring(name.lastIndexOf('/') + 1);
+      String lower = name;
+      lower.toLowerCase();
+      if (folder == (pass == 0) && (folder || lower.endsWith(".wav"))) {
+        if (index >= first && index < first + 4) {
+          String path = browsePath == "/" ? "/" + name : browsePath + "/" + name;
+          browseRows[index - first] = {name, path, folder};
+        }
+        ++index;
+      }
+      entry.close();
+      if (index >= first + 4) break;
+    }
+    directory.close();
+  }
+}
+
+String shortBrowseName(const String &name) {
+  if (name.length() <= 22) return name;
+  return name.substring(0, 8) + ".." + name.substring(name.length() - 12);
+}
+
+void browseParent() {
+  if (browsePath == "/") { browsingFiles = false; return; }
+  int separator = browsePath.lastIndexOf('/');
+  browsePath = separator == 0 ? "/" : browsePath.substring(0, separator);
+  browseSelected = 0;
+  refreshBrowseRows();
+}
+
+void pressBrowse() {
+  if (choosingPlayback) {
+    if (playbackChoice == 2) { choosingPlayback = false; return; }
+    if (playbackChoice == 1) { setMessage("Radio: meg nem elerheto"); return; }
+    if (!appSdReady() || !playbackStatus().ready) { setMessage("SD/hangszoro hianyzik"); return; }
+    if (!appCanStartPlayback()) { setMessage("Lejatszas nem indithato"); return; }
+    if (selectedFile.length() > 220) { setMessage("Tul hosszu fajlnev"); return; }
+    File file = SD_MMC.open(selectedFile, FILE_READ);
+    uint32_t remaining = 0;
+    bool supported = file && !file.isDirectory() && findPcmData(file, remaining);
+    if (file) file.close();
+    if (!supported) { setMessage("Nem tamogatott WAV"); return; }
+    playbackStart(selectedFile);
+    choosingPlayback = false;
+    browsingFiles = false;
+    return;
+  }
+  refreshBrowseRows();
+  if (!appSdReady()) { setMessage("SD nem elerheto"); return; }
+  if (recorderState() != CaptureState::idle) { setMessage("Felvetel folyamatban"); return; }
+  if (!browseTotal) return;
+  const BrowseRow &item = browseRows[browseSelected % 4];
+  if (item.path.isEmpty()) return;
+  if (item.directory) {
+    if (item.name == "..") { browseParent(); return; }
+    if (item.path.length() > 220) { setMessage("Tul hosszu utvonal"); return; }
+    browsePath = item.path;
+    browseSelected = 0;
+    refreshBrowseRows();
+  } else {
+    selectedFile = item.path;
+    playbackChoice = 0;
+    choosingPlayback = true;
+  }
+}
+
+void drawBrowse() {
+  oled.setFont(u8g2_font_5x8_tf);
+  if (choosingPlayback) {
+    oled.drawStr(0, 30, shortBrowseName(selectedFile.substring(selectedFile.lastIndexOf('/') + 1)).c_str());
+    oled.drawStr(0, 38, playbackChoice == 0 ? "> Hangszoro" : "  Hangszoro");
+    oled.drawStr(0, 46, playbackChoice == 1 ? "> Radio (kesobb)" : "  Radio (kesobb)");
+    oled.drawStr(0, 54, playbackChoice == 2 ? "> Vissza" : "  Vissza");
+    return;
+  }
+  if (!browsingFiles) {
+    PlaybackStatus playback = playbackStatus();
+    oled.drawStr(0, 35, playback.state == PlaybackState::idle ? "Nyomas: SD fajlok" : "Lejatszas folyamatban");
+    oled.drawStr(0, 48, playback.state == PlaybackState::idle ? "" : "Nyomas = leallitas");
+    return;
+  }
+  if (!appSdReady()) { oled.drawStr(0, 36, "SD nem elerheto"); return; }
+  if (recorderState() != CaptureState::idle) { oled.drawStr(0, 36, "Felvetel folyamatban"); return; }
+  if (!browseTotal) { oled.drawStr(0, 36, "Nincs WAV vagy mappa"); return; }
+  uint32_t first = (browseSelected / 4) * 4;
+  for (uint8_t row = 0; row < 4 && first + row < browseTotal; ++row) {
+    const BrowseRow &item = browseRows[row];
+    uint8_t y = 30 + row * 8;
+    oled.drawStr(0, y, first + row == browseSelected ? ">" : " ");
+    String label = shortBrowseName(item.name);
+    if (item.directory) label += "/";
+    oled.drawStr(9, y, label.c_str());
+  }
 }
 
 void drawStatus(uint32_t seconds) {
@@ -163,7 +302,10 @@ void drawBody(bool fullUpdate = true) {
   oled.clearBuffer();
   drawStatus(appDemoTimeSeconds());
   oled.setFont(u8g2_font_6x10_tf);
-  oled.drawStr(0, 22, inSettings ? "Beallitasok" : kTileNames[tile]);
+  String heading = inSettings ? "Beallitasok" : tile == 2 && browsingFiles ?
+                   (choosingPlayback ? "Lejatszas" : browsePath == "/" ? "microSD" :
+                    browsePath.substring(browsePath.lastIndexOf('/') + 1, browsePath.lastIndexOf('/') + 19)) : kTileNames[tile];
+  oled.drawStr(0, 22, heading.c_str());
   oled.setFont(u8g2_font_5x8_tf);
   if (inSettings) {
     drawSettings();
@@ -175,9 +317,7 @@ void drawBody(bool fullUpdate = true) {
                  state == CaptureState::starting ? "Indulas..." : "ADC REC: nyomas = stop");
     if (adcRecording) oled.drawStr(0, 44, recorderName());
   } else if (tile == 2) {
-    PlaybackStatus playback = playbackStatus();
-    oled.drawStr(0, 35, playback.state == PlaybackState::idle ? "Nincs lejatszas" : "Lejatszas folyamatban");
-    oled.drawStr(0, 48, playback.state == PlaybackState::idle ? "" : "Nyomas = leallitas");
+    drawBrowse();
   } else if (tile == 3) {
     SignalStatus signal = recorderSignalStatus();
     char meter[25];
@@ -223,7 +363,8 @@ void drawBody(bool fullUpdate = true) {
     messagePending = false;
   } else {
     char footer[21];
-    snprintf(footer, sizeof(footer), inSettings ? "Hosszu: vissza" : "< %u/%u >  Hosszu: vissza", tile + 1, kTileCount);
+    snprintf(footer, sizeof(footer), inSettings || (tile == 2 && browsingFiles) ?
+         "Hosszu: vissza" : "< %u/%u >  Hosszu: vissza", tile + 1, kTileCount);
     oled.drawStr(0, 63, footer);
   }
   if (fullUpdate) oled.sendBuffer();
@@ -263,7 +404,14 @@ void onPress() {
       if (!appStartRecording()) setMessage("Felvetel nem indithato");
     } else if (recorderSource() == CaptureSource::adc && !recorderStopping()) appStopRecording();
   } else if (tile == 2) {
-    if (!playbackStop()) setMessage("Nincs lejatszas");
+    if (browsingFiles) pressBrowse();
+    else if (playbackGetState() != PlaybackState::idle) playbackStop();
+    else {
+      browsingFiles = true;
+      browsePath = "/";
+      browseSelected = 0;
+      refreshBrowseRows();
+    }
   } else if (tile == 1) {
     if (recorderState() == CaptureState::idle) {
       if (!appStartMicRecording()) setMessage("MIC nem indithato");
@@ -380,6 +528,8 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   bool redraw = false;
   if (button == ButtonEvent::longPress) {
     if (editing) editing = false;
+    else if (choosingPlayback) choosingPlayback = false;
+    else if (browsingFiles) browseParent();
     else inSettings = false;
     redraw = true;
   } else if (button == ButtonEvent::shortPress) {
@@ -387,7 +537,16 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
     redraw = true;
   }
   if (steps) {
-    if (inSettings) {
+    if (choosingPlayback) {
+      playbackChoice = (playbackChoice + (steps % 3) + 3) % 3;
+    } else if (browsingFiles) {
+      refreshBrowseRows();
+      if (browseTotal) {
+        int64_t next = static_cast<int64_t>(browseSelected) + steps;
+        browseSelected = static_cast<uint32_t>(constrain(next, 0LL, static_cast<int64_t>(browseTotal - 1)));
+        refreshBrowseRows();
+      }
+    } else if (inSettings) {
       if (editing && setting == 2) {
         int32_t volume = playbackStatus().volume + steps * 5;
         playbackSetVolume(constrain(volume, 0L, 100L));

@@ -9,7 +9,7 @@ A jelenlegi és tervezett modulok GPIO-kiosztása az [eszközjegyzékben](docs/d
 - Kézi mono WAV-felvétel a GPIO1 ADC-bemenetről microSD-re, állapot- és hiba-visszajelzéssel.
 - Külön indítható INMP441-M I2S mikrofonfelvétel ugyanarra a microSD-re (22 050 Hz / 16 bites mono PCM WAV), OLED Mikrofon csempéről vagy a webes főoldalról; egyszerre csak egy forrás rögzíthet. A webes főoldalon külön kapcsolható mikrofon RMS/csúcs grafikon látható, felvétel közben is, SD-írás nélkül.
 - OLED/enkóderes helyi kezelőfelület, RMS/csúcs jelmérés, hangerő/erősítés és zajszűrő-beállítás.
-- ESP-hangszórós WAV-lejátszás, böngészős élő hang, valamint firmware-be épített ClearSky kezdőkép és boot/felvételi hangjelzések.
+- ESP-hangszórós WAV-lejátszás a weben és az OLED mappák szerint böngészhető Lejátszó csempéjén; a rádiós lejátszás opciója még inaktív. Böngészős élő hang, firmware-be épített ClearSky kezdőkép és boot/felvételi hangjelzések.
 - Nyílt `RadioRecorder` AP alapmód; mentett külső Wi-Fi-hez csatlakozás AP-fallbackkel, opcionális AP+STA móddal, webes scan/connect/forget kezeléssel és Wi-Fi auto-off időzítővel.
 - Beállítások NVS-mentése, OLED képernyő-timeout és ébresztés, firmware-verzió/buildidő kijelzése, valamint kétmagos ESP-IDF task watchdog.
 - Valódi dátum és idő: külső Wi-Fi STA-kapcsolat után NTP-szinkron, kézi dátum/idő és időzóna a weben és az OLED-en; Budapest téli/nyári idő az alapérték. A legutóbb beállított/szinkronizált idő és a napváltás NVS-be kerül, RTC nélkül áramtalanítva az óra nem jár tovább.

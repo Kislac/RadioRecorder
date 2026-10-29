@@ -233,7 +233,23 @@ def test_display_all(device, report):
             setting_frames.append(frame)
             report.detail("DISPLAY SETTING {} bytes={}".format(target, len(frame)))
         validate_display_frames(setting_frames, SETTING_COUNT, "settings rows")
-        return "all main tiles and settings rows rendered distinctly"
+        device.write(b"b")
+        state = menu_state(device)
+        for _ in range((2 - state[0]) % len(DISPLAY_TILES)):
+            device.write(b"l")
+            state = menu_state(device)
+        if state[0] != 2 or state[2]:
+            raise AssertionError("Could not reach player tile for browser test")
+        device.write(b"k")
+        browser_frame = read_frame(device)
+        if browser_frame == tile_frames[2]:
+            raise AssertionError("Player short press did not open a distinct SD browser")
+        device.write(b"b")
+        device.write(b"l")
+        if menu_state(device)[0] != 3:
+            raise AssertionError("Player browser long press did not restore tile navigation")
+        report.detail("DISPLAY SD browser opened and exited without playback")
+        return "all tiles/settings rendered; SD browser opens and exits"
     finally:
         state = menu_state(device)
         for _ in range(2):
