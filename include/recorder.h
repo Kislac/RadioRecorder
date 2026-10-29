@@ -24,6 +24,8 @@ void initRecorderTask();
 bool recorderAdcReady();
 bool recorderMicReady();
 i2s_chan_handle_t recorderRadioHandle();
+esp_err_t recorderStartRadioOutput();
+void recorderStopRadioOutput();
 bool recorderTaskReady();
 void recorderNotify();
 bool recorderStart(bool sdAvailable, CaptureSource source = CaptureSource::adc);

@@ -93,7 +93,7 @@ def read_until(device, predicate, timeout=3, report=None):
     raise TimeoutError("Expected serial response not received: " + repr(lines))
 
 
-def status(device, report, display_only=False):
+def status(device, report, display_only=False, radio_only=False):
     device.write(b"i")
     lines = []
     wifi_status_seen = False
@@ -110,7 +110,8 @@ def status(device, report, display_only=False):
         raise TimeoutError("Incomplete firmware status: " + repr(lines))
     if not any(line.startswith("Firmware: v") for line in lines):
         raise AssertionError("No firmware status from ESP")
-    required = ("OLED",) if display_only else ("SD card", "ADC GPIO1", "Recorder", "OLED", "Speaker")
+    required = (("SD card", "Radio DAC GPIO6/7/9") if radio_only else ("OLED",) if display_only
+                else ("SD card", "ADC GPIO1", "Recorder", "OLED", "Speaker"))
     for label in required:
         if not any(line.startswith(label + ": ready") for line in lines):
             raise AssertionError(label + " is not ready: " + repr(lines))
@@ -124,6 +125,9 @@ def status(device, report, display_only=False):
         raise AssertionError("Invalid Wi-Fi auto-off status: " + repr(lines))
     if any(line.startswith("Recording:") for line in lines):
         raise AssertionError("Stop the current recording before running device tests")
+    if radio_only and ("Playback: idle" not in lines or "Playback error: " not in lines and
+                       "Playback error:" not in lines):
+        raise AssertionError("DAC test requires idle playback without a pending error: " + repr(lines))
     return next(line.split(": ", 1)[1] for line in lines if line.startswith("Firmware: v"))
 
 
@@ -227,6 +231,48 @@ def test_recording(device, report, firmware_version):
     finally:
         delete_test_recording(device, filename, report)
     return result + "; test file deleted"
+
+
+def test_radio_playback(device, report, path, firmware_version):
+    if not firmware_at_least(firmware_version, (0, 1, 59)):
+        raise RuntimeError("serial DAC playback requires firmware 0.1.59 or newer")
+    encoded = path.encode("utf-8")
+    if (not path.startswith("/") or not path.lower().endswith(".wav") or len(encoded) > 220 or
+            any(segment in ("", ".", "..") for segment in path[1:].split("/")) or
+            any(character in path for character in '@\\:\"\r\n\x00')):
+        raise ValueError("Pass an absolute SD WAV path, for example /2026-10-28/example.wav")
+    device.write(b"P" + path.encode("utf-8") + b"\n")
+    start = read_until(device, lambda line: line.startswith("PLAYBACK_TEST accepted:") or
+                       line.startswith("PLAYBACK_TEST refused:"), timeout=6, report=report)[-1]
+    if start != "PLAYBACK_TEST accepted: " + path:
+        raise AssertionError(start)
+    try:
+        result = read_until(device, lambda line: line.startswith(("Radio DAC first block:", "I2S radio write:")),
+                            timeout=6, report=report)[-1]
+        if not result.startswith("Radio DAC first block:"):
+            raise AssertionError(result)
+    finally:
+        device.write(b"Z")
+        read_until(device, lambda line: line.startswith("PLAYBACK_TEST "), report=report)
+    device.write(b"i")
+    status_lines = read_until(device, lambda line: line.startswith("Playback error:"), report=report)
+    if status_lines[-1] != "Playback error:":
+        raise AssertionError(status_lines[-1])
+    return result + "; playback stopped; no SD write or PTT"
+
+
+def list_radio_wavs(device, report, firmware_version):
+    if not firmware_at_least(firmware_version, (0, 1, 60)):
+        raise RuntimeError("serial WAV listing requires firmware 0.1.60 or newer")
+    device.write(b"L")
+    lines = read_until(device, lambda line: line.startswith(("WAV_LIST end", "WAV_LIST refused:")),
+                       timeout=12, report=report)
+    if not lines[-1].startswith("WAV_LIST end"):
+        raise AssertionError(lines[-1])
+    paths = [line.split(" (", 1)[0][5:] for line in lines if line.startswith("WAV: ") and " (PCM, " in line]
+    if not paths:
+        raise AssertionError("No supported PCM WAV on the SD card: " + lines[-1])
+    return ", ".join(paths)
 
 
 def menu_state(device):
@@ -438,10 +484,15 @@ def main():
     parser = argparse.ArgumentParser(description="Check SD, ADC, OLED and serial encoder on RadioRecorder")
     parser.add_argument("--port", help="ESP serial port (default: auto-detect)")
     parser.add_argument("--record", action="store_true", help="Write and verify a brief WAV on the SD card")
+    parser.add_argument("--play-radio", metavar="WAV_PATH", help="Opt in to DAC playback of an existing SD WAV, no PTT")
+    parser.add_argument("--list-wav", action="store_true", help="List supported SD WAV paths over serial (read-only)")
     parser.add_argument("--display-only", action="store_true", help="Test every OLED tile and setting row")
     parser.add_argument("--rtc", action="store_true", help="Check RTC against elapsed time, AP-only without NTP")
     parser.add_argument("--rtc-reboot", action="store_true", help="Also reboot ESP and verify RTC recovery (opt-in)")
     args = parser.parse_args()
+    if (args.play_radio or args.list_wav) and (args.record or args.rtc or args.rtc_reboot or args.display_only or
+                                               args.play_radio and args.list_wav):
+        parser.error("--play-radio and --list-wav must run separately from other device checks")
     if args.display_only and (args.rtc or args.rtc_reboot) or args.record and (args.rtc or args.rtc_reboot):
         parser.error("RTC tests cannot be combined with --record or --display-only")
     report = TestRun("rtc-reboot" if args.rtc_reboot else "rtc" if args.rtc else
@@ -452,7 +503,17 @@ def main():
         if connected:
             report.detail("Connected to " + device.port)
             with device:
-                if args.rtc or args.rtc_reboot:
+                if args.play_radio or args.list_wav:
+                    ready, firmware_version = report.case("SD and DAC status", lambda: status(device, report, radio_only=True))
+                    if ready:
+                        if args.list_wav:
+                            report.case("SD WAV paths", lambda: list_radio_wavs(device, report, firmware_version))
+                        else:
+                            report.case("Radio DAC first I2S block", lambda: test_radio_playback(
+                                device, report, args.play_radio, firmware_version))
+                    else:
+                        report.skip("SD WAV paths" if args.list_wav else "Radio DAC playback", "device status check failed")
+                elif args.rtc or args.rtc_reboot:
                     ready, firmware_version = report.case("RTC test firmware", lambda: rtc_firmware_version(device, report))
                     if ready and firmware_at_least(firmware_version, (0, 1, 54)):
                         passed, _ = report.case("RTC advances without NTP", lambda: rtc_live_check(device, report))

@@ -11,6 +11,7 @@
 #include "ptt_test.h"
 #include "radio_programming.h"
 #include "radio_serial.h"
+#include "wav.h"
 #include <SD_MMC.h>
 
 void printSetupStatus() {
@@ -19,7 +20,14 @@ void printSetupStatus() {
   Serial.println("Watchdog: active (10 s, both cores)");
   Serial.printf("3.4 kHz low-pass: %s (f = toggle)\n", recorderLowpass() ? "on" : "off");
   Serial.printf("OLED screen off: %u min\n", appScreenOffMinutes());
-  Serial.printf("Speaker: %s\n", playbackStatus().ready ? "ready" : "unavailable");
+  PlaybackStatus playback = playbackStatus();
+  Serial.printf("Speaker: %s\n", playback.ready ? "ready" : "unavailable");
+  Serial.printf("Radio DAC GPIO6/7/9: %s\n", playback.radioReady ? "ready" : "unavailable");
+  Serial.printf("Playback: %s\n", playback.state == PlaybackState::idle ? "idle" :
+                playback.state == PlaybackState::starting ? "starting" : "playing");
+  Serial.printf("Playback target: %s\n", playback.target == PlaybackTarget::radio ? "radio" : "speaker");
+  Serial.printf("Playback path: %s\n", playback.path.c_str());
+  Serial.printf("Playback error: %s\n", playback.error.c_str());
   Serial.printf("SD card: %s\n", appSdReady() ? "ready" : "unavailable");
   Serial.printf("ADC GPIO%d: %s\n", kAudioGpio, recorderAdcReady() ? "ready" : "unavailable");
   Serial.printf("I2S microphone GPIO6/7/8: %s\n", recorderMicReady() ? "initialized" : "unavailable");
@@ -33,11 +41,75 @@ void printSetupStatus() {
   if (recorderState() != CaptureState::idle) Serial.printf("Recording: %s\n", recorderName());
 }
 
+static void listSerialWavs(const String &path, uint8_t depth, uint16_t &remaining) {
+  File directory = SD_MMC.open(path, FILE_READ);
+  if (!directory || !directory.isDirectory()) return;
+  File entry;
+  while (remaining && (entry = directory.openNextFile())) {
+    --remaining;
+    String name = entry.name();
+    name = name.substring(name.lastIndexOf('/') + 1);
+    String childPath = path == "/" ? "/" + name : path + "/" + name;
+    if (safeSdPath(childPath)) {
+      if (entry.isDirectory() && depth < 3) {
+        listSerialWavs(childPath, depth + 1, remaining);
+      } else if (!entry.isDirectory()) {
+        String lowerName = name;
+        lowerName.toLowerCase();
+        if (lowerName.endsWith(".wav")) {
+          uint32_t pcmBytes = 0;
+          bool supported = findPcmData(entry, pcmBytes);
+          Serial.printf("WAV: %s (%s, %lu PCM bytes)\n", childPath.c_str(),
+                        supported ? "PCM" : "unsupported", static_cast<unsigned long>(pcmBytes));
+        }
+      }
+    }
+    entry.close();
+  }
+  directory.close();
+}
+
 static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &button, bool &frameRequested) {
   static char deleteFilename[64] = {};
   static uint8_t deleteFilenameLength = 0;
   static bool receivingDeleteFilename = false;
   static bool deleteFilenameOverflow = false;
+  static char radioPlaybackPath[221] = {};
+  static size_t radioPlaybackLength = 0;
+  static bool receivingRadioPlaybackPath = false;
+  static bool radioPlaybackOverflow = false;
+
+  if (receivingRadioPlaybackPath) {
+    if (command == '\r') return;
+    if (command == '\n') {
+      radioPlaybackPath[radioPlaybackLength] = '\0';
+      String path(radioPlaybackPath);
+      String lowerPath = path;
+      lowerPath.toLowerCase();
+      const char *reason = nullptr;
+      if (radioPlaybackOverflow || !safeSdPath(path) || path == "/" || !lowerPath.endsWith(".wav"))
+        reason = "invalid WAV path";
+      else if (!appSdReady() || !playbackStatus().radioReady || !appCanStartPlayback() || pttTestActive())
+        reason = "SD, DAC or playback unavailable";
+      else {
+        File file = SD_MMC.open(path, FILE_READ);
+        uint32_t remaining = 0;
+        if (!file || file.isDirectory() || !findPcmData(file, remaining) || remaining == 0)
+          reason = "WAV missing or unsupported";
+        if (file) file.close();
+      }
+      if (reason) Serial.printf("PLAYBACK_TEST refused: %s\n", reason);
+      else {
+        Serial.printf("PLAYBACK_TEST accepted: %s\n", path.c_str());
+        playbackStart(path, PlaybackTarget::radio);
+      }
+      receivingRadioPlaybackPath = false;
+      return;
+    }
+    if (radioPlaybackLength < sizeof(radioPlaybackPath) - 1) radioPlaybackPath[radioPlaybackLength++] = command;
+    else radioPlaybackOverflow = true;
+    return;
+  }
 
   if (receivingDeleteFilename) {
     if (command == '\r') return;
@@ -58,6 +130,29 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
     deleteFilenameOverflow = false;
     receivingDeleteFilename = true;
     Serial.println("Delete test WAV: send exact recording path");
+    return;
+  }
+  if (command == 'P') {
+    radioPlaybackLength = 0;
+    radioPlaybackOverflow = false;
+    receivingRadioPlaybackPath = true;
+    Serial.println("PLAYBACK_TEST send exact absolute WAV path and newline");
+    return;
+  }
+  if (command == 'Z') {
+    bool stopped = playbackGetState() != PlaybackState::idle &&
+                   playbackStatus().target == PlaybackTarget::radio && playbackStop();
+    Serial.println(stopped ? "PLAYBACK_TEST stop requested" : "PLAYBACK_TEST already idle");
+    return;
+  }
+  if (command == 'L') {
+    if (!appSdReady() || recorderState() != CaptureState::idle || playbackGetState() != PlaybackState::idle) {
+      Serial.println("WAV_LIST refused: SD unavailable or device busy");
+    } else {
+      uint16_t remaining = 128;
+      listSerialWavs("/", 0, remaining);
+      Serial.printf("WAV_LIST end%s\n", remaining ? "" : " (entry limit reached)");
+    }
     return;
   }
   if (command == 'w') {

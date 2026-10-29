@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <atomic>
 #include <cmath>
+#include <esp_err.h>
 #include "driver/i2s_std.h"
 #include "recorder.h"
 #include "wav.h"
@@ -175,15 +176,18 @@ static void speakerLoop(void *) {
     if (!file || !findPcmData(file, remaining)) {
       snprintf(playbackError, sizeof(playbackError), "Cannot read PCM WAV");
     } else if (!playbackStopRequested.load()) {
-      enabled = i2s_channel_enable(outputHandle) == ESP_OK;
+      esp_err_t enableResult = radio ? recorderStartRadioOutput() : i2s_channel_enable(outputHandle);
+      enabled = enableResult == ESP_OK;
       if (!enabled) {
-        snprintf(playbackError, sizeof(playbackError), radio ? "Cannot start radio DAC" : "Cannot start speaker");
+        snprintf(playbackError, sizeof(playbackError), radio ? "Cannot start radio DAC: %s" : "Cannot start speaker: %s",
+                 esp_err_to_name(enableResult));
       } else {
         playbackState.store(PlaybackState::playing);
         uint8_t input[512];
         int16_t output[512];
         int32_t radioOutput[512];
         float appliedGain = 0;
+        bool radioFirstBlockReported = false;
         while (remaining && !playbackStopRequested.load()) {
           if (playbackWatchdog) watchdogResetCurrentTask();
           size_t count = file.read(input, min(static_cast<uint32_t>(sizeof(input)), remaining));
@@ -214,10 +218,19 @@ static void speakerLoop(void *) {
           }
           size_t written = 0;
           size_t bytes = count * (radio ? 4 : 2);
-          if (i2s_channel_write(outputHandle, radio ? static_cast<void *>(radioOutput) : static_cast<void *>(output),
-                                bytes, &written, 1000) != ESP_OK || written != bytes) {
-            snprintf(playbackError, sizeof(playbackError), radio ? "Radio DAC output failed" : "Speaker output failed");
+          esp_err_t result = i2s_channel_write(outputHandle,
+                                               radio ? static_cast<void *>(radioOutput) : static_cast<void *>(output),
+                                               bytes, &written, 1000);
+          if (result != ESP_OK || written != bytes) {
+            snprintf(playbackError, sizeof(playbackError), radio ? "Radio DAC output failed: %s (%zu/%zu)" :
+                     "Speaker output failed: %s (%zu/%zu)", esp_err_to_name(result), written, bytes);
+            Serial.printf("I2S %s write: %s (0x%x), %zu/%zu bytes\n", radio ? "radio" : "speaker",
+                          esp_err_to_name(result), static_cast<unsigned>(result), written, bytes);
             break;
+          }
+          if (radio && !radioFirstBlockReported) {
+            Serial.printf("Radio DAC first block: %zu I2S bytes\n", written);
+            radioFirstBlockReported = true;
           }
         }
         if (!remaining && !playbackStopRequested.load() && !playbackError[0]) {
@@ -231,7 +244,10 @@ static void speakerLoop(void *) {
         }
       }
     }
-    if (enabled) i2s_channel_disable(outputHandle);
+    if (enabled) {
+      if (radio) recorderStopRadioOutput();
+      else i2s_channel_disable(outputHandle);
+    }
     if (file) file.close();
     playbackState.store(PlaybackState::idle);
     watchdogUnsubscribeCurrentTask(playbackWatchdog);

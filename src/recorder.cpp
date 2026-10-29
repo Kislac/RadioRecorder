@@ -51,6 +51,18 @@ static uint8_t pcmBuffer[kDmaBufferSize / 2];
 bool recorderAdcReady() { return adcReady; }
 bool recorderMicReady() { return micReady; }
 i2s_chan_handle_t recorderRadioHandle() { return radioHandle; }
+esp_err_t recorderStartRadioOutput() {
+  if (!micReady || !radioHandle) return ESP_ERR_INVALID_STATE;
+  esp_err_t result = i2s_channel_enable(micHandle);
+  if (result != ESP_OK) return result;
+  result = i2s_channel_enable(radioHandle);
+  if (result != ESP_OK) i2s_channel_disable(micHandle);
+  return result;
+}
+void recorderStopRadioOutput() {
+  i2s_channel_disable(radioHandle);
+  i2s_channel_disable(micHandle);
+}
 bool recorderTaskReady() { return recorderTask != nullptr; }
 void recorderNotify() { if (recorderTask) xTaskNotifyGive(recorderTask); }
 CaptureState recorderState() { return captureState.load(); }

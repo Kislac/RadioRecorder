@@ -67,11 +67,59 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('PlaybackTarget::radio', playback)
         self.assertIn('cuePlaying.load() ? PlaybackTarget::speaker : playbackTarget', playback)
         self.assertIn('playbackStart(selectedFile, PlaybackTarget::radio)', display)
-        self.assertIn('i2s_channel_write(outputHandle, radio ?', playback)
+        self.assertIn('esp_err_t result = i2s_channel_write(outputHandle,', playback)
         self.assertIn('source * 0.05f * 65536.0f', playback)
         server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
         self.assertIn('targetArg == "radio" ? PlaybackTarget::radio', server)
         self.assertIn('data.radioReady', (root / "web" / "files.js").read_text(encoding="utf-8"))
+
+    def test_radio_dac_write_failure_reports_driver_result_and_progress(self):
+        playback = (WEB_ROOT.parent / "src" / "playback.cpp").read_text(encoding="utf-8")
+        self.assertIn('esp_err_t result = i2s_channel_write(outputHandle', playback)
+        self.assertIn('esp_err_to_name(result)', playback)
+        self.assertIn('written, bytes', playback)
+
+    def test_radio_dac_uses_rx_master_clock_and_serial_status(self):
+        root = WEB_ROOT.parent
+        recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
+        playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        main = (root / "src" / "main.cpp").read_text(encoding="utf-8")
+        start = recorder.split('esp_err_t recorderStartRadioOutput()', 1)[1].split('void recorderStopRadioOutput()', 1)[0]
+        stop = recorder.split('void recorderStopRadioOutput()', 1)[1].split('bool recorderTaskReady()', 1)[0]
+        self.assertLess(start.index('i2s_channel_enable(micHandle)'),
+                start.index('i2s_channel_enable(radioHandle)'))
+        self.assertLess(stop.index('i2s_channel_disable(radioHandle)'),
+                stop.index('i2s_channel_disable(micHandle)'))
+        self.assertIn('if (result != ESP_OK) i2s_channel_disable(micHandle)', start)
+        self.assertIn('recorderStartRadioOutput()', playback)
+        self.assertIn('recorderStopRadioOutput()', playback)
+        self.assertIn('Serial.printf("Radio DAC GPIO6/7/9: %s\\n"', main)
+        self.assertIn('Serial.printf("Playback error: %s\\n"', main)
+
+    def test_serial_radio_playback_is_opt_in_and_reports_first_i2s_block(self):
+        root = WEB_ROOT.parent
+        main = (root / "src" / "main.cpp").read_text(encoding="utf-8")
+        playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        script = (root / "scripts" / "test_device.py").read_text(encoding="utf-8")
+        self.assertIn("if (command == 'P')", main)
+        self.assertIn('safeSdPath(path)', main)
+        self.assertIn('playbackStart(path, PlaybackTarget::radio)', main)
+        self.assertIn("if (command == 'Z')", main)
+        self.assertIn('Radio DAC first block:', playback)
+        self.assertIn('parser.add_argument("--play-radio"', script)
+        self.assertIn('device.write(b"P" + path.encode("utf-8") + b"\\n")', script)
+        self.assertIn('device.write(b"Z")', script)
+        self.assertIn("if (command == 'L')", main)
+        self.assertIn('Serial.printf("WAV: %s', main)
+        self.assertIn('parser.add_argument("--list-wav"', script)
+
+    def test_file_manager_explains_unavailable_radio_and_keeps_play_request_errors(self):
+        script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
+        self.assertIn('Rádió DAC: nem elérhető', script)
+        self.assertIn('playbackRequestError = error.message', script)
+        self.assertIn('data.playbackError || playbackRequestError', script)
+        self.assertIn('button.title = !data.radioReady', script)
+        self.assertIn('Lejátszás befejeződött', script)
 
     def test_clock_firmware_contract(self):
         root = WEB_ROOT.parent

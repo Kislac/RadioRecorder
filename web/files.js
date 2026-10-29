@@ -23,6 +23,9 @@ let next = 0,
 let volumeQueued = null,
   volumeSending = false,
   boostUpdating = false;
+let playbackRequestError = "";
+let lastPlaybackFinished = false,
+  wasPlaying = false;
 let demoBase = 0,
   demoSyncedAt = performance.now(),
   clockSource = "unset";
@@ -101,6 +104,9 @@ async function refreshSpeaker() {
     if (!response.ok) throw Error();
     const data = await response.json(),
       playing = data.playback !== "idle";
+    if (wasPlaying && !playing && !data.playbackError) lastPlaybackFinished = true;
+    if (playing) lastPlaybackFinished = false;
+    wasPlaying = playing;
     demoBase = data.demoSeconds;
     clockSource = data.clock?.source || "unset";
     demoSyncedAt = performance.now();
@@ -109,7 +115,9 @@ async function refreshSpeaker() {
     speakerStatus.textContent = playing
       ? (data.playbackTarget === "radio" ? "Rádió DAC: " : "ESP hangszóró: ") +
         (data.playback === "starting" ? "indul..." : data.playbackPath)
-      : data.playbackError || "Lejátszás: kikapcsolva";
+      : data.playbackError || playbackRequestError ||
+        (lastPlaybackFinished ? "Lejátszás befejeződött" :
+          data.radioReady === false ? "Rádió DAC: nem elérhető" : "Lejátszás: kikapcsolva");
     if (!volumeSending) {
       speakerVolume.value = data.speakerVolume;
       speakerVolumeValue.textContent = data.speakerVolume + "%";
@@ -118,13 +126,19 @@ async function refreshSpeaker() {
     if (!boostUpdating) speakerBoost.value = String(data.speakerBoost);
     for (const button of listEl.querySelectorAll("[data-esp-play]"))
       button.disabled = playing || data.state !== "idle" || !data.speakerReady;
-    for (const button of listEl.querySelectorAll("[data-radio-play]"))
+    for (const button of listEl.querySelectorAll("[data-radio-play]")) {
       button.disabled = playing || data.state !== "idle" || !data.radioReady;
+      button.title = !data.radioReady
+        ? "Rádió DAC nem elérhető (az I2S TX nem inicializálódott)"
+        : "Lejátszás a rádió DAC-kimenetén";
+    }
   } catch {
-    speakerStatus.textContent = "ESP-lejátszás állapota nem elérhető.";
+    speakerStatus.textContent = playbackRequestError || "ESP-lejátszás állapota nem elérhető.";
   }
 }
 async function playOnEsp(path, target = "speaker") {
+  playbackRequestError = "";
+  lastPlaybackFinished = false;
   try {
     const response = await fetch("/api/play?path=" + encodeURIComponent(path) + "&target=" + target, {
       method: "POST",
@@ -132,7 +146,8 @@ async function playOnEsp(path, target = "speaker") {
     if (!response.ok) throw Error(await response.text());
     await refreshSpeaker();
   } catch (error) {
-    speakerStatus.textContent = error.message || "ESP-lejátszás nem indult.";
+    playbackRequestError = error.message || "ESP-lejátszás nem indult.";
+    speakerStatus.textContent = playbackRequestError;
   }
 }
 speakerStop.addEventListener("click", async () => {
@@ -140,6 +155,7 @@ speakerStop.addEventListener("click", async () => {
   try {
     const response = await fetch("/api/play/stop", { method: "POST" });
     if (!response.ok) throw Error(await response.text());
+    playbackRequestError = "";
   } catch (error) {
     speakerStatus.textContent = error.message || "Leállítás sikertelen.";
   }
