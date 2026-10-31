@@ -6,6 +6,14 @@ enum class PlaybackState { idle, starting, playing };
 enum class PlaybackTarget { speaker, radio };
 enum class PlaybackCue { startup, recordingStarted, recordingStopped };
 
+struct DacToneSettings {
+  uint16_t frequency;
+  uint32_t sampleRate;
+  uint8_t bits;
+  uint8_t level;
+  bool leftJustified;
+};
+
 struct PlaybackStatus {
   PlaybackState state;
   bool ready;
@@ -14,6 +22,7 @@ struct PlaybackStatus {
   uint8_t volume;
   uint8_t boost;
   uint8_t radioVolume;
+  uint8_t radioBoost;
   uint32_t bytesPlayed;
   uint32_t bytesTotal;
   String path;
@@ -24,9 +33,11 @@ void initPlayback(bool sdReady);
 PlaybackState playbackGetState();
 PlaybackStatus playbackStatus();
 void playbackStart(const String &path, PlaybackTarget target = PlaybackTarget::speaker);
+bool playbackStartTone(const DacToneSettings &settings);
 void playbackPlayCue(PlaybackCue cue);
 bool playbackStop();
 void playbackSetVolume(uint8_t volume);
 void playbackSetRadioVolume(uint8_t volume);
+void playbackSetRadioBoost(uint8_t boost);
 void playbackSetBoost(uint8_t boost);
 void playbackPollSettings();

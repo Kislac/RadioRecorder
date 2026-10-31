@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>DAC próba - Radio Recorder</title>
+    <link rel="stylesheet" href="/settings.css" />
+    <link rel="stylesheet" href="/dac_test.css" />
+  </head>
+  <body>
+    <header>RADIO RECORDER <nav><a href="/">Főoldal</a> · <a href="/files">Fájlkezelő</a></nav></header>
+    <main>
+      <h1>DAC próba</h1>
+      <form id="toneForm">
+        <div class="setting"><label for="frequency">Hangfrekvencia</label><select name="frequency" id="frequency"><option value="400">400 Hz</option><option value="1000" selected>1 kHz</option><option value="2000">2 kHz</option></select></div>
+        <div class="setting"><label for="rate">Mintavétel</label><select name="rate" id="rate"><option value="22050">22 050 Hz</option><option value="44100" selected>44 100 Hz</option><option value="48000">48 000 Hz</option></select></div>
+        <div class="setting"><label for="bits">Mintaméret</label><select name="bits" id="bits"><option value="16" selected>16 bit</option><option value="32">32 bit</option></select></div>
+        <div class="setting"><label for="format">I²S formátum</label><select name="format" id="format"><option value="philips" selected>Philips I²S</option><option value="msb">MSB / balra igazított</option></select></div>
+        <div class="setting"><label for="level">Jelszint</label><select name="level" id="level"><option value="20">20%</option><option value="50" selected>50%</option><option value="90">90%</option></select></div>
+        <div class="actions"><button id="startTone" type="submit" disabled>10 mp jel indítása</button><button id="stopTone" type="button" disabled>Leállítás</button></div>
+      </form>
+      <p id="toneStatus" role="status" aria-live="polite">Állapot betöltése...</p>
+      <progress id="toneProgress" max="100" value="0" aria-label="Jel előrehaladása"></progress>
+    </main>
+    <footer>ESP32-S3 / Radio Recorder</footer>
+    <script src="/dac_test.js"></script>
+  </body>
+</html>

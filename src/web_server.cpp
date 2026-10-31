@@ -145,6 +145,7 @@ void sendStatus() {
   json += ",\"speakerVolume\":" + String(speaker.volume);
   json += ",\"speakerBoost\":" + String(speaker.boost);
   json += ",\"radioVolume\":" + String(speaker.radioVolume);
+  json += ",\"radioBoost\":" + String(speaker.radioBoost);
   json += ",\"playbackBytesPlayed\":" + String(speaker.bytesPlayed);
   json += ",\"playbackBytesTotal\":" + String(speaker.bytesTotal);
   json += ",\"playback\":\"" + String(playback == PlaybackState::idle ? "idle" : playback == PlaybackState::starting ? "starting" : "playing") + "\"";
@@ -711,7 +712,7 @@ void initWeb() {
       server.send(400, "text/plain", "Confirm verified wiring and disconnected PTT/audio with confirm=1");
       return;
     }
-    if (appWifiTestActive() || !radioProgrammingStart()) {
+    if (!radioProgrammingStart()) {
       server.send(409, "text/plain", "Radio read or PTT already active");
       return;
     }
@@ -730,7 +731,6 @@ void initWeb() {
         (origin.length() && origin != "http://" + server.hostHeader())) {
       server.send(403, "text/plain", "Same-origin JSON request required"); return;
     }
-    if (appWifiTestActive()) { server.send(409, "text/plain", "Wi-Fi test active"); return; }
     String error;
     if (!radioProgrammingWriteJson(server.arg("plain"), error)) { server.send(409, "text/plain", error); return; }
     server.sendHeader("Cache-Control", "no-store");
@@ -766,6 +766,11 @@ void initWeb() {
     wifiManagerNotifyActivity();
     server.sendHeader("Cache-Control", "no-store");
     server.send_P(200, "text/html; charset=utf-8", kTestPage);
+  });
+  server.on("/dac-test", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send_P(200, "text/html; charset=utf-8", kDacTestPage);
   });
   server.on("/api/settings", HTTP_GET, sendSettings);
   server.on("/api/settings", HTTP_POST, saveSettings);
@@ -842,6 +847,29 @@ void initWeb() {
   });
   server.on("/api/status", HTTP_GET, sendStatus);
   server.on("/api/play", HTTP_POST, startSpeakerPlayback);
+  server.on("/api/dac-tone", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    String frequency = server.arg("frequency");
+    String rate = server.arg("rate");
+    String bits = server.arg("bits");
+    String format = server.arg("format");
+    String level = server.arg("level");
+    if ((frequency != "400" && frequency != "1000" && frequency != "2000") ||
+        (rate != "22050" && rate != "44100" && rate != "48000") ||
+        (bits != "16" && bits != "32") || (format != "philips" && format != "msb") ||
+        (level != "20" && level != "50" && level != "90")) {
+      server.send(400, "text/plain", "Invalid DAC tone settings");
+      return;
+    }
+    if (!appCanStartPlayback() || !playbackStatus().ready) {
+      server.send(409, "text/plain", "Stop recording, playback or live audio first");
+      return;
+    }
+    DacToneSettings settings = {static_cast<uint16_t>(frequency.toInt()), static_cast<uint32_t>(rate.toInt()),
+                                static_cast<uint8_t>(bits.toInt()), static_cast<uint8_t>(level.toInt()), format == "msb"};
+    if (!playbackStartTone(settings)) { server.send(409, "text/plain", "DAC tone unavailable"); return; }
+    server.send(202, "text/plain", "DAC tone started");
+  });
   server.on("/api/play/volume", HTTP_POST, []() {
     wifiManagerNotifyActivity();
     String value = server.arg("value");
@@ -882,6 +910,16 @@ void initWeb() {
       return;
     }
     playbackSetRadioVolume(volume);
+    server.send(200, "text/plain", value);
+  });
+  server.on("/api/play/radio-boost", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    String value = server.arg("value");
+    if (value != "1" && value != "2" && value != "4" && value != "8" && value != "16") {
+      server.send(400, "text/plain", "Radio gain must be 1, 2, 4, 8 or 16");
+      return;
+    }
+    playbackSetRadioBoost(value.toInt());
     server.send(200, "text/plain", value);
   });
   server.on("/api/play/boost", HTTP_POST, []() {
@@ -933,14 +971,6 @@ void initWeb() {
     if (appStartMicRecording()) server.send(200, "text/plain", recorderName());
     else server.send(409, "text/plain", "SD, I2S microphone or recorder unavailable, or audio busy");
   });
-  server.on("/api/wifi-test", HTTP_POST, []() {
-    wifiManagerNotifyActivity();
-    if (!appStartWifiTest()) {
-      server.send(409, "text/plain", "Stop live audio and other recordings first");
-      return;
-    }
-    server.send(200, "text/plain", recorderName());
-  });
   server.on("/api/stop", HTTP_POST, []() {
     wifiManagerNotifyActivity();
     if (appStopRecording()) server.send(200, "text/plain", "Stopping");
@@ -966,13 +996,6 @@ void webStopServices() {
   audioSocket.close();
   resetLiveAudio();
   wifiReady = false;
-}
-
-bool webDisableForNoiseTest() {
-  appClockStopSync();
-  webStopServices();
-  if (!WiFi.mode(WIFI_OFF)) return false;
-  return true;
 }
 
 void pollWeb() {

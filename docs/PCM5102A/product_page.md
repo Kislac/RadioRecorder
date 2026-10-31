@@ -29,7 +29,7 @@ Lábbal szerelt PIN-ek:
 Lábbal nem szerelt pinek:
 1. - FLT
 2. - DEMP
-3. - XSWT
+3. - XSMT
 4. - FWT
  - A3v3
 G. - AGND

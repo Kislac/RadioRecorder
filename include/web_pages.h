@@ -5,3 +5,4 @@ extern const char kFilesPage[];
 extern const char kSettingsPage[];
 extern const char kTestPage[];
 extern const char kRadioPage[];
+extern const char kDacTestPage[];

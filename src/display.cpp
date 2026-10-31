@@ -526,7 +526,7 @@ void onPress() {
       return;
     }
     if (setting == 14) { inSettings = false; return; }
-    if (setting == 0) { if (appWifiTestActive()) setMessage("Wi-Fi zajteszt aktiv"); else if (!wifiManagerToggle()) setMessage("Wi-Fi valtas sikertelen"); return; }
+    if (setting == 0) { if (!wifiManagerToggle()) setMessage("Wi-Fi valtas sikertelen"); return; }
     if (setting == 1) { if (!recorderSetSerialMeter(!recorderSerialMeterEnabled())) setMessage("ADC nem elerheto"); return; }
     if (setting == 4) { recorderSetLowpass(!recorderLowpass()); return; }
     if (setting == 5) { editing = true; return; }
@@ -538,8 +538,7 @@ void onPress() {
     if (setting == 12) zoneEdit = appClockTimezone();
     editing = true;
   } else if (tile == 0) {
-    if (appWifiTestActive()) setMessage("Zajteszt aktiv");
-    else if (recorderState() == CaptureState::idle) {
+    if (recorderState() == CaptureState::idle) {
       if (!appStartRecording()) setMessage("Felvetel nem indithato");
     } else if (recorderSource() == CaptureSource::adc && !recorderStopping()) appStopRecording();
   } else if (tile == kFileTile) {

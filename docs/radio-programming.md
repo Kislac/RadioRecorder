@@ -48,7 +48,7 @@ A kliens nem írja felül a meglévő mentéskönyvtárat, és minden futás PAS
 
 Nyisd meg az ESP `/radio` oldalát. Bekötési megerősítés után olvasd ki a rádiót, töltsd le az eredeti `.img` és JSON mentést. Az engedélyezett rádióváltozatnál megjelenik a **Módosítások** rész. Válassz csoportot, csatornát/mezőt és értéket, majd **Hozzáadás**. A listából elemek eltávolíthatók, vagy az egész lista elvethető. A módosítások nem íródnak ki automatikusan.
 
-Az eredeti mentés letöltésének és az írás engedélyezésének külön jelölése, a bekötési jelölő és az **Írás a rádióba** megerősítése szükséges. A folyamat előzetes összehasonlítást, írást és visszaellenőrzést jelez. Új snapshot esetén a régi szerkesztési lista elvész. A web és USB nem indíthat egyszerre rádióműveletet; a PTT és a Wi-Fi zajteszt is tiltott aktív rádióművelet alatt.
+Az eredeti mentés letöltésének és az írás engedélyezésének külön jelölése, a bekötési jelölő és az **Írás a rádióba** megerősítése szükséges. A folyamat előzetes összehasonlítást, írást és visszaellenőrzést jelez. Új snapshot esetén a régi szerkesztési lista elvész. A web és USB nem indíthat egyszerre rádióműveletet; a PTT is tiltott aktív rádióművelet alatt.
 
 ## Írási védelem és korlátok
 

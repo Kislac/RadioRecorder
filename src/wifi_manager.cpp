@@ -127,7 +127,6 @@ bool wifiManagerInit() {
 }
 
 void wifiManagerPoll() {
-  if (appWifiTestActive()) return;
   uint32_t now = millis();
 
   if (forgetPending) {
@@ -241,7 +240,7 @@ void wifiManagerWake() {
 }
 
 bool wifiManagerToggle() {
-  if (appWifiTestActive() || mode == Mode::connecting) return false;
+  if (mode == Mode::connecting) return false;
   if (mode == Mode::off) {
     wifiManagerWake();
     return mode != Mode::off;
@@ -322,7 +321,7 @@ String wifiManagerScanJson() {
 
 bool wifiManagerConnect(const String &ssid, const String &password, bool keepApHost) {
   if (ssid.isEmpty() || ssid.length() > 32 || password.length() > 64 || recorderState() != CaptureState::idle ||
-      appWifiTestActive() || mode == Mode::connecting) return false;
+  mode == Mode::connecting) return false;
   for (char character : ssid) if (static_cast<uint8_t>(character) < 32) return false;
   if (mode == Mode::off && !startAp(false)) return false;
   bool apAlreadyActive = hasApInterface();

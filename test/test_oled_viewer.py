@@ -16,6 +16,7 @@ from scripts.oled_viewer import FRAME_BYTES, KEY_COMMANDS, body_pixels, find_dev
 from scripts.test_device import (delete_test_recording, menu_state, rtc_live_check, rtc_snapshot,
                                  valid_signal, validate_display_frames, verify_rtc_progress)
 from scripts.test_support import TestRun, firmware_at_least
+from scripts.test_watchdog import trigger_and_verify_reset
 from scripts.run_tests import run_suite
 from scripts.test_wifi import wifi_profile
 from scripts.web_assets import PAGES, render_page
@@ -266,9 +267,22 @@ class FrameTests(unittest.TestCase):
         self.assertIn("watchdogResetCurrentTask()", recorder_source)
         self.assertIn("watchdogResetCurrentTask()", playback_source)
         self.assertIn("if (command == 'w')", main_source)
+        self.assertIn("if (command == 'W')", main_source)
+        self.assertIn("kWatchdogConfirmMs = 5000", main_source)
+        self.assertIn("recorderState() == CaptureState::idle", main_source)
+        self.assertIn("radioProgrammingBusy()", main_source)
         self.assertIn('device.write(b"w")', watchdog_test_source)
+        self.assertIn('device.write(b"W")', watchdog_test_source)
         self.assertIn("task watchdog got triggered", watchdog_test_source)
         self.assertIn('line == "Watchdog: ready (10 s)"', watchdog_test_source)
+
+    def test_watchdog_tester_does_not_confirm_refused_request(self):
+        device = FakeDevice(b"Watchdog test refused: device busy\n")
+        report = SimpleNamespace(detail=lambda line: None)
+        with patch("scripts.test_watchdog.time.monotonic", side_effect=[0, 0, 4]):
+            with self.assertRaisesRegex(TimeoutError, "confirmation prompt not received"):
+                trigger_and_verify_reset(device, report)
+        self.assertEqual(device.commands, [b"w"])
 
     def test_persistent_screen_timeout_web_settings_contract(self):
         root = Path(__file__).resolve().parents[1]
@@ -311,7 +325,7 @@ class FrameTests(unittest.TestCase):
         self.assertIn("playbackPlayCue(PlaybackCue::recordingStopped)", recorder_source)
         self.assertIn('static_assert(sizeof(kStartupImageBits) == 1024', startup_image)
         self.assertIn("sinf(phase)", playback_source)
-        self.assertIn("if ((speakerReady || recorderRadioHandle()) &&", playback_source)
+        self.assertIn("if (speakerReady &&", playback_source)
         self.assertIn("cuePlaying.compare_exchange_strong", playback_source)
         self.assertIn("cuePlaying.load() ? PlaybackState::playing", playback_source)
         self.assertIn('playbackPlayCue(PlaybackCue::startup)', (root / "src" / "main.cpp").read_text(encoding="utf-8"))

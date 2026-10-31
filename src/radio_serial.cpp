@@ -55,7 +55,7 @@ void execute() {
   else if (!strcmp(name, "schema")) respond(id, radioPatchSchemaJson());
   else if (!strcmp(name, "read")) {
     if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(request, "confirm"))) reject(id, "Wiring confirmation required");
-    else if (appWifiTestActive() || !radioProgrammingStart()) reject(id, "Radio, PTT or Wi-Fi test busy");
+    else if (!radioProgrammingStart()) reject(id, "Radio or PTT busy");
     else respond(id, radioProgrammingJson(false));
   } else if (!strcmp(name, "write")) {
     cJSON *confirm = cJSON_GetObjectItemCaseSensitive(request, "confirm");
@@ -63,7 +63,6 @@ void execute() {
     String error;
     char *payload = cJSON_IsObject(patch) ? cJSON_PrintUnformatted(patch) : nullptr;
     if (!cJSON_IsString(confirm) || strcmp(confirm->valuestring, "WRITE UV5R")) reject(id, "WRITE UV5R confirmation required");
-    else if (appWifiTestActive()) reject(id, "Wi-Fi test active");
     else if (!payload || !radioProgrammingWriteJson(payload, error)) reject(id, error.length() ? error.c_str() : "Invalid patch");
     else respond(id, radioProgrammingJson(false));
     cJSON_free(payload);

@@ -105,6 +105,7 @@ class PreviewDevice:
         self.lowpass = False
         self.volume = 25
         self.radio_volume = 5
+        self.radio_boost = 1
         self.boost = 1
         self.screen_minutes = 5
         self.wifi_minutes = 5
@@ -116,7 +117,7 @@ class PreviewDevice:
         self.playing = ""
         self.playback_target = "speaker"
         self.play_until = 0
-        self.auto_stop_at = 0
+        self.tone_bytes_total = 0
         self.ptt_until = 0
         self.ptt_latched = False
         self.radio_started = None
@@ -140,8 +141,6 @@ class PreviewDevice:
             self.mic_signal_enabled = False
         if self.playing and now >= self.play_until:
             self.playing = ""
-        if self.auto_stop_at and now >= self.auto_stop_at:
-            self.finish_recording()
         if self.ptt_until and now >= self.ptt_until:
             self.ptt_until = 0
         if self.pending_network and now >= self.pending_network[0]:
@@ -165,7 +164,6 @@ class PreviewDevice:
 
     def finish_recording(self):
         self.recording = False
-        self.auto_stop_at = 0
         self.files[self.recording_name] = self.wav
 
     def next_recording_name(self, source):
@@ -268,8 +266,10 @@ class PreviewDevice:
                 return 200, {"active": bool(self.ptt_until or self.ptt_latched), "pulseMs": 1000}
             if path == "/api/status":
                 clock = self.clock_info()
-                pcm_total = len(self.files[self.playing]) - 44 if self.playing else 0
-                pcm_played = min(pcm_total, max(0, int((time.monotonic() - (self.play_until - 2)) * 44100))) if self.playing else 0
+                tone = self.playing.startswith("DAC tone")
+                pcm_total = self.tone_bytes_total if tone else len(self.files[self.playing]) - 44 if self.playing else 0
+                seconds = 10 if tone else 2
+                pcm_played = min(pcm_total, max(0, int((time.monotonic() - (self.play_until - seconds)) * pcm_total / seconds))) if self.playing else 0
                 return 200, {"version": "preview", "ready": self.sd_ready, "micReady": self.sd_ready,
                              "clock": clock, "demoSeconds": sum(int(value) * scale for value, scale in
                              zip(clock["local"][11:19].split(":"), (3600, 60, 1))) if clock["local"] else 0,
@@ -279,7 +279,7 @@ class PreviewDevice:
                              "state": "recording" if self.recording else "idle", "stopping": False,
                              "speakerReady": True, "radioReady": True,
                              "speakerVolume": self.volume, "speakerBoost": self.boost,
-                             "radioVolume": self.radio_volume,
+                             "radioVolume": self.radio_volume, "radioBoost": self.radio_boost,
                              "playbackBytesPlayed": pcm_played, "playbackBytesTotal": pcm_total,
                              "playback": "playing" if self.playing else "idle", "playbackPath": self.playing,
                              "playbackTarget": self.playback_target,
@@ -413,14 +413,12 @@ class PreviewDevice:
                 self.ptt_until = 0
                 self.ptt_latched = False
                 return 200, "PTT test off"
-            if path in ("/api/start", "/api/mic/start", "/api/wifi-test"):
+            if path in ("/api/start", "/api/mic/start"):
                 if not self.sd_ready or self.recording or self.playing:
                     return 409, "Recorder unavailable or busy"
                 self.recording = True
                 self.record_source = "microphone" if path == "/api/mic/start" else "adc"
                 self.recording_name = self.next_recording_name(self.record_source)
-                if path == "/api/wifi-test":
-                    self.auto_stop_at = time.monotonic() + 2
                 return 200, self.recording_name
             if path == "/api/files/delete":
                 target = params.get("path", "")
@@ -474,6 +472,12 @@ class PreviewDevice:
             if path == "/api/play/radio-volume":
                 self.radio_volume = self.integer(params, "value", 0, 100)
                 return 200, str(self.radio_volume)
+            if path == "/api/play/radio-boost":
+                gain = self.integer(params, "value", 1, 16)
+                if gain not in (1, 2, 4, 8, 16):
+                    raise ValueError("Radio gain must be 1, 2, 4, 8 or 16")
+                self.radio_boost = gain
+                return 200, str(gain)
             if path == "/api/play/boost":
                 boost = self.integer(params, "value", 1, 4)
                 if boost not in (1, 2, 4):
@@ -491,6 +495,20 @@ class PreviewDevice:
                 self.playback_target = target
                 self.playing, self.play_until = params["path"], time.monotonic() + 2
                 return 200, "Playing on simulated " + target
+            if path == "/api/dac-tone":
+                frequency, rate, bits, format_name, level = (params.get(key, "") for key in
+                                                             ("frequency", "rate", "bits", "format", "level"))
+                if (frequency not in ("400", "1000", "2000") or rate not in ("22050", "44100", "48000") or
+                        bits not in ("16", "32") or format_name not in ("philips", "msb") or
+                        level not in ("20", "50", "90")):
+                    return 400, "Invalid DAC tone settings"
+                if self.recording or self.playing or self.mic_signal_enabled:
+                    return 409, "Stop recording, playback or live audio first"
+                self.playback_target = "radio"
+                self.playing = f"DAC tone {frequency} Hz / {rate} Hz / {bits} bit / {format_name} / {level}%"
+                self.play_until = time.monotonic() + 10
+                self.tone_bytes_total = int(rate) * 10 * 2 * (int(bits) // 8)
+                return 202, "DAC tone started"
             if path == "/api/play/stop":
                 self.playing = ""
                 return 200, "Stopping speaker"
@@ -588,9 +606,9 @@ class PreviewHandler(BaseHTTPRequestHandler):
                     return
             if method == "GET":
                 routes = {"/": "index.html", "/files": "files.html", "/settings": "settings.html",
-                          "/test": "test.html", "/radio": "radio.html"}
+                          "/test": "test.html", "/radio": "radio.html", "/dac-test": "dac_test.html"}
                 name = routes.get(url.path, url.path.lstrip("/"))
-                allowed = {page + extension for page in ("index", "files", "settings", "radio")
+                allowed = {page + extension for page in ("index", "files", "settings", "radio", "dac_test")
                            for extension in (".html", ".css", ".js")}
                 allowed.update(("test.html", "test.js", "radio_edit.js"))
                 if name in allowed:

@@ -110,7 +110,7 @@ def status(device, report, display_only=False, radio_only=False):
         raise TimeoutError("Incomplete firmware status: " + repr(lines))
     if not any(line.startswith("Firmware: v") for line in lines):
         raise AssertionError("No firmware status from ESP")
-    required = (("SD card", "Radio DAC GPIO6/7/9") if radio_only else ("OLED",) if display_only
+    required = (("SD card", "Radio DAC GPIO12/13/15") if radio_only else ("OLED",) if display_only
                 else ("SD card", "ADC GPIO1", "Recorder", "OLED", "Speaker"))
     for label in required:
         if not any(line.startswith(label + ": ready") for line in lines):

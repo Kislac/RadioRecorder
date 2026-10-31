@@ -22,7 +22,7 @@ void printSetupStatus() {
   Serial.printf("OLED screen off: %u min\n", appScreenOffMinutes());
   PlaybackStatus playback = playbackStatus();
   Serial.printf("Speaker: %s\n", playback.ready ? "ready" : "unavailable");
-  Serial.printf("Radio DAC GPIO6/7/9: %s\n", playback.radioReady ? "ready" : "unavailable");
+  Serial.printf("Radio DAC GPIO12/13/15: %s\n", playback.radioReady ? "ready" : "unavailable");
   Serial.printf("Playback: %s\n", playback.state == PlaybackState::idle ? "idle" :
                 playback.state == PlaybackState::starting ? "starting" : "playing");
   Serial.printf("Playback target: %s\n", playback.target == PlaybackTarget::radio ? "radio" : "speaker");
@@ -69,6 +69,15 @@ static void listSerialWavs(const String &path, uint8_t depth, uint16_t &remainin
   directory.close();
 }
 
+static constexpr uint32_t kWatchdogConfirmMs = 5000;
+
+static bool watchdogTestIdle() {
+  return recorderState() == CaptureState::idle && playbackGetState() == PlaybackState::idle &&
+         liveAudioClient() < 0 && !recorderMicSignalStatus().enabled &&
+         !recorderMicSignalStatus().active && !radioProgrammingBusy() &&
+         !pttTestActive();
+}
+
 static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &button, bool &frameRequested) {
   static char deleteFilename[64] = {};
   static uint8_t deleteFilenameLength = 0;
@@ -78,6 +87,8 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
   static size_t radioPlaybackLength = 0;
   static bool receivingRadioPlaybackPath = false;
   static bool radioPlaybackOverflow = false;
+  static bool watchdogArmed = false;
+  static uint32_t watchdogArmedAt = 0;
 
   if (receivingRadioPlaybackPath) {
     if (command == '\r') return;
@@ -156,9 +167,23 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
     return;
   }
   if (command == 'w') {
+    watchdogArmed = watchdogTestIdle();
+    watchdogArmedAt = millis();
+    Serial.println(watchdogArmed ? "Watchdog test: confirm with W within 5 s" :
+                   "Watchdog test refused: device busy");
+    return;
+  }
+  if (command == 'W') {
+    bool confirmed = watchdogArmed && static_cast<uint32_t>(millis() - watchdogArmedAt) <= kWatchdogConfirmMs;
+    watchdogArmed = false;
+    if (!confirmed || !watchdogTestIdle()) {
+      Serial.println("Watchdog test refused: not armed, expired or device busy");
+      return;
+    }
     Serial.println("Watchdog test: forcing a main-loop stall");
     while (true) {}
   }
+  watchdogArmed = false;
   if (command == 'j') --steps;
   if (command == 'l') ++steps;
   if (command == 'k' && button == ButtonEvent::none) button = ButtonEvent::shortPress;
@@ -180,7 +205,7 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
   if (command == 'y') {
     if (wifiManagerModeName() != "AP" || wifiManagerHasCredentials() ||
         recorderState() != CaptureState::idle || playbackGetState() != PlaybackState::idle ||
-        radioProgrammingBusy() || pttTestActive() || appWifiTestActive()) {
+        radioProgrammingBusy() || pttTestActive()) {
       Serial.println("RTC_RESTART refused: offline AP and idle device required");
     } else {
       Serial.println("RTC_RESTART accepted");
@@ -245,7 +270,6 @@ void loop() {
   playbackPollSettings();
   wifiManagerPoll();
   appClockPoll();
-  appPollWifiTest();
   feedSystemWatchdog();
   delay(10);
 }

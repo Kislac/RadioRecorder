@@ -16,6 +16,43 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_dac_tone_uses_independent_output_and_timed_web_control(self):
+        root = WEB_ROOT.parent
+        playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        tone = playback.split('static void playDacTone()', 1)[1].split('static void speakerLoop(', 1)[0]
+        self.assertIn('I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER)', playback)
+        self.assertIn('startDacOutput(outputHandle, config)', tone)
+        self.assertIn('i2s_new_channel(&channel, &outputHandle, nullptr)', playback)
+        self.assertIn('gpio_reset_pin(kSpeakerDataGpio)', playback)
+        self.assertIn('gpio_set_direction(kSpeakerDataGpio, GPIO_MODE_INPUT)', playback)
+        self.assertLess(playback.index('i2s_del_channel(speakerHandle)', playback.index('static esp_err_t startDacOutput(')),
+            playback.index('i2s_new_channel(&channel, &outputHandle, nullptr)', playback.index('static esp_err_t startDacOutput(')))
+        self.assertIn('speakerReady = initSpeaker()', playback)
+        self.assertIn('i2s_channel_write(outputHandle,', tone)
+        self.assertNotIn('i2s_channel_write(speakerHandle,', tone)
+        self.assertNotIn('recorderStartRadioOutput()', tone)
+        self.assertIn('kToneDurationSeconds = 10', playback)
+        self.assertIn('playbackStartTone(', playback)
+        self.assertIn('playbackStopRequested.load()', playback)
+        self.assertIn('server.on("/api/dac-tone", HTTP_POST', server)
+        self.assertIn('server.on("/dac-test", HTTP_GET', server)
+        self.assertIn('kDacTestPage', PAGES.values())
+
+    def test_manual_dac_tone_remains_without_automatic_demo(self):
+        root = WEB_ROOT.parent
+        playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        page = render_page("dac_test")
+        self.assertNotIn('playbackStartDacDemo', playback)
+        self.assertNotIn('dacDemoStep', server)
+        self.assertNotIn('server.on("/api/dac-demo", HTTP_POST', server)
+        self.assertNotIn('id="startDemo"', page)
+        script = (WEB_ROOT / "dac_test.js").read_text(encoding="utf-8")
+        self.assertNotIn("request('/api/dac-demo')", script)
+        self.assertIn("request('/api/dac-tone'", script)
+        self.assertIn("request('/api/play/stop')", script)
+
     def test_radio_page_is_manual_read_only_and_embedded(self):
         server = (WEB_ROOT.parent / "src" / "web_server.cpp").read_text(encoding="utf-8")
         script = (WEB_ROOT / "radio.js").read_text(encoding="utf-8")
@@ -57,21 +94,38 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('confirm(`Biztosan törlöd', files_script)
         self.assertIn('radio.dataset.radioPlay = item.path', files_script)
 
-    def test_radio_dac_uses_shared_i2s_clocks_and_separate_playback_target(self):
+    def test_radio_dac_has_separate_playback_target_from_microphone_channel(self):
         root = WEB_ROOT.parent
         recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
         playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
         display = (root / "src" / "display.cpp").read_text(encoding="utf-8")
-        self.assertIn('i2s_new_channel(&channel, &radioHandle, &micHandle)', recorder)
-        self.assertIn('config.gpio_cfg.dout = GPIO_NUM_9', recorder)
+        self.assertIn('i2s_new_channel(&channel, nullptr, &micHandle)', recorder)
+        self.assertNotIn('radioHandle', recorder)
+        self.assertIn('I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER)', playback)
         self.assertIn('PlaybackTarget::radio', playback)
         self.assertIn('cuePlaying.load() ? PlaybackTarget::speaker : playbackTarget', playback)
         self.assertIn('playbackStart(selectedFile, PlaybackTarget::radio)', display)
         self.assertIn('esp_err_t result = i2s_channel_write(outputHandle,', playback)
-        self.assertIn('source * radioVolume.load() / 100.0f * 65536.0f', playback)
+        self.assertIn('float requestedRadioGain = radioVolume.load() * radioBoost.load() / 100.0f', playback)
         server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
         self.assertIn('targetArg == "radio" ? PlaybackTarget::radio', server)
         self.assertIn('data.radioReady', (root / "web" / "files.js").read_text(encoding="utf-8"))
+
+    def test_radio_wav_uses_independent_44100_philips_output_with_original_progress(self):
+        playback = (WEB_ROOT.parent / "src" / "playback.cpp").read_text(encoding="utf-8")
+        wav_loop = playback.split('bool radio = playbackTarget == PlaybackTarget::radio;', 1)[1].split('static bool initSpeaker()', 1)[0]
+        self.assertIn('I2S_STD_CLK_DEFAULT_CONFIG(44100)', playback)
+        self.assertIn('I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT', playback)
+        self.assertIn('startDacOutput(', wav_loop)
+        self.assertIn('stopDacOutput(', wav_loop)
+        self.assertNotIn('recorderStartRadioOutput()', wav_loop)
+        self.assertIn('radioOutput[index * 4] =', wav_loop)
+        self.assertIn('radioOutput[index * 4 + 1] =', wav_loop)
+        self.assertIn('radioOutput[index * 4 + 2] =', wav_loop)
+        self.assertIn('radioOutput[index * 4 + 3] =', wav_loop)
+        self.assertIn('size_t bytes = count * (radio ? 4 : 2)', wav_loop)
+        self.assertIn('playbackBytesPlayed.fetch_add(count)', wav_loop)
+        self.assertIn('if (radio && !speakerReady) stopDacOutput(outputHandle, enabled)', wav_loop)
 
     def test_radio_volume_persists_and_file_player_shows_real_progress(self):
         root = WEB_ROOT.parent
@@ -95,6 +149,26 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('id="radioVolume"', page)
         self.assertIn('id="playbackProgress"', page)
         self.assertIn('data.playbackBytesPlayed', script)
+
+    def test_radio_wav_gain_is_independent_limited_and_configurable(self):
+        root = WEB_ROOT.parent
+        playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        page = (WEB_ROOT / "files.html").read_text(encoding="utf-8")
+        script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
+        wav_loop = playback.split('bool radio = playbackTarget == PlaybackTarget::radio;', 1)[1].split('static bool initSpeaker()', 1)[0]
+        self.assertIn('radioBoost{1}', playback)
+        self.assertIn('putUChar(kRadioBoostKey, radioGain)', playback)
+        self.assertIn('getUChar(kRadioBoostKey', playback)
+        self.assertIn('peak ? fminf(requestedRadioGain, maxOutput / peak)', wav_loop)
+        self.assertIn('source * appliedRadioGain', wav_loop)
+        self.assertIn('\\"radioBoost\\"', server)
+        self.assertIn('server.on("/api/play/radio-boost", HTTP_POST', server)
+        self.assertIn('value != "1" && value != "2" && value != "4" && value != "8" && value != "16"', server)
+        self.assertIn('id="radioBoost"', page)
+        self.assertIn('data.radioBoost', script)
+        self.assertIn('playing && data.playbackTarget === "radio"', script)
+
         self.assertIn('/api/play/radio-volume?value=', script)
 
     def test_radio_dac_write_failure_reports_driver_result_and_progress(self):
@@ -103,21 +177,26 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('esp_err_to_name(result)', playback)
         self.assertIn('written, bytes', playback)
 
-    def test_radio_dac_uses_rx_master_clock_and_serial_status(self):
+    def test_radio_dac_and_microphone_use_separate_pins_and_serial_status(self):
         root = WEB_ROOT.parent
         recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
         playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
         main = (root / "src" / "main.cpp").read_text(encoding="utf-8")
-        start = recorder.split('esp_err_t recorderStartRadioOutput()', 1)[1].split('void recorderStopRadioOutput()', 1)[0]
-        stop = recorder.split('void recorderStopRadioOutput()', 1)[1].split('bool recorderTaskReady()', 1)[0]
-        self.assertLess(start.index('i2s_channel_enable(micHandle)'),
-                start.index('i2s_channel_enable(radioHandle)'))
-        self.assertLess(stop.index('i2s_channel_disable(radioHandle)'),
-                stop.index('i2s_channel_disable(micHandle)'))
-        self.assertIn('if (result != ESP_OK) i2s_channel_disable(micHandle)', start)
-        self.assertIn('recorderStartRadioOutput()', playback)
-        self.assertIn('recorderStopRadioOutput()', playback)
-        self.assertIn('Serial.printf("Radio DAC GPIO6/7/9: %s\\n"', main)
+        self.assertNotIn('radioHandle', recorder)
+        self.assertNotIn('recorderRadioHandle()', playback)
+        self.assertIn('config.gpio_cfg.bclk = kDacBclkGpio;', playback)
+        self.assertIn('config.gpio_cfg.ws = kDacLrcGpio;', playback)
+        self.assertIn('config.gpio_cfg.dout = kDacDataGpio;', playback)
+        self.assertIn('config.gpio_cfg.din = GPIO_NUM_8;', recorder)
+        self.assertIn('config.gpio_cfg.bclk = GPIO_NUM_6;', recorder)
+        self.assertIn('config.gpio_cfg.ws = GPIO_NUM_7;', recorder)
+        self.assertLess(recorder.index('config.gpio_cfg.dout = I2S_GPIO_UNUSED;'),
+                recorder.index('i2s_channel_init_std_mode(micHandle, &config)'))
+        self.assertNotIn('i2s_channel_reconfig_std_gpio', playback)
+        self.assertIn('startDacOutput(outputHandle, dacConfig)', playback)
+        self.assertIn('stopDacOutput(outputHandle, enabled)', playback)
+        self.assertIn('Serial.printf("Radio DAC GPIO12/13/15: %s\\n"', main)
+        self.assertIn('Serial.printf("I2S microphone GPIO6/7/8: %s\\n"', main)
         self.assertIn('Serial.printf("Playback error: %s\\n"', main)
 
     def test_serial_radio_playback_is_opt_in_and_reports_first_i2s_block(self):
@@ -318,6 +397,39 @@ class PreviewHttpTests(unittest.TestCase):
     def setUp(self):
         self.server.device = PreviewDevice()
 
+    def test_dac_tone_is_timed_stoppable_and_rejects_bad_or_busy_requests(self):
+        settings = {"frequency": "1000", "rate": "44100", "bits": "16", "format": "philips", "level": "50"}
+        self.assertEqual(self.request("/api/dac-tone", "POST", {**settings, "rate": "96000"})[0], 400)
+        self.assertEqual(self.request("/api/dac-tone", "POST", settings)[0], 202)
+        self.assertEqual(self.request("/api/dac-tone", "POST", settings)[0], 409)
+        status, data, _ = self.request("/api/status")
+        playback = json.loads(data)
+        self.assertEqual(status, 200)
+        self.assertEqual(playback["playbackTarget"], "radio")
+        self.assertEqual(playback["playbackBytesTotal"], 44100 * 10 * 4)
+        self.assertFalse(self.server.device.ptt_latched)
+        self.server.device.play_until -= 5
+        self.assertGreater(json.loads(self.request("/api/status")[1])["playbackBytesPlayed"], 0)
+        self.assertEqual(self.request("/api/play/stop", "POST")[0], 200)
+        self.assertEqual(json.loads(self.request("/api/status")[1])["playback"], "idle")
+        self.server.device.recording = True
+        self.assertEqual(self.request("/api/dac-tone", "POST", settings)[0], 409)
+
+    def test_removed_diagnostics_are_not_available_in_preview(self):
+        self.assertEqual(self.request("/api/dac-demo", "POST")[0], 404)
+        self.assertEqual(self.request("/api/wifi-test", "POST")[0], 404)
+        self.assertFalse(self.server.device.recording)
+
+    def test_wifi_noise_test_is_absent_but_regular_wifi_remains(self):
+        root = WEB_ROOT.parent
+        control = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        page = render_page("index")
+        self.assertNotIn("appPollWifiTest", control)
+        self.assertNotIn('server.on("/api/wifi-test"', server)
+        self.assertNotIn('id="wifiTest"', page)
+        self.assertIn('server.on("/api/wifi/connect"', server)
+
     def test_radio_volume_and_playback_progress(self):
         status, _, _ = self.request("/api/play/radio-volume?value=23", "POST")
         self.assertEqual(status, 200)
@@ -332,6 +444,15 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(playback["radioVolume"], 23)
         self.assertGreater(playback["playbackBytesPlayed"], 0)
         self.assertLess(playback["playbackBytesPlayed"], playback["playbackBytesTotal"])
+
+    def test_radio_boost_accepts_only_supported_values_and_is_independent(self):
+        self.assertEqual(json.loads(self.request("/api/status")[1])["radioBoost"], 1)
+        self.assertEqual(self.request("/api/play/radio-boost?value=16", "POST")[0], 200)
+        for value in ("0", "3", "32", "-1", "wat"):
+            self.assertEqual(self.request(f"/api/play/radio-boost?value={value}", "POST")[0], 400)
+        status = json.loads(self.request("/api/status")[1])
+        self.assertEqual(status["radioBoost"], 16)
+        self.assertEqual(status["speakerBoost"], 1)
 
     def test_radio_dac_playback_reports_target_and_stops_without_ptt(self):
         status, _, _ = self.request("/api/play?path=%2FREC00001.wav&target=invalid", "POST")
@@ -362,7 +483,7 @@ class PreviewHttpTests(unittest.TestCase):
         return status, data, response_headers
 
     def test_pages_navigation_and_assets_are_available(self):
-        for path, name in (("/", "index"), ("/files", "files"), ("/settings", "settings"), ("/test", "test"), ("/radio", "radio")):
+        for path, name in (("/", "index"), ("/files", "files"), ("/settings", "settings"), ("/test", "test"), ("/radio", "radio"), ("/dac-test", "dac_test")):
             with self.subTest(path=path):
                 status, page, _ = self.request(path)
                 self.assertEqual(status, 200)

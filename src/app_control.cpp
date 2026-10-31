@@ -12,7 +12,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.61";
+static constexpr char kFirmwareVersion[] = "0.1.69";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -36,12 +36,9 @@ static int32_t savedDay = -1;
 static uint32_t lastDayCheck = 0;
 static uint32_t lastSyncAt = 0;
 static bool sdReady = false;
-static uint8_t wifiTestPhase = 0;
-static uint32_t wifiTestSince = 0;
 
 void appSetSdReady(bool ready) { sdReady = ready; }
 bool appSdReady() { return sdReady; }
-bool appWifiTestActive() { return wifiTestPhase != 0; }
 
 String appFirmwareVersion() {
   return String(kFirmwareVersion) + "." + String(kFirmwareBuild);
@@ -304,7 +301,7 @@ bool appStartRecording() {
 }
 
 bool appStartMicRecording() {
-  return playbackGetState() == PlaybackState::idle && liveAudioClient() < 0 && !appWifiTestActive() &&
+  return playbackGetState() == PlaybackState::idle && liveAudioClient() < 0 &&
          recorderStart(sdReady, CaptureSource::microphone);
 }
 
@@ -312,44 +309,8 @@ bool appStopRecording() { return stopRecording(); }
 
 bool appCanStartPlayback() {
   return recorderState() == CaptureState::idle && playbackGetState() == PlaybackState::idle &&
-         !appWifiTestActive() && liveAudioClient() < 0 &&
+         liveAudioClient() < 0 &&
          !recorderMicSignalStatus().enabled && !recorderMicSignalStatus().active;
 }
 
 bool appCanConnectLiveAudio() { return playbackGetState() == PlaybackState::idle; }
-
-bool appStartWifiTest() {
-  if (radioProgrammingBusy()) return false;
-  if (liveAudioClient() >= 0 || wifiTestPhase != 0 || !appStartRecording()) return false;
-  wifiTestPhase = 1;
-  return true;
-}
-
-void appPollWifiTest() {
-  if (wifiTestPhase == 1) {
-    if (recorderState() == CaptureState::recording) {
-      wifiTestSince = millis();
-      wifiTestPhase = 2;
-    } else if (recorderState() == CaptureState::idle) {
-      wifiTestPhase = 0;
-    }
-  } else if (wifiTestPhase == 2) {
-    if (recorderState() == CaptureState::idle) {
-      wifiTestPhase = 0;
-    } else if (millis() - wifiTestSince >= 5000) {
-      if (!webDisableForNoiseTest()) {
-        Serial.println("Wi-Fi noise test: cannot disable Wi-Fi");
-        appStopRecording();
-        wifiTestPhase = 4;
-      } else {
-        wifiTestSince = millis();
-        wifiTestPhase = 3;
-      }
-    }
-  } else if (wifiTestPhase == 3 && millis() - wifiTestSince >= 10000) {
-    appStopRecording();
-    wifiTestPhase = 4;
-  } else if (wifiTestPhase == 4 && recorderState() == CaptureState::idle) {
-    ESP.restart();
-  }
-}

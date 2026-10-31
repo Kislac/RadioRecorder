@@ -13,7 +13,13 @@
 static constexpr gpio_num_t kSpeakerBclkGpio = GPIO_NUM_42;
 static constexpr gpio_num_t kSpeakerLrcGpio = GPIO_NUM_41;
 static constexpr gpio_num_t kSpeakerDataGpio = GPIO_NUM_11;
+static constexpr gpio_num_t kDacBclkGpio = GPIO_NUM_12;
+static constexpr gpio_num_t kDacLrcGpio = GPIO_NUM_13;
+static constexpr gpio_num_t kDacDataGpio = GPIO_NUM_15;
+static constexpr uint32_t kToneDurationSeconds = 10;
 static i2s_chan_handle_t speakerHandle = nullptr;
+static DacToneSettings toneSettings = {};
+static std::atomic<bool> toneRequested{false};
 static std::atomic<PlaybackState> playbackState{PlaybackState::idle};
 static std::atomic<bool> playbackStopRequested{false};
 static std::atomic<bool> cuePlaying{false};
@@ -21,16 +27,19 @@ static std::atomic<uint8_t> requestedCue{0};
 static std::atomic<uint8_t> speakerVolume{25};
 static std::atomic<uint8_t> speakerBoost{1};
 static std::atomic<uint8_t> radioVolume{5};
+static std::atomic<uint8_t> radioBoost{1};
 static std::atomic<uint32_t> playbackBytesPlayed{0};
 static std::atomic<uint32_t> playbackBytesTotal{0};
 static constexpr char kSpeakerSettingsNamespace[] = "radio-recorder";
 static constexpr char kSpeakerVolumeKey[] = "spkVol";
 static constexpr char kSpeakerBoostKey[] = "spkBoost";
 static constexpr char kRadioVolumeKey[] = "radioVol";
+static constexpr char kRadioBoostKey[] = "radioGain";
 static constexpr uint32_t kSpeakerSaveDelayMs = 1000;
 static uint8_t savedSpeakerVolume = 25;
 static uint8_t savedSpeakerBoost = 1;
 static uint8_t savedRadioVolume = 5;
+static uint8_t savedRadioBoost = 1;
 static uint32_t speakerSettingsChangedAt = 0;
 static bool speakerSettingsDirty = false;
 static TaskHandle_t playbackTask = nullptr;
@@ -95,16 +104,15 @@ PlaybackState playbackGetState() {
 
 PlaybackStatus playbackStatus() {
   PlaybackState state = playbackGetState();
-  return {state, speakerReady && playbackTask != nullptr, recorderRadioHandle() && playbackTask != nullptr,
+  return {state, speakerReady && playbackTask != nullptr, speakerReady && playbackTask != nullptr,
       cuePlaying.load() ? PlaybackTarget::speaker : playbackTarget, speakerVolume.load(), speakerBoost.load(),
-      radioVolume.load(), cuePlaying.load() ? 0 : playbackBytesPlayed.load(),
+      radioVolume.load(), radioBoost.load(), cuePlaying.load() ? 0 : playbackBytesPlayed.load(),
       cuePlaying.load() ? 0 : playbackBytesTotal.load(),
       state == PlaybackState::idle ? "" : cuePlaying.load() ? "Firmware cue" : playbackPath, playbackError};
 }
 
 void playbackStart(const String &path, PlaybackTarget target) {
-  if (playbackGetState() != PlaybackState::idle || !playbackTask ||
-      (target == PlaybackTarget::radio ? !recorderRadioHandle() : !speakerReady)) return;
+  if (playbackGetState() != PlaybackState::idle || !playbackTask || !speakerReady) return;
   playbackTarget = target;
   path.toCharArray(playbackPath, sizeof(playbackPath));
   playbackError[0] = '\0';
@@ -113,6 +121,26 @@ void playbackStart(const String &path, PlaybackTarget target) {
   playbackStopRequested.store(false);
   playbackState.store(PlaybackState::starting);
   xTaskNotifyGive(playbackTask);
+}
+
+bool playbackStartTone(const DacToneSettings &settings) {
+  if (!speakerReady || !playbackTask || playbackGetState() != PlaybackState::idle ||
+      (settings.sampleRate != 22050 && settings.sampleRate != 44100 && settings.sampleRate != 48000) ||
+      (settings.bits != 16 && settings.bits != 32) || settings.frequency < 100 ||
+      settings.frequency > 3000 || settings.level < 10 || settings.level > 90) return false;
+  toneSettings = settings;
+  playbackTarget = PlaybackTarget::radio;
+  snprintf(playbackPath, sizeof(playbackPath), "DAC tone %u Hz / %lu Hz / %u bit / %s / %u%%",
+           settings.frequency, static_cast<unsigned long>(settings.sampleRate), settings.bits,
+           settings.leftJustified ? "MSB" : "Philips", settings.level);
+  playbackError[0] = '\0';
+  playbackBytesPlayed.store(0);
+  playbackBytesTotal.store(settings.sampleRate * kToneDurationSeconds * 2 * (settings.bits / 8));
+  playbackStopRequested.store(false);
+  toneRequested.store(true);
+  playbackState.store(PlaybackState::starting);
+  xTaskNotifyGive(playbackTask);
+  return true;
 }
 
 void playbackPlayCue(PlaybackCue cue) {
@@ -143,6 +171,13 @@ void playbackSetRadioVolume(uint8_t volume) {
   speakerSettingsDirty = true;
 }
 
+void playbackSetRadioBoost(uint8_t boost) {
+  if ((boost != 1 && boost != 2 && boost != 4 && boost != 8 && boost != 16) || radioBoost.load() == boost) return;
+  radioBoost.store(boost);
+  speakerSettingsChangedAt = millis();
+  speakerSettingsDirty = true;
+}
+
 void playbackSetBoost(uint8_t boost) {
   if (speakerBoost.load() == boost) return;
   speakerBoost.store(boost);
@@ -155,7 +190,9 @@ void playbackPollSettings() {
   uint8_t volume = speakerVolume.load();
   uint8_t boost = speakerBoost.load();
   uint8_t radio = radioVolume.load();
-  if (volume == savedSpeakerVolume && boost == savedSpeakerBoost && radio == savedRadioVolume) {
+  uint8_t radioGain = radioBoost.load();
+  if (volume == savedSpeakerVolume && boost == savedSpeakerBoost && radio == savedRadioVolume &&
+      radioGain == savedRadioBoost) {
     speakerSettingsDirty = false;
     return;
   }
@@ -173,9 +210,98 @@ void playbackPollSettings() {
   if (radio == savedRadioVolume || preferences.putUChar(kRadioVolumeKey, radio) == sizeof(radio)) {
     savedRadioVolume = radio;
   }
+  if (radioGain == savedRadioBoost || preferences.putUChar(kRadioBoostKey, radioGain) == sizeof(radioGain)) {
+    savedRadioBoost = radioGain;
+  }
   preferences.end();
-  speakerSettingsDirty = volume != savedSpeakerVolume || boost != savedSpeakerBoost || radio != savedRadioVolume;
+  speakerSettingsDirty = volume != savedSpeakerVolume || boost != savedSpeakerBoost ||
+                         radio != savedRadioVolume || radioGain != savedRadioBoost;
   if (speakerSettingsDirty) speakerSettingsChangedAt = millis();
+}
+
+static bool initSpeaker();
+
+static void configureDacTone(i2s_std_config_t &config, const DacToneSettings &settings) {
+  config.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(settings.sampleRate);
+  config.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+  if (settings.bits == 32) config.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO);
+  if (settings.leftJustified) {
+    if (settings.bits == 16) config.slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+    else config.slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO);
+  }
+}
+
+static esp_err_t startDacOutput(i2s_chan_handle_t &outputHandle, i2s_std_config_t &config) {
+  i2s_del_channel(speakerHandle);
+  speakerHandle = nullptr;
+  speakerReady = false;
+  esp_err_t result = gpio_reset_pin(kSpeakerBclkGpio);
+  if (result == ESP_OK) result = gpio_reset_pin(kSpeakerLrcGpio);
+  if (result == ESP_OK) result = gpio_reset_pin(kSpeakerDataGpio);
+  if (result == ESP_OK) result = gpio_set_direction(kSpeakerBclkGpio, GPIO_MODE_INPUT);
+  if (result == ESP_OK) result = gpio_set_direction(kSpeakerLrcGpio, GPIO_MODE_INPUT);
+  if (result == ESP_OK) result = gpio_set_direction(kSpeakerDataGpio, GPIO_MODE_INPUT);
+  i2s_chan_config_t channel = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
+  if (result == ESP_OK) result = i2s_new_channel(&channel, &outputHandle, nullptr);
+  config.gpio_cfg.mclk = I2S_GPIO_UNUSED;
+  config.gpio_cfg.bclk = kDacBclkGpio;
+  config.gpio_cfg.ws = kDacLrcGpio;
+  config.gpio_cfg.dout = kDacDataGpio;
+  config.gpio_cfg.din = I2S_GPIO_UNUSED;
+  if (result == ESP_OK) result = i2s_channel_init_std_mode(outputHandle, &config);
+  if (result == ESP_OK) result = i2s_channel_enable(outputHandle);
+  return result;
+}
+
+static void stopDacOutput(i2s_chan_handle_t outputHandle, bool enabled) {
+  if (enabled) i2s_channel_disable(outputHandle);
+  if (outputHandle) i2s_del_channel(outputHandle);
+  speakerReady = initSpeaker();
+  if (!speakerReady && !playbackError[0])
+    snprintf(playbackError, sizeof(playbackError), "Speaker restore failed");
+}
+
+static void playDacTone() {
+  DacToneSettings settings = toneSettings;
+  i2s_chan_handle_t outputHandle = nullptr;
+  i2s_std_config_t config = {};
+  configureDacTone(config, settings);
+  esp_err_t result = startDacOutput(outputHandle, config);
+  bool enabled = result == ESP_OK;
+  if (enabled) {
+    playbackState.store(PlaybackState::playing);
+    constexpr size_t kFrames = 128;
+    int16_t output16[kFrames * 2];
+    int32_t output32[kFrames * 2];
+    uint32_t framesLeft = settings.sampleRate * kToneDurationSeconds;
+    float phase = 0;
+    float phaseStep = 2.0f * PI * settings.frequency / settings.sampleRate;
+    while (framesLeft && !playbackStopRequested.load()) {
+      watchdogResetCurrentTask();
+      size_t frames = min(static_cast<size_t>(framesLeft), kFrames);
+      for (size_t index = 0; index < frames; ++index) {
+        int16_t sample = static_cast<int16_t>(sinf(phase) * 32767.0f * settings.level / 100.0f);
+        phase += phaseStep;
+        if (phase >= 2.0f * PI) phase -= 2.0f * PI;
+        output16[index * 2] = output16[index * 2 + 1] = sample;
+        output32[index * 2] = output32[index * 2 + 1] = static_cast<int32_t>(sample) * 65536;
+      }
+      size_t bytes = frames * 2 * (settings.bits / 8);
+      size_t written = 0;
+      result = i2s_channel_write(outputHandle, settings.bits == 16 ? static_cast<void *>(output16) :
+                                static_cast<void *>(output32), bytes, &written, 1000);
+      if (result != ESP_OK || written != bytes) {
+        snprintf(playbackError, sizeof(playbackError), "DAC tone write: %s (%zu/%zu)",
+                 esp_err_to_name(result), written, bytes);
+        break;
+      }
+      playbackBytesPlayed.fetch_add(bytes);
+      framesLeft -= frames;
+    }
+  } else {
+    snprintf(playbackError, sizeof(playbackError), "DAC tone start: %s", esp_err_to_name(result));
+  }
+  stopDacOutput(outputHandle, enabled);
 }
 
 static void speakerLoop(void *) {
@@ -191,8 +317,15 @@ static void speakerLoop(void *) {
     }
     if (playbackState.load() != PlaybackState::starting) continue;
     bool playbackWatchdog = watchdogSubscribeCurrentTask();
+    if (toneRequested.exchange(false)) {
+      playDacTone();
+      playbackState.store(PlaybackState::idle);
+      watchdogUnsubscribeCurrentTask(playbackWatchdog);
+      continue;
+    }
     bool radio = playbackTarget == PlaybackTarget::radio;
-    i2s_chan_handle_t outputHandle = radio ? recorderRadioHandle() : speakerHandle;
+    i2s_chan_handle_t outputHandle = radio ? nullptr : speakerHandle;
+    i2s_std_config_t dacConfig = {};
     File file = SD_MMC.open(playbackPath, FILE_READ);
     uint32_t remaining = 0;
     bool enabled = false;
@@ -200,7 +333,14 @@ static void speakerLoop(void *) {
       snprintf(playbackError, sizeof(playbackError), "Cannot read PCM WAV");
     } else if (!playbackStopRequested.load()) {
       playbackBytesTotal.store(remaining);
-      esp_err_t enableResult = radio ? recorderStartRadioOutput() : i2s_channel_enable(outputHandle);
+      esp_err_t enableResult;
+      if (radio) {
+        dacConfig.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(44100);
+        dacConfig.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+        enableResult = startDacOutput(outputHandle, dacConfig);
+      } else {
+        enableResult = i2s_channel_enable(outputHandle);
+      }
       enabled = enableResult == ESP_OK;
       if (!enabled) {
         snprintf(playbackError, sizeof(playbackError), radio ? "Cannot start radio DAC: %s" : "Cannot start speaker: %s",
@@ -209,8 +349,9 @@ static void speakerLoop(void *) {
         playbackState.store(PlaybackState::playing);
         uint8_t input[512];
         int16_t output[512];
-        int32_t radioOutput[512];
+        int16_t radioOutput[1024];
         float appliedGain = 0;
+        float appliedRadioGain = 0;
         bool radioFirstBlockReported = false;
         while (remaining && !playbackStopRequested.load()) {
           if (playbackWatchdog) watchdogResetCurrentTask();
@@ -228,12 +369,18 @@ static void speakerLoop(void *) {
           float requestedGain = speakerVolume.load() * speakerBoost.load() / 100.0f;
           float limitedGain = peak ? min(requestedGain, 32767.0f / peak) : requestedGain;
           appliedGain = min(limitedGain, appliedGain + 0.1f);
+          float requestedRadioGain = radioVolume.load() * radioBoost.load() / 100.0f;
+          float maxOutput = 32767.0f * radioVolume.load() / 100.0f;
+          float limitedRadioGain = peak ? fminf(requestedRadioGain, maxOutput / peak) : requestedRadioGain;
+          appliedRadioGain = fminf(limitedRadioGain, appliedRadioGain + 0.25f);
           for (size_t index = 0; index < count / 2; ++index) {
             int16_t source = static_cast<int16_t>(wav16(input + index * 2));
             if (radio) {
-              int32_t sample = static_cast<int32_t>(source * radioVolume.load() / 100.0f * 65536.0f);
-              radioOutput[index * 2] = sample;
-              radioOutput[index * 2 + 1] = sample;
+              int16_t sample = static_cast<int16_t>(source * appliedRadioGain);
+              radioOutput[index * 4] = sample;
+              radioOutput[index * 4 + 1] = sample;
+              radioOutput[index * 4 + 2] = sample;
+              radioOutput[index * 4 + 3] = sample;
             } else {
               int16_t sample = constrain(static_cast<int32_t>(source * appliedGain), -32767, 32767);
               output[index * 2] = sample;
@@ -270,9 +417,9 @@ static void speakerLoop(void *) {
       }
     }
     if (enabled) {
-      if (radio) recorderStopRadioOutput();
-      else i2s_channel_disable(outputHandle);
+      if (!radio) i2s_channel_disable(outputHandle);
     }
+    if (radio && !speakerReady) stopDacOutput(outputHandle, enabled);
     if (file) file.close();
     playbackState.store(PlaybackState::idle);
     watchdogUnsubscribeCurrentTask(playbackWatchdog);
@@ -302,16 +449,20 @@ void initPlayback(bool sdReady) {
     uint8_t volume = preferences.getUChar(kSpeakerVolumeKey, savedSpeakerVolume);
     uint8_t boost = preferences.getUChar(kSpeakerBoostKey, savedSpeakerBoost);
     uint8_t radio = preferences.getUChar(kRadioVolumeKey, savedRadioVolume);
+    uint8_t radioGain = preferences.getUChar(kRadioBoostKey, savedRadioBoost);
     if (volume <= 100) savedSpeakerVolume = volume;
     if (boost == 1 || boost == 2 || boost == 4) savedSpeakerBoost = boost;
     if (radio <= 100) savedRadioVolume = radio;
+    if (radioGain == 1 || radioGain == 2 || radioGain == 4 || radioGain == 8 || radioGain == 16)
+      savedRadioBoost = radioGain;
     preferences.end();
   }
   speakerVolume.store(savedSpeakerVolume);
   speakerBoost.store(savedSpeakerBoost);
   radioVolume.store(savedRadioVolume);
+  radioBoost.store(savedRadioBoost);
   speakerReady = initSpeaker();
-  if ((speakerReady || recorderRadioHandle()) &&
+  if (speakerReady &&
       xTaskCreatePinnedToCore(speakerLoop, "speaker", 12288, nullptr, 2, &playbackTask, 0) != pdPASS) {
     Serial.println("Cannot create playback task");
   }

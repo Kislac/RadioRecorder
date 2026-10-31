@@ -1,7 +1,6 @@
 const stateEl = document.querySelector("#state"),
   toggle = document.querySelector("#toggle"),
   micToggle = document.querySelector("#micToggle"),
-  wifiTest = document.querySelector("#wifiTest"),
   lowpassToggle = document.querySelector("#lowpassToggle"),
   message = document.querySelector("#message"),
   firmwareVersion = document.querySelector("#firmwareVersion");
@@ -568,7 +567,6 @@ async function refresh() {
       data.state === "starting" ||
       (busy && data.stopping) ||
       playing || (!busy && !!liveSocket);
-    wifiTest.disabled = !data.ready || busy || playing || !!liveSocket;
     speakerStop.disabled = !playing;
     speakerStatus.textContent = playing
       ? (data.playbackTarget === "radio" ? "Rádió DAC: " : "ESP hangszóró: ") +
@@ -631,16 +629,6 @@ lowpassToggle.addEventListener("change", async () => {
   }
   await refresh();
   lowpassToggle.disabled = false;
-});
-wifiTest.addEventListener("click", async () => {
-  wifiTest.disabled = true;
-  try {
-    const response = await fetch("/api/wifi-test", { method: "POST" });
-    if (!response.ok) message.textContent = await response.text();
-  } catch {
-    message.textContent = "A zajteszt nem indult el.";
-  }
-  await refresh();
 });
 more.addEventListener("click", () => list(false));
 refresh();

@@ -19,6 +19,7 @@ const speakerVolume = document.querySelector("#speakerVolume"),
   speakerBoost = document.querySelector("#speakerBoost");
 const radioVolume = document.querySelector("#radioVolume"),
   radioVolumeValue = document.querySelector("#radioVolumeValue"),
+  radioBoost = document.querySelector("#radioBoost"),
   playbackProgressWrap = document.querySelector("#playbackProgressWrap"),
   playbackProgress = document.querySelector("#playbackProgress"),
   playbackTime = document.querySelector("#playbackTime");
@@ -29,7 +30,8 @@ let volumeQueued = null,
   volumeSending = false,
   radioVolumeQueued = null,
   radioVolumeSending = false,
-  boostUpdating = false;
+  boostUpdating = false,
+  radioBoostUpdating = false;
 let playbackRequestError = "";
 let lastPlaybackFinished = false,
   wasPlaying = false;
@@ -113,6 +115,20 @@ function setRadioVolume(value) {
 radioVolume.addEventListener("input", () => setRadioVolume(Number(radioVolume.value)));
 document.querySelector("#radioDown").addEventListener("click", () => setRadioVolume(Number(radioVolume.value) - 5));
 document.querySelector("#radioUp").addEventListener("click", () => setRadioVolume(Number(radioVolume.value) + 5));
+radioBoost.addEventListener("change", async () => {
+  radioBoostUpdating = true;
+  radioBoost.disabled = true;
+  let failed = false;
+  try {
+    const response = await fetch("/api/play/radio-boost?value=" + radioBoost.value, { method: "POST" });
+    if (!response.ok) throw Error();
+  } catch {
+    failed = true;
+  }
+  radioBoostUpdating = false;
+  await refreshSpeaker();
+  if (failed) speakerStatus.textContent = "A rádió erősítés módosítása sikertelen.";
+});
 speakerBoost.addEventListener("change", async () => {
   boostUpdating = true;
   speakerBoost.disabled = true;
@@ -164,7 +180,10 @@ async function refreshSpeaker() {
       speakerVolume.value = data.speakerVolume;
       speakerVolumeValue.textContent = data.speakerVolume + "%";
     }
-    radioVolume.disabled = !data.radioReady;
+    const radioControlsReady = data.radioReady || (playing && data.playbackTarget === "radio");
+    radioVolume.disabled = !radioControlsReady;
+    radioBoost.disabled = !radioControlsReady || radioBoostUpdating;
+    if (!radioBoostUpdating) radioBoost.value = String(data.radioBoost);
     if (!radioVolumeSending) {
       radioVolume.value = data.radioVolume;
       radioVolumeValue.textContent = data.radioVolume + "%";

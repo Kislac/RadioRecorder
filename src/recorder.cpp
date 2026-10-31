@@ -15,7 +15,6 @@ static constexpr size_t kDmaBufferSize = 4096;
 static constexpr uint32_t kMaxWavBytes = 0xffffffffU - 44;
 static adc_continuous_handle_t adcHandle = nullptr;
 static i2s_chan_handle_t micHandle = nullptr;
-static i2s_chan_handle_t radioHandle = nullptr;
 static adc_channel_t audioChannel;
 static TaskHandle_t recorderTask = nullptr;
 static std::atomic<bool> stopRequested{false};
@@ -50,19 +49,6 @@ static uint8_t pcmBuffer[kDmaBufferSize / 2];
 
 bool recorderAdcReady() { return adcReady; }
 bool recorderMicReady() { return micReady; }
-i2s_chan_handle_t recorderRadioHandle() { return radioHandle; }
-esp_err_t recorderStartRadioOutput() {
-  if (!micReady || !radioHandle) return ESP_ERR_INVALID_STATE;
-  esp_err_t result = i2s_channel_enable(micHandle);
-  if (result != ESP_OK) return result;
-  result = i2s_channel_enable(radioHandle);
-  if (result != ESP_OK) i2s_channel_disable(micHandle);
-  return result;
-}
-void recorderStopRadioOutput() {
-  i2s_channel_disable(radioHandle);
-  i2s_channel_disable(micHandle);
-}
 bool recorderTaskReady() { return recorderTask != nullptr; }
 void recorderNotify() { if (recorderTask) xTaskNotifyGive(recorderTask); }
 CaptureState recorderState() { return captureState.load(); }
@@ -597,27 +583,21 @@ bool initRecorderAdc() {
 
 bool initRecorderMic() {
   i2s_chan_config_t channel = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-  if (i2s_new_channel(&channel, &radioHandle, &micHandle) != ESP_OK) return false;
+  if (i2s_new_channel(&channel, nullptr, &micHandle) != ESP_OK) return false;
   i2s_std_config_t config = {};
   config.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(kSampleRate);
   config.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO);
   config.gpio_cfg.mclk = I2S_GPIO_UNUSED;
   config.gpio_cfg.bclk = GPIO_NUM_6;
   config.gpio_cfg.ws = GPIO_NUM_7;
-  config.gpio_cfg.dout = GPIO_NUM_9;
+  config.gpio_cfg.dout = I2S_GPIO_UNUSED;
   config.gpio_cfg.din = GPIO_NUM_8;
   micReady = i2s_channel_init_std_mode(micHandle, &config) == ESP_OK &&
              gpio_set_pull_mode(GPIO_NUM_8, GPIO_PULLDOWN_ONLY) == ESP_OK;
   if (!micReady) {
     i2s_del_channel(micHandle);
     micHandle = nullptr;
-    i2s_del_channel(radioHandle);
-    radioHandle = nullptr;
     return false;
-  }
-  if (i2s_channel_init_std_mode(radioHandle, &config) != ESP_OK) {
-    i2s_del_channel(radioHandle);
-    radioHandle = nullptr;
   }
   return micReady;
 }

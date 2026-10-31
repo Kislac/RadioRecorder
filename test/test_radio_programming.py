@@ -405,7 +405,7 @@ class RadioProtocolTests(unittest.TestCase):
         directory = Path(cls.directory.name)
         (directory / "driver").mkdir()
         for name, content in {"Arduino.h": ARDUINO, "HardwareSerial.h": UART, "cJSON.h": JSON,
-                              "app_control.h": "#pragma once\ninline bool appWifiTestActive() { return false; }\n",
+                              "app_control.h": "#pragma once\n",
                               "driver/gpio.h": "#pragma once\n#define GPIO_NUM_16 16\n#define GPIO_NUM_17 17\ninline void gpio_reset_pin(int) {}\n",
                               "harness.cpp": '#include "Arduino.h"\n' + HARNESS}.items():
             (directory / name).write_text(content, encoding="utf-8")

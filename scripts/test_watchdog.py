@@ -11,6 +11,16 @@ from scripts.test_support import TestRun, firmware_at_least
 def trigger_and_verify_reset(device, report, timeout=22):
     device.timeout = 0.25
     device.write(b"w")
+    confirm_deadline = time.monotonic() + 3
+    while time.monotonic() < confirm_deadline:
+        line = device.readline().decode("utf-8", errors="replace").strip()
+        if line:
+            report.detail("SERIAL: " + line)
+        if line == "Watchdog test: confirm with W within 5 s":
+            break
+    else:
+        raise TimeoutError("Watchdog test confirmation prompt not received")
+    device.write(b"W")
     deadline = time.monotonic() + timeout
     watchdog_triggered = False
     boot_started = False
@@ -42,11 +52,11 @@ def main():
             with device:
                 status_ok, version = report.case("Device prerequisites and watchdog status",
                                                   lambda: status(device, report))
-                if status_ok and firmware_at_least(version, (0, 1, 32)):
+                if status_ok and firmware_at_least(version, (0, 1, 69)):
                     report.case("Watchdog-triggered automatic reset",
                                 lambda: trigger_and_verify_reset(device, report))
                 elif status_ok:
-                    report.skip("Watchdog-triggered automatic reset", "upload firmware 0.1.32 or newer")
+                    report.skip("Watchdog-triggered automatic reset", "upload firmware 0.1.69 or newer")
         else:
             report.skip("Watchdog-triggered automatic reset", "ESP serial connection failed")
     finally:
