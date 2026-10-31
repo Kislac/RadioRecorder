@@ -148,6 +148,28 @@ audio {
   display: block;
   margin-top: 12px;
 }
+.playback-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.playback-progress[hidden] { display: none; }
+.playback-progress progress {
+  flex: 1;
+  min-width: 0;
+  accent-color: #12604f;
+}
+.playback-progress output {
+  min-width: 10ch;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.player-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 24px;
+}
 .speaker-volume {
   width: min(100%, 280px);
   margin: 16px 0 20px;

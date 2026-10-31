@@ -20,12 +20,17 @@ static std::atomic<bool> cuePlaying{false};
 static std::atomic<uint8_t> requestedCue{0};
 static std::atomic<uint8_t> speakerVolume{25};
 static std::atomic<uint8_t> speakerBoost{1};
+static std::atomic<uint8_t> radioVolume{5};
+static std::atomic<uint32_t> playbackBytesPlayed{0};
+static std::atomic<uint32_t> playbackBytesTotal{0};
 static constexpr char kSpeakerSettingsNamespace[] = "radio-recorder";
 static constexpr char kSpeakerVolumeKey[] = "spkVol";
 static constexpr char kSpeakerBoostKey[] = "spkBoost";
+static constexpr char kRadioVolumeKey[] = "radioVol";
 static constexpr uint32_t kSpeakerSaveDelayMs = 1000;
 static uint8_t savedSpeakerVolume = 25;
 static uint8_t savedSpeakerBoost = 1;
+static uint8_t savedRadioVolume = 5;
 static uint32_t speakerSettingsChangedAt = 0;
 static bool speakerSettingsDirty = false;
 static TaskHandle_t playbackTask = nullptr;
@@ -92,7 +97,9 @@ PlaybackStatus playbackStatus() {
   PlaybackState state = playbackGetState();
   return {state, speakerReady && playbackTask != nullptr, recorderRadioHandle() && playbackTask != nullptr,
       cuePlaying.load() ? PlaybackTarget::speaker : playbackTarget, speakerVolume.load(), speakerBoost.load(),
-          state == PlaybackState::idle ? "" : cuePlaying.load() ? "Firmware cue" : playbackPath, playbackError};
+      radioVolume.load(), cuePlaying.load() ? 0 : playbackBytesPlayed.load(),
+      cuePlaying.load() ? 0 : playbackBytesTotal.load(),
+      state == PlaybackState::idle ? "" : cuePlaying.load() ? "Firmware cue" : playbackPath, playbackError};
 }
 
 void playbackStart(const String &path, PlaybackTarget target) {
@@ -101,6 +108,8 @@ void playbackStart(const String &path, PlaybackTarget target) {
   playbackTarget = target;
   path.toCharArray(playbackPath, sizeof(playbackPath));
   playbackError[0] = '\0';
+  playbackBytesPlayed.store(0);
+  playbackBytesTotal.store(0);
   playbackStopRequested.store(false);
   playbackState.store(PlaybackState::starting);
   xTaskNotifyGive(playbackTask);
@@ -127,6 +136,13 @@ void playbackSetVolume(uint8_t volume) {
   speakerSettingsDirty = true;
 }
 
+void playbackSetRadioVolume(uint8_t volume) {
+  if (volume > 100 || radioVolume.load() == volume) return;
+  radioVolume.store(volume);
+  speakerSettingsChangedAt = millis();
+  speakerSettingsDirty = true;
+}
+
 void playbackSetBoost(uint8_t boost) {
   if (speakerBoost.load() == boost) return;
   speakerBoost.store(boost);
@@ -138,7 +154,11 @@ void playbackPollSettings() {
   if (!speakerSettingsDirty || static_cast<uint32_t>(millis() - speakerSettingsChangedAt) < kSpeakerSaveDelayMs) return;
   uint8_t volume = speakerVolume.load();
   uint8_t boost = speakerBoost.load();
-  if (volume == savedSpeakerVolume && boost == savedSpeakerBoost) { speakerSettingsDirty = false; return; }
+  uint8_t radio = radioVolume.load();
+  if (volume == savedSpeakerVolume && boost == savedSpeakerBoost && radio == savedRadioVolume) {
+    speakerSettingsDirty = false;
+    return;
+  }
   Preferences preferences;
   if (!preferences.begin(kSpeakerSettingsNamespace, false)) {
     speakerSettingsChangedAt = millis();
@@ -150,8 +170,11 @@ void playbackPollSettings() {
   if (boost == savedSpeakerBoost || preferences.putUChar(kSpeakerBoostKey, boost) == sizeof(boost)) {
     savedSpeakerBoost = boost;
   }
+  if (radio == savedRadioVolume || preferences.putUChar(kRadioVolumeKey, radio) == sizeof(radio)) {
+    savedRadioVolume = radio;
+  }
   preferences.end();
-  speakerSettingsDirty = volume != savedSpeakerVolume || boost != savedSpeakerBoost;
+  speakerSettingsDirty = volume != savedSpeakerVolume || boost != savedSpeakerBoost || radio != savedRadioVolume;
   if (speakerSettingsDirty) speakerSettingsChangedAt = millis();
 }
 
@@ -176,6 +199,7 @@ static void speakerLoop(void *) {
     if (!file || !findPcmData(file, remaining)) {
       snprintf(playbackError, sizeof(playbackError), "Cannot read PCM WAV");
     } else if (!playbackStopRequested.load()) {
+      playbackBytesTotal.store(remaining);
       esp_err_t enableResult = radio ? recorderStartRadioOutput() : i2s_channel_enable(outputHandle);
       enabled = enableResult == ESP_OK;
       if (!enabled) {
@@ -207,7 +231,7 @@ static void speakerLoop(void *) {
           for (size_t index = 0; index < count / 2; ++index) {
             int16_t source = static_cast<int16_t>(wav16(input + index * 2));
             if (radio) {
-              int32_t sample = static_cast<int32_t>(source * 0.05f * 65536.0f);
+              int32_t sample = static_cast<int32_t>(source * radioVolume.load() / 100.0f * 65536.0f);
               radioOutput[index * 2] = sample;
               radioOutput[index * 2 + 1] = sample;
             } else {
@@ -228,6 +252,7 @@ static void speakerLoop(void *) {
                           esp_err_to_name(result), static_cast<unsigned>(result), written, bytes);
             break;
           }
+          playbackBytesPlayed.fetch_add(count);
           if (radio && !radioFirstBlockReported) {
             Serial.printf("Radio DAC first block: %zu I2S bytes\n", written);
             radioFirstBlockReported = true;
@@ -276,12 +301,15 @@ void initPlayback(bool sdReady) {
   if (preferences.begin(kSpeakerSettingsNamespace, true)) {
     uint8_t volume = preferences.getUChar(kSpeakerVolumeKey, savedSpeakerVolume);
     uint8_t boost = preferences.getUChar(kSpeakerBoostKey, savedSpeakerBoost);
+    uint8_t radio = preferences.getUChar(kRadioVolumeKey, savedRadioVolume);
     if (volume <= 100) savedSpeakerVolume = volume;
     if (boost == 1 || boost == 2 || boost == 4) savedSpeakerBoost = boost;
+    if (radio <= 100) savedRadioVolume = radio;
     preferences.end();
   }
   speakerVolume.store(savedSpeakerVolume);
   speakerBoost.store(savedSpeakerBoost);
+  radioVolume.store(savedRadioVolume);
   speakerReady = initSpeaker();
   if ((speakerReady || recorderRadioHandle()) &&
       xTaskCreatePinnedToCore(speakerLoop, "speaker", 12288, nullptr, 2, &playbackTask, 0) != pdPASS) {

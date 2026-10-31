@@ -22,7 +22,7 @@ namespace {
 constexpr int kSdaGpio = 4;
 constexpr int kSclGpio = 5;
 constexpr uint8_t kTileCount = 11;
-constexpr uint8_t kSettingsCount = 14;
+constexpr uint8_t kSettingsCount = 15;
 constexpr uint8_t kBrowseRows = 5;
 constexpr uint8_t kSettingsRows = 5;
 constexpr uint8_t kFileTile = 4;
@@ -432,6 +432,12 @@ void drawSettings() {
         drawSettingValue(y, value);
         break;
       }
+      case 13: oled.drawStr(9, y, "Radio hang"); {
+        char value[5];
+        snprintf(value, sizeof(value), "%u%%", playbackStatus().radioVolume);
+        drawSettingValue(y, value);
+        break;
+      }
       default: oled.drawStr(9, y, "Vissza"); break;
     }
   }
@@ -519,7 +525,7 @@ void onPress() {
       editing = false;
       return;
     }
-    if (setting == 13) { inSettings = false; return; }
+    if (setting == 14) { inSettings = false; return; }
     if (setting == 0) { if (appWifiTestActive()) setMessage("Wi-Fi zajteszt aktiv"); else if (!wifiManagerToggle()) setMessage("Wi-Fi valtas sikertelen"); return; }
     if (setting == 1) { if (!recorderSetSerialMeter(!recorderSerialMeterEnabled())) setMessage("ADC nem elerheto"); return; }
     if (setting == 4) { recorderSetLowpass(!recorderLowpass()); return; }
@@ -683,6 +689,9 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
       if (editing && setting == 2) {
         int32_t volume = playbackStatus().volume + steps * 5;
         playbackSetVolume(constrain(volume, 0L, 100L));
+      } else if (editing && setting == 13) {
+        int32_t volume = playbackStatus().radioVolume + steps * 5;
+        playbackSetRadioVolume(constrain(volume, 0L, 100L));
       } else if (editing && setting == 3) {
         uint8_t boost = playbackStatus().boost;
         while (steps > 0) { boost = boost == 1 ? 2 : 4; --steps; }

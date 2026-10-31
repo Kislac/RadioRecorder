@@ -13,7 +13,7 @@ RTC_PATTERN = re.compile(r"RTC_TIME rtc=(\d+) system=(\d+) source=([A-Z-]) offli
 DISPLAY_TILES = ("Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel",
                  "Aut Mikrofon Felvetel", "Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel",
                  "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok")
-SETTING_COUNT = 14
+SETTING_COUNT = 15
 
 
 def verify_rtc_progress(before, after, elapsed, reboot=False):

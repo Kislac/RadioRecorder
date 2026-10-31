@@ -104,6 +104,7 @@ class PreviewDevice:
         self.mic_signal_started_at = 0
         self.lowpass = False
         self.volume = 25
+        self.radio_volume = 5
         self.boost = 1
         self.screen_minutes = 5
         self.wifi_minutes = 5
@@ -267,6 +268,8 @@ class PreviewDevice:
                 return 200, {"active": bool(self.ptt_until or self.ptt_latched), "pulseMs": 1000}
             if path == "/api/status":
                 clock = self.clock_info()
+                pcm_total = len(self.files[self.playing]) - 44 if self.playing else 0
+                pcm_played = min(pcm_total, max(0, int((time.monotonic() - (self.play_until - 2)) * 44100))) if self.playing else 0
                 return 200, {"version": "preview", "ready": self.sd_ready, "micReady": self.sd_ready,
                              "clock": clock, "demoSeconds": sum(int(value) * scale for value, scale in
                              zip(clock["local"][11:19].split(":"), (3600, 60, 1))) if clock["local"] else 0,
@@ -276,6 +279,8 @@ class PreviewDevice:
                              "state": "recording" if self.recording else "idle", "stopping": False,
                              "speakerReady": True, "radioReady": True,
                              "speakerVolume": self.volume, "speakerBoost": self.boost,
+                             "radioVolume": self.radio_volume,
+                             "playbackBytesPlayed": pcm_played, "playbackBytesTotal": pcm_total,
                              "playback": "playing" if self.playing else "idle", "playbackPath": self.playing,
                              "playbackTarget": self.playback_target,
                              "playbackError": "", "hasRecordings": bool(self.files) and self.sd_ready,
@@ -466,6 +471,9 @@ class PreviewDevice:
             if path == "/api/play/volume":
                 self.volume = self.integer(params, "value", 0, 100)
                 return 200, str(self.volume)
+            if path == "/api/play/radio-volume":
+                self.radio_volume = self.integer(params, "value", 0, 100)
+                return 200, str(self.radio_volume)
             if path == "/api/play/boost":
                 boost = self.integer(params, "value", 1, 4)
                 if boost not in (1, 2, 4):

@@ -17,11 +17,18 @@ const speakerStatus = document.querySelector("#speakerStatus"),
 const speakerVolume = document.querySelector("#speakerVolume"),
   speakerVolumeValue = document.querySelector("#speakerVolumeValue"),
   speakerBoost = document.querySelector("#speakerBoost");
+const radioVolume = document.querySelector("#radioVolume"),
+  radioVolumeValue = document.querySelector("#radioVolumeValue"),
+  playbackProgressWrap = document.querySelector("#playbackProgressWrap"),
+  playbackProgress = document.querySelector("#playbackProgress"),
+  playbackTime = document.querySelector("#playbackTime");
 let next = 0,
   loading = false,
   loadFailed = false;
 let volumeQueued = null,
   volumeSending = false,
+  radioVolumeQueued = null,
+  radioVolumeSending = false,
   boostUpdating = false;
 let playbackRequestError = "";
 let lastPlaybackFinished = false,
@@ -81,6 +88,31 @@ document
   .addEventListener("click", () =>
     setSpeakerVolume(Number(speakerVolume.value) + 5),
   );
+async function sendRadioVolume() {
+  if (radioVolumeSending) return;
+  radioVolumeSending = true;
+  while (radioVolumeQueued !== null) {
+    const value = radioVolumeQueued;
+    radioVolumeQueued = null;
+    try {
+      const response = await fetch("/api/play/radio-volume?value=" + value, { method: "POST" });
+      if (!response.ok) throw Error();
+    } catch {
+      speakerStatus.textContent = "A rádió hangerő módosítása sikertelen.";
+    }
+  }
+  radioVolumeSending = false;
+}
+function setRadioVolume(value) {
+  const volume = Math.max(0, Math.min(100, value));
+  radioVolume.value = volume;
+  radioVolumeValue.textContent = volume + "%";
+  radioVolumeQueued = volume;
+  sendRadioVolume();
+}
+radioVolume.addEventListener("input", () => setRadioVolume(Number(radioVolume.value)));
+document.querySelector("#radioDown").addEventListener("click", () => setRadioVolume(Number(radioVolume.value) - 5));
+document.querySelector("#radioUp").addEventListener("click", () => setRadioVolume(Number(radioVolume.value) + 5));
 speakerBoost.addEventListener("change", async () => {
   boostUpdating = true;
   speakerBoost.disabled = true;
@@ -118,9 +150,24 @@ async function refreshSpeaker() {
       : data.playbackError || playbackRequestError ||
         (lastPlaybackFinished ? "Lejátszás befejeződött" :
           data.radioReady === false ? "Rádió DAC: nem elérhető" : "Lejátszás: kikapcsolva");
+    const bytesTotal = Number(data.playbackBytesTotal) || 0;
+    const bytesPlayed = Math.min(bytesTotal, Number(data.playbackBytesPlayed) || 0);
+    playbackProgressWrap.hidden = !playing || !bytesTotal;
+    playbackProgress.max = Math.max(bytesTotal, 1);
+    playbackProgress.value = bytesPlayed;
+    const playbackClock = (bytes) => {
+      const seconds = Math.floor(bytes / (22050 * 2));
+      return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
+    };
+    playbackTime.textContent = playbackClock(bytesPlayed) + " / " + playbackClock(bytesTotal);
     if (!volumeSending) {
       speakerVolume.value = data.speakerVolume;
       speakerVolumeValue.textContent = data.speakerVolume + "%";
+    }
+    radioVolume.disabled = !data.radioReady;
+    if (!radioVolumeSending) {
+      radioVolume.value = data.radioVolume;
+      radioVolumeValue.textContent = data.radioVolume + "%";
     }
     speakerBoost.disabled = !data.speakerReady || boostUpdating;
     if (!boostUpdating) speakerBoost.value = String(data.speakerBoost);
@@ -323,4 +370,4 @@ if ("IntersectionObserver" in window) {
 }
 breadcrumbs();
 load();
-setInterval(refreshSpeaker, 1500);
+setInterval(refreshSpeaker, 500);

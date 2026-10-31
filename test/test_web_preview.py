@@ -68,10 +68,34 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('cuePlaying.load() ? PlaybackTarget::speaker : playbackTarget', playback)
         self.assertIn('playbackStart(selectedFile, PlaybackTarget::radio)', display)
         self.assertIn('esp_err_t result = i2s_channel_write(outputHandle,', playback)
-        self.assertIn('source * 0.05f * 65536.0f', playback)
+        self.assertIn('source * radioVolume.load() / 100.0f * 65536.0f', playback)
         server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
         self.assertIn('targetArg == "radio" ? PlaybackTarget::radio', server)
         self.assertIn('data.radioReady', (root / "web" / "files.js").read_text(encoding="utf-8"))
+
+    def test_radio_volume_persists_and_file_player_shows_real_progress(self):
+        root = WEB_ROOT.parent
+        playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        display = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        page = (WEB_ROOT / "files.html").read_text(encoding="utf-8")
+        script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
+        self.assertIn('radioVolume{5}', playback)
+        self.assertIn('putUChar(kRadioVolumeKey, radio)', playback)
+        self.assertIn('getUChar(kRadioVolumeKey', playback)
+        self.assertIn('playbackBytesPlayed.store', playback)
+        self.assertIn('playbackBytesTotal.store', playback)
+        self.assertIn('cuePlaying.load() ? 0 : playbackBytesPlayed.load()', playback)
+        self.assertIn('\\"radioVolume\\"', server)
+        self.assertIn('\\"playbackBytesPlayed\\"', server)
+        self.assertIn('\\"playbackBytesTotal\\"', server)
+        self.assertIn('server.on("/api/play/radio-volume"', server)
+        self.assertIn('"Radio hang"', display)
+        self.assertIn('playbackSetRadioVolume(', display)
+        self.assertIn('id="radioVolume"', page)
+        self.assertIn('id="playbackProgress"', page)
+        self.assertIn('data.playbackBytesPlayed', script)
+        self.assertIn('/api/play/radio-volume?value=', script)
 
     def test_radio_dac_write_failure_reports_driver_result_and_progress(self):
         playback = (WEB_ROOT.parent / "src" / "playback.cpp").read_text(encoding="utf-8")
@@ -293,6 +317,21 @@ class PreviewHttpTests(unittest.TestCase):
 
     def setUp(self):
         self.server.device = PreviewDevice()
+
+    def test_radio_volume_and_playback_progress(self):
+        status, _, _ = self.request("/api/play/radio-volume?value=23", "POST")
+        self.assertEqual(status, 200)
+        status, _, _ = self.request("/api/play/radio-volume?value=101", "POST")
+        self.assertEqual(status, 400)
+        status, _, _ = self.request("/api/play?path=%2FREC00001.wav&target=radio", "POST")
+        self.assertEqual(status, 200)
+        self.server.device.play_until -= 0.5
+        status, body, _ = self.request("/api/status")
+        playback = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertEqual(playback["radioVolume"], 23)
+        self.assertGreater(playback["playbackBytesPlayed"], 0)
+        self.assertLess(playback["playbackBytesPlayed"], playback["playbackBytesTotal"])
 
     def test_radio_dac_playback_reports_target_and_stops_without_ptt(self):
         status, _, _ = self.request("/api/play?path=%2FREC00001.wav&target=invalid", "POST")

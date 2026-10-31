@@ -13,6 +13,9 @@ struct PlaybackStatus {
   PlaybackTarget target;
   uint8_t volume;
   uint8_t boost;
+  uint8_t radioVolume;
+  uint32_t bytesPlayed;
+  uint32_t bytesTotal;
   String path;
   String error;
 };
@@ -24,5 +27,6 @@ void playbackStart(const String &path, PlaybackTarget target = PlaybackTarget::s
 void playbackPlayCue(PlaybackCue cue);
 bool playbackStop();
 void playbackSetVolume(uint8_t volume);
+void playbackSetRadioVolume(uint8_t volume);
 void playbackSetBoost(uint8_t boost);
 void playbackPollSettings();

@@ -144,6 +144,9 @@ void sendStatus() {
   json += ",\"radioReady\":" + String(speaker.radioReady ? "true" : "false");
   json += ",\"speakerVolume\":" + String(speaker.volume);
   json += ",\"speakerBoost\":" + String(speaker.boost);
+  json += ",\"radioVolume\":" + String(speaker.radioVolume);
+  json += ",\"playbackBytesPlayed\":" + String(speaker.bytesPlayed);
+  json += ",\"playbackBytesTotal\":" + String(speaker.bytesTotal);
   json += ",\"playback\":\"" + String(playback == PlaybackState::idle ? "idle" : playback == PlaybackState::starting ? "starting" : "playing") + "\"";
   json += ",\"playbackTarget\":\"" + String(speaker.target == PlaybackTarget::radio ? "radio" : "speaker") + "\"";
   json += ",\"playbackPath\":\"" + speaker.path + "\"";
@@ -858,6 +861,27 @@ void initWeb() {
       return;
     }
     playbackSetVolume(volume);
+    server.send(200, "text/plain", value);
+  });
+  server.on("/api/play/radio-volume", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    String value = server.arg("value");
+    if (value.isEmpty() || value.length() > 3) {
+      server.send(400, "text/plain", "Radio volume must be 0-100");
+      return;
+    }
+    for (char digit : value) {
+      if (!isDigit(digit)) {
+        server.send(400, "text/plain", "Radio volume must be 0-100");
+        return;
+      }
+    }
+    int volume = value.toInt();
+    if (volume > 100) {
+      server.send(400, "text/plain", "Radio volume must be 0-100");
+      return;
+    }
+    playbackSetRadioVolume(volume);
     server.send(200, "text/plain", value);
   });
   server.on("/api/play/boost", HTTP_POST, []() {

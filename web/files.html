@@ -27,6 +27,11 @@
         <span id="speakerStatus">Lejátszás: kikapcsolva</span
         ><button id="speakerStop" disabled>Lejátszás leállítása</button>
       </div>
+      <div id="playbackProgressWrap" class="playback-progress" hidden>
+        <progress id="playbackProgress" max="1" value="0" aria-label="Lejátszási folyamat"></progress>
+        <output id="playbackTime">0:00 / 0:00</output>
+      </div>
+      <div class="player-controls">
       <div class="speaker-volume">
         <label for="speakerVolume">ESP hangszóró hangereje</label
         ><input
@@ -61,6 +66,16 @@
           <option value="2">2×</option>
           <option value="4">4×</option>
         </select>
+      </div>
+      <div class="speaker-volume">
+        <label for="radioVolume">Rádió DAC hangereje</label>
+        <input id="radioVolume" type="range" min="0" max="100" step="1" value="5" />
+        <div class="speaker-volume-steps">
+          <button id="radioDown" type="button" aria-label="Rádió hangerejének csökkentése 5%-kal" title="5%-kal halkabb">−</button>
+          <output id="radioVolumeValue" for="radioVolume">5%</output>
+          <button id="radioUp" type="button" aria-label="Rádió hangerejének növelése 5%-kal" title="5%-kal hangosabb">+</button>
+        </div>
+      </div>
       </div>
       <p id="message">Betöltés...</p>
       <ol id="items" class="items"></ol>
