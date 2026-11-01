@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 740" role="img" aria-labelledby="title desc">
+  <title id="title">Proposed isolated radio receive path to ESP32-S3 GPIO1</title>
+  <desc id="desc">Radio speaker tip passes through a separate DC blocking capacitor to one transformer winding, returning only to radio speaker sleeve. The other isolated winding feeds the existing 100 nF series capacitor, 10 kilohm attenuation resistor and GPIO1 bias and filter network, returning only to ESP ground. Radio connection is pending load and waveform measurements.</desc>
+  <defs>
+    <style>
+      .wire { fill: none; stroke: #25353a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .part { fill: none; stroke: #25353a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .boundary { fill: none; stroke: #a64c38; stroke-width: 2; stroke-dasharray: 8 7; }
+      .label { fill: #25353a; font: 18px sans-serif; }
+      .small { fill: #41525b; font: 15px sans-serif; }
+      .heading { fill: #173c46; font: bold 25px sans-serif; }
+      .note { fill: #963b29; font: 17px sans-serif; }
+    </style>
+  </defs>
+  <rect width="1400" height="740" fill="#fff"/>
+  <text x="52" y="46" class="heading">RX proposal: radio speaker - isolated transformer - GPIO1</text>
+  <text x="52" y="78" class="note">NOT APPROVED FOR RADIO CONNECTION: measure loaded output and verify the jack first.</text>
+  <text x="62" y="144" class="heading">RADIO SIDE</text>
+  <text x="776" y="144" class="heading">ESP SIDE</text>
+  <path class="boundary" d="M700 110 V598"/>
+  <text x="557" y="464" class="small">No wire across barrier</text>
+
+  <text x="57" y="211" class="label">2.5 mm TIP (SPK+?)</text>
+  <path id="rx-radio-tip" class="wire" d="M64 236 H280"/>
+  <path id="rx-dc-block" class="part" d="M280 216 V256 M300 216 V256"/>
+  <path class="wire" d="M300 236 H530"/>
+  <text x="220" y="184" class="label">C3 22 uF bipolar, 25 V min (trial)</text>
+  <text x="236" y="282" class="small">Verify loaded radio level before connection</text>
+  <path id="rx-radio-winding" class="part" d="M530 236 V255 C555 255 555 278 530 278 C555 278 555 301 530 301 C555 301 555 324 530 324 C555 324 555 347 530 347 C555 347 555 370 530 370 V392"/>
+  <path class="wire" d="M530 392 V438 H64"/>
+  <text x="57" y="428" class="label">2.5 mm SLEEVE (SPK-?)</text>
+  <text x="478" y="160" class="small">T1 winding A</text>
+
+  <path id="rx-esp-winding" class="part" d="M786 236 V255 C811 255 811 278 786 278 C811 278 811 301 786 301 C811 301 811 324 786 324 C811 324 811 347 786 347 C811 347 811 370 786 370 V392"/>
+  <text x="743" y="190" class="small">T1 winding B</text>
+  <path class="wire" d="M786 236 H899 M919 236 H986"/>
+  <path id="rx-existing-capacitor" class="part" d="M899 216 V256 M919 216 V256"/>
+  <text x="870" y="196" class="label">C1 100 nF</text>
+  <path id="rx-adc-attenuator" class="part" d="M986 236 L997 226 L1008 246 L1019 226 L1030 246 L1041 226 L1052 246 L1063 236"/>
+  <path class="wire" d="M1063 236 H1330"/>
+  <text x="985" y="196" class="label">R1 10 kohm</text>
+  <text x="1263" y="194" class="label">GPIO1</text>
+  <text x="1263" y="216" class="small">ADC1_CH0</text>
+
+  <path class="wire" d="M1155 236 V215 M1155 145 V125"/>
+  <path id="rx-bias-high" class="part" d="M1155 145 L1145 155 L1165 165 L1145 175 L1165 185 L1145 195 L1155 215"/>
+  <text x="1104" y="114" class="label">ESP 3V3</text>
+  <text x="1170" y="174" class="small">R2 10 kohm</text>
+  <path class="wire" d="M1220 236 V317 M1220 417 V545"/>
+  <path id="rx-bias-low" class="part" d="M1220 317 L1210 329 L1230 344 L1210 359 L1230 374 L1210 389 L1230 404 L1220 417"/>
+  <text x="1090" y="365" class="small">R3 10 kohm</text>
+  <path class="wire" d="M1290 236 V335 M1290 360 V545"/>
+  <path id="rx-adc-filter" class="part" d="M1270 335 H1310 M1270 360 H1310"/>
+  <text x="1300" y="405" class="small">C2 4.7 nF</text>
+  <path id="rx-esp-return" class="wire" d="M786 392 V545 H1325 M1220 545 V560 M1290 545 V560"/>
+  <text x="1020" y="581" class="label">ESP GND ONLY</text>
+
+  <text x="62" y="635" class="note">Existing 100 nF (C1) does NOT replace radio-side C3: 3.5-3.6 V DC was measured across TIP/SLEEVE.</text>
+  <text x="62" y="666" class="small">Keep radio SPK- off ESP GND. Disconnect any other radio-to-ESP ground or programming lead during isolation tests.</text>
+  <text x="62" y="696" class="small">With R1 = 10 kohm (not 27 kohm), recheck GPIO1 idle near 1.65 V and all signal peaks inside 0.3-2.7 V.</text>
+</svg>

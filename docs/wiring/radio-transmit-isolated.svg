@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 780" role="img" aria-labelledby="title desc">
+  <title id="title">Proposed isolated PCM5102A audio path to radio microphone</title>
+  <desc id="desc">The PCM5102A stays powered and grounded to ESP ground. Its right output feeds a current limiting and attenuation resistor and one isolated transformer winding. The second winding returns only to the radio microphone sleeve, with a series DC blocking capacitor to the microphone ring. A separate normally open relay contact is reserved for verified radio PTT terminals. Radio microphone bias and PTT pinout must be measured first.</desc>
+  <defs>
+    <style>
+      .wire { fill: none; stroke: #25353a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .part { fill: none; stroke: #25353a; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .boundary { fill: none; stroke: #a64c38; stroke-width: 2; stroke-dasharray: 8 7; }
+      .label { fill: #25353a; font: 18px sans-serif; }
+      .small { fill: #41525b; font: 15px sans-serif; }
+      .heading { fill: #173c46; font: bold 25px sans-serif; }
+      .note { fill: #963b29; font: 17px sans-serif; }
+    </style>
+  </defs>
+  <rect width="1400" height="780" fill="#fff"/>
+  <text x="52" y="46" class="heading">TX proposal: PCM5102A - isolated transformer - radio MIC</text>
+  <text x="52" y="78" class="note">NOT APPROVED FOR RADIO CONNECTION: verify MIC bias, MIC-/PTT and audio levels first.</text>
+  <text x="62" y="144" class="heading">ESP / DAC SIDE</text>
+  <text x="786" y="144" class="heading">RADIO SIDE</text>
+  <path class="boundary" d="M700 110 V532"/>
+  <text x="567" y="467" class="small">No wire across barrier</text>
+
+  <text x="59" y="215" class="label">PCM5102A OUT R</text>
+  <path id="tx-dac-output" class="wire" d="M64 240 H295"/>
+  <path id="tx-series-resistor" class="part" d="M295 240 L307 230 L319 250 L331 230 L343 250 L355 230 L367 250 L379 240"/>
+  <path class="wire" d="M379 240 H532"/>
+  <text x="277" y="199" class="label">R_TX series (start 1 kohm)</text>
+  <text x="180" y="312" class="small">DAC: min 1 kohm load; measure output level</text>
+  <path id="tx-dac-winding" class="part" d="M532 240 V259 C557 259 557 282 532 282 C557 282 557 305 532 305 C557 305 557 328 532 328 C557 328 557 351 532 351 C557 351 557 374 532 374 V396"/>
+  <text x="489" y="171" class="small">T2 winding A</text>
+  <path id="tx-dac-return" class="wire" d="M532 396 V458 H64"/>
+  <text x="59" y="449" class="label">PCM5102A GND = ESP GND (always connected)</text>
+
+  <path id="tx-radio-winding" class="part" d="M788 240 V259 C813 259 813 282 788 282 C813 282 813 305 788 305 C813 305 813 328 788 328 C813 328 813 351 788 351 C813 351 813 374 788 374 V396"/>
+  <text x="746" y="195" class="small">T2 winding B</text>
+  <path class="wire" d="M788 240 H986 M1006 240 H1325"/>
+  <path id="tx-mic-dc-block" class="part" d="M986 220 V260 M1006 220 V260"/>
+  <text x="960" y="180" class="label">C_TX series DC block (TBD)</text>
+  <text x="1087" y="215" class="label">3.5 mm RING (MIC+?)</text>
+  <path id="tx-radio-return" class="wire" d="M788 396 V458 H1325"/>
+  <text x="1087" y="448" class="label">3.5 mm SLEEVE (MIC-?)</text>
+
+  <text x="62" y="558" class="heading">PTT: separate dry relay contact, not a DAC ground switch</text>
+  <text x="65" y="615" class="label">Verified radio PTT point A</text>
+  <path id="tx-ptt-contact" class="wire" d="M329 609 H440 M440 609 L520 573 M545 609 H802"/>
+  <circle cx="440" cy="609" r="5" fill="#25353a"/>
+  <circle cx="545" cy="609" r="5" fill="#25353a"/>
+  <text x="580" y="584" class="small">NO, open at rest</text>
+  <text x="808" y="615" class="label">Verified radio PTT point B</text>
+
+  <text x="62" y="674" class="note">The MIC ring bias must NOT flow through T2; confirm the radio jack functions before choosing C_TX.</text>
+  <text x="62" y="704" class="small">BCK=GPIO12, LRCK=GPIO13, DIN=GPIO15, VIN=3V3, SCK=GND, XSMT=3V3 via 1 kohm: unchanged.</text>
+  <text x="62" y="734" class="small">Do not connect PCM5102A GND to radio MIC-. Remove any separate direct radio/ESP ground or UART lead for isolation.</text>
+</svg>

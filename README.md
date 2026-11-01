@@ -4,6 +4,8 @@ ESP32-S3 prototípus kézi, mono WAV-felvételhez microSD-kártyára. Nyitott sa
 
 A jelenlegi és tervezett modulok GPIO-kiosztása az [eszközjegyzékben](docs/device-gpio-map.md) található.
 
+A rádióhang vételi és adási trafós leválasztásának [tervezési rajzai és feltételes anyaglistája](docs/functional-hardware.md#leválasztott-rádiós-hangutak---tervezési-rajzok-nem-kész-bekötés) külön szerepelnek. A rádióoldali bekötés a mért hangszóró-DC, MIC-előfeszítés és PTT-csatlakozó ellenőrzéséig nem jóváhagyott.
+
 ## Megvalósított funkciók
 
 - Kézi mono WAV-felvétel a GPIO1 ADC-bemenetről microSD-re, állapot- és hiba-visszajelzéssel. A Hardver teszt oldalon GPIO1/2/3/9 választható nyers, 12 bites ADC-grafikon segíti az előfeszítés és a bemenő jel vizsgálatát felvétel vagy SD-írás nélkül ([mérési lépések](docs/testing.md#adc-nyers-jel)).
@@ -25,7 +27,7 @@ A jelenlegi és tervezett modulok GPIO-kiosztása az [eszközjegyzékben](docs/d
 
 ## Első, rádió nélküli próba
 
-1. Ellenőrizd a saját panelen, hogy a [próbarajzon](docs/radio-receive-adc.svg) szereplő GPIO1 valóban ADC1_CH0, és az SD-foglalat lábai CMD=GPIO38, CLK=GPIO39, DATA0=GPIO40. A panelre vonatkozó [figyelmeztetések](docs/functional-hardware.md) továbbra is érvényesek.
+1. Ellenőrizd a saját panelen, hogy a [próbarajzon](docs/wiring/radio-receive-adc.svg) szereplő GPIO1 valóban ADC1_CH0, és az SD-foglalat lábai CMD=GPIO38, CLK=GPIO39, DATA0=GPIO40. A panelre vonatkozó [figyelmeztetések](docs/functional-hardware.md) továbbra is érvényesek.
 2. A rajz szerinti előfeszített ADC-áramkört csak ismert, kis szintű, az ESP-vel biztonságosan közös referenciájú próbaforrással építsd meg. A rádió egyik érintkezőjét se csatlakoztasd. GPIO1-en nyugalomban kb. 1,65 V-ot, jellel kb. 0,3-2,7 V közötti csúcsokat ellenőrizz; a GPIO soha ne kerüljön 0 V alá vagy 3,3 V fölé.
 3. Helyezz be FAT32-formátumú microSD-t, és tápláld a panelt a saját USB-csatlakozójáról. Kamera, transzformátor és rádióbekötés ehhez a próbához nem kell.
 

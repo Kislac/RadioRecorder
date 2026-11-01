@@ -4,7 +4,7 @@ Ez a lista a [követelmények](../requirements.md) szerinti **felvétel, Wi-Fi w
 
 ## Első lépcső: ADC-próba rádió nélkül
 
-![Első, rádió nélkül végezhető ADC-próba kapcsolási rajza](radio-receive-adc.svg)
+![Első, rádió nélkül végezhető ADC-próba kapcsolási rajza](wiring/radio-receive-adc.svg)
 
 **STOP - a rádiót ne csatlakoztasd a rajzhoz.** A 2026-10-25-én a 2.5 mm-es tip és sleeve között mért érték vétel nélkül 0 V, vétel közben **3.5-3.6 V DC**, illetve **3.4-4 V AC** a multiméter szerint; az AC-érték a hangerővel változik. Ez nem felel meg az alább eredetileg előírt, elhanyagolható differenciális DC feltételnek. A két hangérintkező közé közvetlenül tett transzformátor-primer DC-terhelést kaphat és telítésbe mehet; a rajz rádióoldali bekötése **érvénytelen**, amíg nincs újratervezve. A multiméter beszédnél nem ad megbízható csúcsfeszültséget. Most csak az ESP előfeszítő/ADC oldala építhető meg, rádió nélkül; a rádiót a saját akkujáról járasd.
 
@@ -69,7 +69,25 @@ RTC + kezelőgombok -> ESP32-S3; microSD <-> ESP32-S3; telefon <-> Wi-Fi
 
 A [meglévő rádiójack-vázlat](UV5R%20audio%20interface.md) telefonos hangátalakítóhoz készült, **nem ellenőrzött készülék-pinout**. Rádióhoz csak a pontos tartozékcsatlakozó, hangkimenet AC/DC szintje, MIC-bias és földelés ellenőrzése után csatlakozzunk; ismeretlen, esetleg híd-kimenetű hangszóróágat ne kössünk közvetlenül a vezérlő földjére. Az illesztésbe szükség szerint osztó, csatolás, bemenetvédelem vagy leválasztás kerül.
 
-Későbbi beszerzési jelölt: [EI14 hangtranszformátor, AliExpress 1005005743074430](https://www.aliexpress.com/item/1005005743074430.html), **A without taps** változat. A hirdetés 1:1, 600:600 Ω névleges AC impedanciát és kb. 135 Ω DC tekercsellenállást ad meg oldalanként; ezek nem egymásnak ellentmondó értékek. A megadott 50 Hz-50 kHz átvitel és a „290MH” induktivitás állítása nem ellenőrzött, az utóbbi mértékegysége sem egyértelmű. Nincs igazolt gyártói adatlap a lábkiosztásról, a megengedett jelszintről és a primer-szekunder szigetelés feszültségtűréséről. Ez **olcsó hangút-prototípushoz feltételes jelölt, nem bevizsgált biztonsági leválasztó**. Megrendelés és bekötés előtt az adatokat tisztázni kell; beérkezés után a két tekercset és a köztük lévő szakadás tényét áramtalanítva multiméterrel azonosítani kell. A rádió tip-sleeve párján mért DC miatt a primerre külön soros DC-blokkoló kondenzátor és méretezett csillapítás kell; a rádió sleeve-jét továbbra sem szabad az ESP GND-jéhez kötni. A közeli adó RF-becsatolását ez a hangtranszformátor önmagában nem garantáltan szünteti meg.
+### Leválasztott rádiós hangutak - tervezési rajzok, nem kész bekötés
+
+![Vételi hangút, külön rádióoldali DC-blokkolással](wiring/radio-receive-isolated.svg)
+
+![Adási hangút, külön PTT-reléérintkezővel](wiring/radio-transmit-isolated.svg)
+
+A [régi rádió nélküli ADC-próbarajz](wiring/radio-receive-adc.svg) 27 kΩ-os soros ellenállást mutat; a jelenleg közölt próbakörben ez **10 kΩ**. A két 10 kΩ-os előfeszítő ellenállással így kb. 5 kΩ-os terhelés és ideálisan kb. 1/3-os, **nem** a korábbi 0,16-os ADC-csillapítás adódik, a trafó és a rádió terhelésétől függően. Az ESP-oldali 100 nF-os C1 önmagában nem véd a rádióoldali tekercsen átfolyó DC-től: oda külön, soros **C3** kell a 2,5 mm tip és a trafó közé; a 2,5 mm sleeve csak ugyanennek a tekercsnek a visszavezetése, soha nem ESP GND. Az ESP-oldali tekercs visszavezetése kizárólag ESP GND. A korábbi 3,5-3,6 V DC / 3,4-4 V AC multiméteradatok nem helyettesítik a terhelés alatti differenciális csúcsértéket.
+
+Adáskor a PCM5102A VIN/GND/I2S/SCK/XSMT bekötése változatlan, GND-je folyamatosan az ESP GND-n marad. Az OUT R a **R_TX** soros ellenálláson át a második trafó ESP-oldali tekercsét hajtja. A rádióoldali tekercs és a 3,5 mm ring (feltételezett MIC+) közé külön soros **C_TX** kerül, a tekercs másik vége a 3,5 mm sleeve-hez (feltételezett MIC−) csatlakozik; egyik sem ESP GND. A PTT egy külön, alapállapotban nyitott reléérintkezővel csak két kimért rádióoldali pont között működhet. A rádió MIC-előfeszítésének és PTT-funkciójának mérése nélkül a C_TX értéke, a pontos mikrofonszint és az érintkezők **nem véglegesek**. A DAC [adatlapja](https://www.ti.com/document-viewer/PCM5102A/datasheet) legalább 1 kΩ terhelést ír le: R_TX = 1 kΩ csak rádió nélkül kipróbálandó kiinduló érték, nem a kész MIC-csillapító méretezése.
+
+| Darab | Hangút / alkatrész | Beszerzési döntés |
+| --- | --- | --- |
+| 1 | RX: [Triad TY-145P 600:600 Ω, 1:1, 100 mW](https://hu.farnell.com/triad-magnetics/ty-145p/transformer-1-1-600-600/dp/1610411) | Furatszerelt, beszédsávra megfelelő alkatrészjelölt. A rádió terhelt kimenő szintjét ellenőrizni kell a 100 mW-os névleges értékhez képest. |
+| 1 | TX: [Bourns LM-NP-1001-B1L 600:600 Ω, 1:1](https://hu.farnell.com/bourns/lm-np-1001-b1l/transformer-line-matching-1-1/dp/1929741) | Furatszerelt hangtrafó-jelölt, de az előfeszítés és a MIC-terhelés még nem ismert. |
+| 1 | RX C3: bipoláris (nem polarizált) 22 µF, legalább 25 V kondenzátor | A külön rádióoldali soros DC-blokkoláshoz kiinduló érték; végleges méret a mért terhelés után. Az ESP-oldali 100 nF C1 marad. |
+| 1 | TX R_TX: 1 kΩ ellenállás | A rádió nélkül próbálandó DAC-terhelés korlátozásának kiinduló eleme, nem önmagában igazolt mikrofonszint-illesztés. |
+| később | TX C_TX, esetleges további MIC-osztó, bemenetvédelem és csatlakozó | A MIC-bias/PTT pinout, adási szint és terhelés mérése után választható ki: most ne vásárolj értékre tippelve. |
+
+**Mérésig egyik rajz sem építési engedély.** Először a rádió nélkül azonosított tekercseken és ismert, áramkorlátozott próbajelen ellenőrizd a hangot; utána a pontos csatlakozót, rádiókimenetet és MIC-bias/PTT-t ellenőrizd. A rádióprogramozási UART és annak közös adat-GND-je a leválasztott hangutak próbája alatt legyen fizikailag lecsatlakoztatva. A PTT-próba csak külön RF nélküli tesztterheléssel történjen; a trafó nem pótolja a PTT- és mikrofonáramkör ellenőrzését.
 
 ## Beszerzendő / ellenőrizendő tételek
 
