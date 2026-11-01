@@ -38,9 +38,18 @@ class IsolatedAudioWiringTests(unittest.TestCase):
 
     def test_receive_and_transmit_diagrams_are_linked(self):
         docs = (WIRING.parent / "functional-hardware.md").read_text(encoding="utf-8")
-        for diagram in ("radio-receive-adc.svg", "radio-receive-isolated.svg", "radio-transmit-isolated.svg"):
+        for diagram in ("radio-receive-isolated.svg", "radio-transmit-isolated.svg"):
             self.assertIn("(wiring/" + diagram + ")", docs)
             self.assertTrue((WIRING / diagram).is_file())
+
+    def test_retired_wiring_diagrams_are_not_published(self):
+        documents = [WIRING.parent.parent / "README.md", WIRING.parent / "functional-hardware.md",
+                     WIRING.parent / "UV5R audio interface.md"]
+        for name in ("radio-receive-adc.svg", "radio-pdm-output.svg"):
+            self.assertFalse((WIRING / name).exists())
+            for document in documents:
+                with self.subTest(diagram=name, document=document.name):
+                    self.assertNotIn(name, document.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

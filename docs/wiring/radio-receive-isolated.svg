@@ -57,5 +57,5 @@
 
   <text x="62" y="635" class="note">Existing 100 nF (C1) does NOT replace radio-side C3: 3.5-3.6 V DC was measured across TIP/SLEEVE.</text>
   <text x="62" y="666" class="small">Keep radio SPK- off ESP GND. Disconnect any other radio-to-ESP ground or programming lead during isolation tests.</text>
-  <text x="62" y="696" class="small">With R1 = 10 kohm (not 27 kohm), recheck GPIO1 idle near 1.65 V and all signal peaks inside 0.3-2.7 V.</text>
+  <text x="62" y="696" class="small">With R1 = 10 kohm, recheck GPIO1 idle near 1.65 V and all signal peaks inside 0.3-2.7 V.</text>
 </svg>
