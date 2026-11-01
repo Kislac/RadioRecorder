@@ -12,7 +12,7 @@ SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+
 RTC_PATTERN = re.compile(r"RTC_TIME rtc=(\d+) system=(\d+) source=([A-Z-]) offline=([01])")
 DISPLAY_TILES = ("Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel",
                  "Aut Mikrofon Felvetel", "Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel",
-                 "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok", "Time")
+                 "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Time", "Beallitasok")
 SETTINGS_TILE = DISPLAY_TILES.index("Beallitasok")
 SETTING_COUNT = 15
 
@@ -410,7 +410,7 @@ def test_wake_input(device):
         state = menu_state(device)
         if state[0] != 8:
             raise AssertionError("Second encoder input did not navigate")
-        for _ in range(2):
+        for _ in range((SETTINGS_TILE - state[0]) % len(DISPLAY_TILES)):
             device.write(b"l")
             state = menu_state(device)
         if state[0] != SETTINGS_TILE:

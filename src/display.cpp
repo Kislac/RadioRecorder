@@ -31,11 +31,11 @@ constexpr uint8_t kMicSignalTile = 6;
 constexpr uint8_t kDiagnosticsTile = 7;
 constexpr uint8_t kPttTile = 8;
 constexpr uint8_t kWifiTile = 9;
-constexpr uint8_t kSettingsTile = 10;
-constexpr uint8_t kTimeTile = 11;
+constexpr uint8_t kTimeTile = 10;
+constexpr uint8_t kSettingsTile = kTileCount - 1;
 const char *const kTileNames[kTileCount] = {"Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel",
                                             "Aut Mikrofon Felvetel", "Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel",
-                                            "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok", "Time"};
+                                            "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Time", "Beallitasok"};
 
 U8G2_SH1106_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, kSclGpio, kSdaGpio);
 bool ready = false;

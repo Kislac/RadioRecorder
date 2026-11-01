@@ -1,6 +1,7 @@
 import json
 import os
 import queue
+import re
 import shutil
 import sys
 import subprocess
@@ -228,9 +229,12 @@ class FrameTests(unittest.TestCase):
         self.assertLessEqual(len("2026.11.01 16:21:28") * 5, 128)
         self.assertIn("appClockSourceLabel()", time_tile)
         self.assertIn("appUptimeText()", time_tile)
-        self.assertIn("kTimeTile = 11", source)
-        self.assertIn('"Beallitasok", "Time"', source)
-        self.assertEqual((len(DISPLAY_TILES), SETTINGS_TILE, DISPLAY_TILES[-1]), (12, 10, "Time"))
+        self.assertIn("kTimeTile = 10", source)
+        self.assertIn("kSettingsTile = kTileCount - 1", source)
+        self.assertIn('"Time", "Beallitasok"', source)
+        names = re.findall(r'"([^"]+)"', source.split("kTileNames[kTileCount] = {", 1)[1].split("};", 1)[0])
+        self.assertEqual(tuple(names), DISPLAY_TILES)
+        self.assertEqual((len(DISPLAY_TILES), SETTINGS_TILE, DISPLAY_TILES[-1]), (12, 11, "Beallitasok"))
         self.assertIn("tile == kWifiTile || tile == kTimeTile", source)
         uptime = control.split("uint64_t appUptimeSeconds()", 1)[1].split("static String clockTimezoneRule()", 1)[0]
         self.assertIn("esp_timer_get_time()", uptime)
@@ -282,7 +286,7 @@ int main() {
             result = subprocess.run([str(executable)], capture_output=True, text=True, env=environment)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_full_display_probe_reaches_settings_after_time_tile(self):
+    def test_full_display_probe_keeps_settings_last_after_time_tile(self):
         state = {"tile": 0, "setting": 0, "settings": False, "browser": False}
         visited = []
 
@@ -310,7 +314,7 @@ int main() {
                    (state["tile"], state["setting"], int(state["settings"]), 0, 0)), \
                 patch("scripts.test_device.read_frame", side_effect=frame):
             self.assertIn("all tiles/settings rendered", test_display_all(device, report))
-        self.assertIn((11, False, False), visited)
+        self.assertIn((10, False, False), visited)
         self.assertIn((SETTINGS_TILE, True, False), visited)
         self.assertEqual((state["tile"], state["settings"], state["browser"]), (0, False, False))
 
@@ -449,7 +453,7 @@ int main() {
         self.assertIn('server.on("/api/wifi/forget", HTTP_POST', server_source)
         self.assertIn('id="keepApHost" type="checkbox"', page_source)
         self.assertNotIn('id="keepApHost" type="checkbox" checked', page_source)
-        self.assertIn('"Wi-Fi", "Beallitasok"', display_source)
+        self.assertIn('"Wi-Fi", "Time", "Beallitasok"', display_source)
         self.assertIn('kWifiTimeoutKey[] = "wifiOffMin"', wifi_source)
         self.assertIn('kDefaultTimeoutMinutes = 5', wifi_source)
         self.assertIn('kConnectTimeoutMs = 15000', wifi_source)
