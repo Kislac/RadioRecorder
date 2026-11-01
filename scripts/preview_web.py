@@ -160,7 +160,8 @@ class PreviewDevice:
     def clock_info(self):
         epoch = int(self.clock_epoch + time.monotonic() - self.clock_started_at) if self.clock_epoch is not None else 0
         local = clock_local(epoch, self.clock_zone).strftime("%Y-%m-%dT%H:%M:%S") if epoch else ""
-        return {"local": local, "epoch": epoch, "zone": self.clock_zone, "source": self.clock_source}
+        return {"local": local, "epoch": epoch, "zone": self.clock_zone, "source": self.clock_source,
+            "uptimeSeconds": max(0, int(time.monotonic() - self.started_at))}
 
     def finish_recording(self):
         self.recording = False

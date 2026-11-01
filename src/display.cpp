@@ -21,7 +21,7 @@
 namespace {
 constexpr int kSdaGpio = 4;
 constexpr int kSclGpio = 5;
-constexpr uint8_t kTileCount = 11;
+constexpr uint8_t kTileCount = 12;
 constexpr uint8_t kSettingsCount = 15;
 constexpr uint8_t kBrowseRows = 5;
 constexpr uint8_t kSettingsRows = 5;
@@ -32,9 +32,10 @@ constexpr uint8_t kDiagnosticsTile = 7;
 constexpr uint8_t kPttTile = 8;
 constexpr uint8_t kWifiTile = 9;
 constexpr uint8_t kSettingsTile = 10;
+constexpr uint8_t kTimeTile = 11;
 const char *const kTileNames[kTileCount] = {"Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel",
                                             "Aut Mikrofon Felvetel", "Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel",
-                                            "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok"};
+                                            "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok", "Time"};
 
 U8G2_SH1106_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, kSclGpio, kSdaGpio);
 bool ready = false;
@@ -322,7 +323,7 @@ void drawBrowse() {
   }
 }
 
-void drawStatus(uint32_t seconds) {
+void drawStatus() {
   static const uint8_t arcMask[] = {0x2, 0x6, 0x4, 0xc, 0x8, 0x9, 0x1, 0x3};
   oled.setDrawColor(0);
   oled.drawBox(0, 0, 128, 10);
@@ -338,14 +339,25 @@ void drawStatus(uint32_t seconds) {
   if (!webReady()) oled.drawLine(12, 1, 22, 9);
   oled.setFont(u8g2_font_5x8_tf);
   if (recorderState() != CaptureState::idle) oled.drawStr(26, 8, "REC");
-  uint32_t time = seconds;
+  tm local = {};
   char clockText[24];
-  if (!appClockKnown()) snprintf(clockText, sizeof(clockText), "--:--:--");
-  else snprintf(clockText, sizeof(clockText), "%c%02lu:%02lu:%02lu", appClockIndicator(),
-                static_cast<unsigned long>(time / 3600),
-                static_cast<unsigned long>((time / 60) % 60), static_cast<unsigned long>(time % 60));
-  oled.drawStr(72, 8, clockText);
+  if (!appClockLocal(local)) snprintf(clockText, sizeof(clockText), "------ --:--:--");
+  else strftime(clockText, sizeof(clockText), "%y%m%d %H:%M:%S", &local);
+  oled.drawStr(128 - oled.getStrWidth(clockText), 8, clockText);
   oled.drawHLine(0, 10, 128);
+}
+
+void drawTime() {
+  tm local = {};
+  char dateTime[24];
+  if (appClockLocal(local)) strftime(dateTime, sizeof(dateTime), "%Y.%m.%d %H:%M:%S", &local);
+  else snprintf(dateTime, sizeof(dateTime), "Time unknown");
+  oled.drawStr(0, 31, dateTime);
+  char source[26];
+  snprintf(source, sizeof(source), "Source: %s", appClockSourceLabel());
+  oled.drawStr(0, 39, source);
+  oled.drawStr(0, 47, "Runtime");
+  oled.drawStr(0, 55, appUptimeText().c_str());
 }
 
 void drawSettingValue(uint8_t y, const char *value) {
@@ -445,7 +457,7 @@ void drawSettings() {
 
 void drawBody(bool fullUpdate = true) {
   oled.clearBuffer();
-  drawStatus(appDemoTimeSeconds());
+  drawStatus();
   oled.setFont(u8g2_font_6x10_tf);
   String heading = inSettings ? "Beallitasok" : tile == kFileTile && browsingFiles ?
                    (choosingPlayback ? "Lejatszas" : browsePath == "/" ? "microSD" :
@@ -476,6 +488,8 @@ void drawBody(bool fullUpdate = true) {
     drawBuildDate();
   } else if (tile == kWifiTile) {
     drawWifi();
+  } else if (tile == kTimeTile) {
+    drawTime();
   } else if (tile == kSettingsTile) {
     oled.drawStr(0, 37, "Nyomas = beallitasok");
   } else if (tile == 1) {
@@ -738,7 +752,7 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
     lastSecond = second;
     drawBody();
   } else if (!inSettings && (tile == 0 || tile == 1 || isSignalTile(tile) ||
-                              tile == kPttTile || tile == kWifiTile) && now - lastBodyAt >= 500) {
+                              tile == kPttTile || tile == kWifiTile || tile == kTimeTile) && now - lastBodyAt >= 500) {
     bool secondChanged = second != lastSecond;
     lastSecond = second;
     drawBody(false);
@@ -750,11 +764,11 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
       drawBody(false);
       oled.updateDisplayArea(0, 0, 16, 2);
     } else {
-      drawStatus(second);
+      drawStatus();
       oled.updateDisplayArea(0, 0, 16, 2);
     }
   } else if (spinnerTick) {
-    drawStatus(second);
+    drawStatus();
     oled.updateDisplayArea(0, 0, 1, 1);
   }
   uint16_t timeoutMinutes = appScreenOffMinutes();

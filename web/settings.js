@@ -21,7 +21,25 @@ const zoneLabels = ["Budapest (téli/nyári idő)", "UTC"];
 for (let offset = -12; offset <= 14; offset++)
   zoneLabels.push("UTC" + (offset >= 0 ? "+" : "") + offset);
 zoneLabels.forEach((label, index) => clockZone.add(new Option(label, index)));
+function formatUptime(seconds) {
+  const days = Math.floor(seconds / 86400);
+  return [Math.floor(days / 360), Math.floor((days % 360) / 30), days % 30]
+    .map((value) => String(value).padStart(2, "0")).join(":") + " " +
+    [Math.floor(seconds / 3600) % 24, Math.floor(seconds / 60) % 60, seconds % 60]
+      .map((value) => String(value).padStart(2, "0")).join(":");
+}
+let uptimeBase = null,
+  uptimeSyncedAt = performance.now();
+function renderUptime() {
+  document.querySelector("#runtime").textContent = uptimeBase === null ? "Nem elérhető" :
+    formatUptime(uptimeBase + Math.floor((performance.now() - uptimeSyncedAt) / 1000));
+}
+setInterval(renderUptime, 1000);
 function showClock(clock) {
+  uptimeBase = Number.isFinite(clock.uptimeSeconds) && clock.uptimeSeconds >= 0 ?
+    Math.floor(clock.uptimeSeconds) : null;
+  uptimeSyncedAt = performance.now();
+  renderUptime();
   clockZone.value = String(clock.zone);
   clockCurrent.textContent = clock.local ? clock.local.replace("T", " ") : "Az idő nincs beállítva";
   clockStatus.textContent = ({ internet: "Internetről szinkronizálva", manual: "Kézzel beállítva",

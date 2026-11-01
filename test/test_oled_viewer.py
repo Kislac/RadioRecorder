@@ -1,5 +1,7 @@
 import json
+import os
 import queue
+import shutil
 import sys
 import subprocess
 import unittest
@@ -15,8 +17,8 @@ import xml.etree.ElementTree as ET
 
 from scripts.oled_viewer import (FRAME_BYTES, KEY_COMMANDS, SCREENSHOT_DIR, bind_controls, body_pixels,
                                  find_device, parse_frame, pixel, read_frame, save_frame_png)
-from scripts.test_device import (delete_test_recording, menu_state, rtc_live_check, rtc_snapshot,
-                                 valid_signal, validate_display_frames, verify_rtc_progress)
+from scripts.test_device import (DISPLAY_TILES, SETTINGS_TILE, delete_test_recording, menu_state, rtc_live_check, rtc_snapshot,
+                                 test_display_all, valid_signal, validate_display_frames, verify_rtc_progress)
 from scripts.test_support import TestRun, firmware_at_least
 from scripts.test_watchdog import trigger_and_verify_reset
 from scripts.run_tests import run_suite
@@ -192,7 +194,7 @@ class FrameTests(unittest.TestCase):
     def test_oled_menu_redesign_contract(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "src" / "display.cpp").read_text(encoding="utf-8")
-        self.assertIn("kTileCount = 11", source)
+        self.assertIn("kTileCount = 12", source)
         self.assertIn('"Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel"', source)
         self.assertIn('"Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel"', source)
         self.assertIn("kBrowseRows = 5", source)
@@ -211,6 +213,106 @@ class FrameTests(unittest.TestCase):
         self.assertIn("WiFi.localIP().toString()", source)
         self.assertIn("WiFi.softAPIP().toString()", source)
         self.assertIn('"%04d.%02u.%02d %s"', source)
+
+    def test_compact_header_and_time_tile_use_local_clock_and_monotonic_runtime(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "src" / "display.cpp").read_text(encoding="utf-8")
+        control = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
+        header = source.split("void drawStatus()", 1)[1].split("void drawTime()", 1)[0]
+        time_tile = source.split("void drawTime()", 1)[1].split("void drawSettingValue", 1)[0]
+        self.assertIn('"%y%m%d %H:%M:%S"', header)
+        self.assertIn("128 - oled.getStrWidth(clockText)", header)
+        self.assertNotIn("appClockIndicator", header)
+        self.assertGreaterEqual(128 - len("261101 16:10:02") * 5, 26 + len("REC") * 5 + 2)
+        self.assertIn('"%Y.%m.%d %H:%M:%S"', time_tile)
+        self.assertLessEqual(len("2026.11.01 16:21:28") * 5, 128)
+        self.assertIn("appClockSourceLabel()", time_tile)
+        self.assertIn("appUptimeText()", time_tile)
+        self.assertIn("kTimeTile = 11", source)
+        self.assertIn('"Beallitasok", "Time"', source)
+        self.assertEqual((len(DISPLAY_TILES), SETTINGS_TILE, DISPLAY_TILES[-1]), (12, 10, "Time"))
+        self.assertIn("tile == kWifiTile || tile == kTimeTile", source)
+        uptime = control.split("uint64_t appUptimeSeconds()", 1)[1].split("static String clockTimezoneRule()", 1)[0]
+        self.assertIn("esp_timer_get_time()", uptime)
+        self.assertNotIn("millis()", uptime)
+        self.assertNotIn("time(nullptr)", uptime)
+        self.assertIn("days / 360ULL", uptime)
+        self.assertIn("days % 30ULL", uptime)
+
+    def test_firmware_runtime_formatter_survives_millis_wrap_and_unit_rollovers(self):
+        compiler = shutil.which("g++")
+        fallback = Path.home() / ".platformio/packages/toolchain-gccmingw32/bin/g++.exe"
+        if compiler is None and fallback.is_file():
+            compiler = str(fallback)
+        if compiler is None:
+            self.skipTest("Host g++ required for firmware runtime regression")
+        source = (Path(__file__).resolve().parents[1] / "src" / "app_control.cpp").read_text(encoding="utf-8")
+        functions = "uint64_t appUptimeSeconds()" + source.split("uint64_t appUptimeSeconds()", 1)[1].split("static String clockTimezoneRule()", 1)[0]
+        harness = """
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
+#include <string>
+using String = std::string;
+int64_t timerMicros = 0;
+int64_t esp_timer_get_time() { return timerMicros; }
+""" + functions + """
+int main() {
+  const uint64_t samples[] = {0, 59, 60, 86399, 86400, 30ULL*86400, 360ULL*86400, 4294968};
+  const char *expected[] = {"00:00:00 00:00:00", "00:00:00 00:00:59", "00:00:00 00:01:00",
+                           "00:00:00 23:59:59", "00:00:01 00:00:00", "00:01:00 00:00:00",
+                           "01:00:00 00:00:00", "00:01:19 17:02:48"};
+  for (size_t index = 0; index < sizeof(samples)/sizeof(samples[0]); ++index) {
+    timerMicros = static_cast<int64_t>(samples[index]*1000000ULL + 999999ULL);
+    assert(appUptimeSeconds() == samples[index]);
+    assert(appUptimeText() == expected[index]);
+  }
+}
+"""
+        environment = dict(os.environ)
+        environment["PATH"] = str(Path(compiler).parent) + os.pathsep + environment.get("PATH", "")
+        with TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "runtime.cpp").write_text(harness, encoding="utf-8")
+            executable = path / ("runtime.exe" if os.name == "nt" else "runtime")
+            compiled = subprocess.run([compiler, "-std=c++11", "-Wall", "-Wextra", "-Werror",
+                                       str(path / "runtime.cpp"), "-o", str(executable)],
+                                      capture_output=True, text=True, env=environment)
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, env=environment)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_full_display_probe_reaches_settings_after_time_tile(self):
+        state = {"tile": 0, "setting": 0, "settings": False, "browser": False}
+        visited = []
+
+        def write(command):
+            if command == b"l":
+                field = "setting" if state["settings"] else "tile"
+                state[field] = (state[field] + 1) % (15 if state["settings"] else 12)
+            elif command == b"k":
+                self.assertIn(state["tile"], (4, SETTINGS_TILE))
+                state["settings"] = state["tile"] == SETTINGS_TILE
+                state["browser"] = state["tile"] == 4
+            elif command == b"b":
+                state["settings"] = state["browser"] = False
+
+        def frame(device):
+            visited.append((state["tile"], state["settings"], state["browser"]))
+            pixels = bytearray(FRAME_BYTES)
+            position = state["setting"] + 32 if state["settings"] else state["tile"]
+            pixels[256 + position] = 2 if state["browser"] else 1
+            return bytes(pixels)
+
+        device = SimpleNamespace(write=write)
+        report = SimpleNamespace(detail=lambda message: None)
+        with patch("scripts.test_device.menu_state", side_effect=lambda device:
+                   (state["tile"], state["setting"], int(state["settings"]), 0, 0)), \
+                patch("scripts.test_device.read_frame", side_effect=frame):
+            self.assertIn("all tiles/settings rendered", test_display_all(device, report))
+        self.assertIn((11, False, False), visited)
+        self.assertIn((SETTINGS_TILE, True, False), visited)
+        self.assertEqual((state["tile"], state["settings"], state["browser"]), (0, False, False))
 
     def test_oled_sd_browser_and_radio_dac_playback(self):
         root = Path(__file__).resolve().parents[1]

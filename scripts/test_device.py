@@ -12,7 +12,8 @@ SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+
 RTC_PATTERN = re.compile(r"RTC_TIME rtc=(\d+) system=(\d+) source=([A-Z-]) offline=([01])")
 DISPLAY_TILES = ("Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel",
                  "Aut Mikrofon Felvetel", "Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel",
-                 "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok")
+                 "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Beallitasok", "Time")
+SETTINGS_TILE = DISPLAY_TILES.index("Beallitasok")
 SETTING_COUNT = 15
 
 
@@ -150,7 +151,7 @@ def test_signal(device, report):
         device.write(b"b")
         state = menu_state(device)
     original_tile = state[0]
-    settings_tile = len(DISPLAY_TILES) - 1
+    settings_tile = SETTINGS_TILE
     for _ in range((settings_tile - state[0]) % len(DISPLAY_TILES)):
         device.write(b"l")
         state = menu_state(device)
@@ -329,6 +330,10 @@ def test_display_all(device, report):
             report.detail("DISPLAY TILE {} {} bytes={}".format(target, name, len(frame)))
         validate_display_frames(tile_frames, len(DISPLAY_TILES), "main tiles")
 
+        state = menu_state(device)
+        for _ in range((SETTINGS_TILE - state[0]) % len(DISPLAY_TILES)):
+            device.write(b"l")
+            state = menu_state(device)
         device.write(b"k")
         state = menu_state(device)
         if not state[2]:
@@ -408,7 +413,7 @@ def test_wake_input(device):
         for _ in range(2):
             device.write(b"l")
             state = menu_state(device)
-        if state[0] != len(DISPLAY_TILES) - 1:
+        if state[0] != SETTINGS_TILE:
             raise AssertionError("Could not reach Settings tile for button wake test")
 
         device.write(b"o")
@@ -416,7 +421,7 @@ def test_wake_input(device):
             raise AssertionError("Test sleep command did not put OLED to sleep")
         device.write(b"k")
         state = menu_state(device)
-        if state[4] or state[2] or state[0] != len(DISPLAY_TILES) - 1:
+        if state[4] or state[2] or state[0] != SETTINGS_TILE:
             raise AssertionError("First button input did more than wake OLED")
         device.write(b"k")
         state = menu_state(device)
@@ -462,7 +467,7 @@ def test_oled_navigation(device):
         raise AssertionError("Right encoder command did not change the OLED body")
     if body_pixels(initial) != body_pixels(restored):
         raise AssertionError("Left encoder command did not restore the OLED body")
-    settings_tile = len(DISPLAY_TILES) - 1
+    settings_tile = SETTINGS_TILE
     for _ in range((settings_tile - original_tile) % len(DISPLAY_TILES)):
         device.write(b"l")
     if menu_state(device)[0] != settings_tile:

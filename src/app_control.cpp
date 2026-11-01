@@ -12,7 +12,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.71";
+static constexpr char kFirmwareVersion[] = "0.1.72";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -54,6 +54,24 @@ uint32_t appDemoTimeSeconds() {
   tm local;
   localtime_r(&now, &local);
   return local.tm_hour * 3600UL + local.tm_min * 60UL + local.tm_sec;
+}
+
+uint64_t appUptimeSeconds() {
+  return static_cast<uint64_t>(esp_timer_get_time()) / 1000000ULL;
+}
+
+String appUptimeText() {
+  uint64_t seconds = appUptimeSeconds();
+  uint64_t days = seconds / 86400ULL;
+  char text[40];
+  snprintf(text, sizeof(text), "%02llu:%02llu:%02llu %02llu:%02llu:%02llu",
+           static_cast<unsigned long long>(days / 360ULL),
+           static_cast<unsigned long long>((days % 360ULL) / 30ULL),
+           static_cast<unsigned long long>(days % 30ULL),
+           static_cast<unsigned long long>((seconds / 3600ULL) % 24ULL),
+           static_cast<unsigned long long>((seconds / 60ULL) % 60ULL),
+           static_cast<unsigned long long>(seconds % 60ULL));
+  return String(text);
 }
 
 static String clockTimezoneRule() {
@@ -163,6 +181,10 @@ bool appClockLocal(tm &local) {
 }
 static bool clockFreshSync() { return clockOnline && clockSynced && millis() - lastSyncAt < 86400000UL; }
 char appClockIndicator() { return !clockKnown ? '-' : clockFreshSync() ? 'N' : clockManual ? 'K' : clockFromRtc ? 'R' : clockDefault ? 'A' : 'M'; }
+const char *appClockSourceLabel() {
+  return !clockKnown ? "Unknown" : clockFreshSync() ? "NTP" : clockManual ? "Manual" :
+         clockFromRtc ? "RTC" : clockDefault ? "Default" : "Saved (NVS)";
+}
 uint8_t appClockTimezone() { return clockZone; }
 
 String appClockJson() {
@@ -174,6 +196,7 @@ String appClockJson() {
   String json = "{\"local\":\"" + String(text) + "\",\"epoch\":" +
                 String(clockKnown ? static_cast<uint64_t>(now) : 0);
   json += ",\"zone\":" + String(clockZone);
+  json += ",\"uptimeSeconds\":" + String(appUptimeSeconds());
   json += ",\"source\":\"" + String(!clockKnown ? "unset" : clockFreshSync() ? "internet" :
                                            clockManual ? "manual" : clockFromRtc ? "rtc" : clockDefault ? "default" : "saved") + "\"}";
   return json;

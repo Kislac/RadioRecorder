@@ -18,6 +18,52 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_settings_runtime_advances_and_handles_rollover(self):
+        self.assertIn('id="runtime"', render_page("settings"))
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node.js required for runtime regression")
+        source = (WEB_ROOT / "settings.js").read_text(encoding="utf-8")
+        runtime_script = "function formatUptime" + source.split("function formatUptime", 1)[1].split("async function loadClock", 1)[0]
+        script = """
+const assert = require('node:assert/strict');
+let now = 0;
+const performance = {now: () => now};
+const output = {textContent: ''};
+const document = {querySelector: () => output};
+const clockZone = {}, clockCurrent = {}, clockStatus = {}, clockLocal = {};
+const setInterval = () => {};
+""" + runtime_script + """
+for (const [seconds, expected] of [[0,'00:00:00 00:00:00'],[86399,'00:00:00 23:59:59'],
+                                 [86400,'00:00:01 00:00:00'],[30*86400,'00:01:00 00:00:00'],
+                                 [360*86400,'01:00:00 00:00:00'],[4294968,'00:01:19 17:02:48']]) {
+  assert.equal(formatUptime(seconds), expected);
+}
+showClock({uptimeSeconds:59, zone:0, source:'rtc',local:'2026-11-01T16:21:28'});
+assert.equal(output.textContent, '00:00:00 00:00:59');
+now += 1000;
+renderUptime();
+assert.equal(output.textContent, '00:00:00 00:01:00');
+showClock({uptimeSeconds:60, zone:0, source:'manual',local:'2030-01-01T00:00:00'});
+assert.equal(output.textContent, '00:00:00 00:01:00');
+showClock({uptimeSeconds:0, zone:0, source:'rtc'});
+assert.equal(output.textContent, '00:00:00 00:00:00');
+showClock({zone:0, source:'unset'});
+assert.equal(output.textContent, 'Nem elérhető');
+"""
+        result = subprocess.run([node, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_preview_runtime_is_independent_of_clock_changes(self):
+        with patch("scripts.preview_web.time.monotonic", return_value=100):
+            device = PreviewDevice("ready")
+        with patch("scripts.preview_web.time.monotonic", return_value=100 + 50 * 86400):
+            self.assertEqual(device.clock_info()["uptimeSeconds"], 50 * 86400)
+            device.clock_epoch = 1793550088
+            device.clock_source = "manual"
+            device.clock_started_at = 100 + 50 * 86400
+            self.assertEqual(device.clock_info()["uptimeSeconds"], 50 * 86400)
+
     def test_home_header_contains_device_date_and_time(self):
         page = render_page("index")
         header = page.split("<header>", 1)[1].split("</header>", 1)[0]

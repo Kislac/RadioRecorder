@@ -18,6 +18,8 @@ A főoldal, a `/files` fájlkezelő és a `/settings` beállítások ugyanazokat
 
 A főoldal felső sávja az ESP helyi dátumát és idejét mutatja `2026.11.01. 16:10:02` formában, az időforrással együtt (NTP, RTC, KÉZI, MENTETT vagy ALAP). Másodpercenként frissül, a dátum éjfélkor továbblép; nem a PC óráját vagy időzónáját használja. Ismeretlen időnél `IDŐ NINCS` jelenik meg.
 
+A Beállítások → Dátum és idő rész az üzemidőt is mutatja `YY:MM:DD HH:MM:SS` formában, másodpercenként frissítve. A `/api/time` `uptimeSeconds` értéke a készülék aktuális bekapcsolása óta eltelt idő; az NTP/kézi óraállítás nem változtatja meg. A felbontás fix 30 napos hónapokat és 360 napos éveket használ, nem naptári dátumot. Újraindításkor nullázódik; az offline előnézet ugyanígy, a saját indulásától számolja.
+
 A fájlkezelő előbb a mappákat, majd a fájlokat adja vissza, legfeljebb 20 elemet kérésenként; görgetéskor automatikusan lekéri a következő oldalt, hibánál az Újrapróbálás gombbal folytatható.
 
 A `/radio` Radio Programming oldal is elérhető: megerősítés után kétmásodperces szimulált kiolvasást és két mintacsatornát mutat. Valódi UART-ot nem használ; a bináris letöltés `preview-only.bin` jelölőszöveg, nem rádiókép. A JSON szintén kizárólag mintabeállításokat tartalmaz. A készülékhez tartozó bekötést és próbalépéseket a [tesztelési útmutató](testing.md#uv-5r-konfiguráció-kiolvasása) ismerteti.
