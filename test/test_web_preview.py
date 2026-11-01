@@ -3,6 +3,8 @@ import io
 import json
 from pathlib import Path
 import runpy
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -16,6 +18,60 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_home_header_contains_device_date_and_time(self):
+        page = render_page("index")
+        header = page.split("<header>", 1)[1].split("</header>", 1)[0]
+        self.assertIn('id="demoClock"', header)
+        self.assertEqual(page.count('id="demoClock"'), 1)
+        script = (WEB_ROOT / "index.js").read_text(encoding="utf-8")
+        self.assertIn('Date.parse(data.clock.local + "Z")', script)
+        self.assertNotIn('demoBase = data.demoSeconds', script)
+
+    def test_header_clock_rolls_over_dates_without_pc_timezone_conversion(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node.js is required for the browser clock regression")
+        source = (WEB_ROOT / "index.js").read_text(encoding="utf-8")
+        clock_script = "let clockBase" + source.split("let clockBase", 1)[1].split("const signalHistory", 1)[0]
+        script = """
+const assert = require('node:assert/strict');
+process.env.TZ = 'America/Los_Angeles';
+let now = 0;
+const performance = { now: () => now };
+const element = { textContent: '', dateTime: '', removeAttribute: () => { element.dateTime = ''; } };
+const document = { querySelector: () => element };
+const setInterval = () => {};
+""" + clock_script + """
+for (const [source, prefix] of Object.entries({internet:'NTP', manual:'KÉZI', rtc:'RTC', saved:'MENTETT', default:'ALAP'})) {
+  clockSource = source;
+  clockBase = Date.parse('2026-11-01T16:10:02Z');
+  demoSyncedAt = now;
+  renderDemoClock();
+  assert.equal(element.textContent, prefix + ' 2026.11.01. 16:10:02');
+  assert.equal(element.dateTime, '2026-11-01T16:10:02');
+}
+for (const [start, expected] of [['2026-12-31T23:59:59','2027.01.01. 00:00:00'],
+                               ['2028-02-28T23:59:59','2028.02.29. 00:00:00']]) {
+  clockSource = 'rtc';
+  clockBase = Date.parse(start + 'Z');
+  demoSyncedAt = now;
+  now += 1000;
+  renderDemoClock();
+  assert.equal(element.textContent, 'RTC ' + expected);
+}
+clockSource = 'unset';
+renderDemoClock();
+assert.equal(element.textContent, 'IDŐ NINCS');
+assert.equal(element.dateTime, '');
+clockSource = 'rtc';
+clockBase = NaN;
+renderDemoClock();
+assert.equal(element.textContent, 'IDŐ NINCS');
+"""
+        result = subprocess.run([node, "-"], input=script, text=True, encoding="utf-8",
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_dac_tone_uses_independent_output_and_timed_web_control(self):
         root = WEB_ROOT.parent
         playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")

@@ -40,6 +40,13 @@ header a {
     16px "Trebuchet MS",
     sans-serif;
 }
+.header-clock {
+  font: 16px "Trebuchet MS", sans-serif;
+  font-variant-numeric: tabular-nums;
+  flex: 1 0 100%;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 main {
   padding-top: 44px;
   padding-bottom: 40px;

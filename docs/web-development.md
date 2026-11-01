@@ -16,6 +16,8 @@ Alapcím: `http://127.0.0.1:8080`. Ha foglalt, a program a következő szabad po
 
 A főoldal, a `/files` fájlkezelő és a `/settings` beállítások ugyanazokat a webes forrásokat használják, mint a firmware. A böngészőfül `[Offline]` előtagja jelzi az előnézetet. Fájlmódosítás után frissítsd az oldalt; a szervert nem kell újraindítani.
 
+A főoldal felső sávja az ESP helyi dátumát és idejét mutatja `2026.11.01. 16:10:02` formában, az időforrással együtt (NTP, RTC, KÉZI, MENTETT vagy ALAP). Másodpercenként frissül, a dátum éjfélkor továbblép; nem a PC óráját vagy időzónáját használja. Ismeretlen időnél `IDŐ NINCS` jelenik meg.
+
 A fájlkezelő előbb a mappákat, majd a fájlokat adja vissza, legfeljebb 20 elemet kérésenként; görgetéskor automatikusan lekéri a következő oldalt, hibánál az Újrapróbálás gombbal folytatható.
 
 A `/radio` Radio Programming oldal is elérhető: megerősítés után kétmásodperces szimulált kiolvasást és két mintacsatornát mutat. Valódi UART-ot nem használ; a bináris letöltés `preview-only.bin` jelölőszöveg, nem rádiókép. A JSON szintén kizárólag mintabeállításokat tartalmaz. A készülékhez tartozó bekötést és próbalépéseket a [tesztelési útmutató](testing.md#uv-5r-konfiguráció-kiolvasása) ismerteti.

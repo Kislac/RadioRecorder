@@ -44,19 +44,22 @@ let liveSocket = null,
 let volumeQueued = null,
   volumeSending = false,
   boostUpdating = false;
-let demoBase = 0,
+let clockBase = NaN,
   demoSyncedAt = performance.now(),
   clockSource = "unset";
 function renderDemoClock() {
-  const seconds =
-    (demoBase + Math.floor((performance.now() - demoSyncedAt) / 1000)) % 86400;
-  document.querySelector("#demoClock").textContent =
-    (clockSource === "unset" ? "IDŐ NINCS" :
-      ({ internet: "NTP ", manual: "KÉZI ", rtc: "RTC ", saved: "MENTETT ", default: "ALAP " })[clockSource] || "") +
-    (clockSource === "unset" ? "" :
-    [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
-      .map((value) => String(value).padStart(2, "0"))
-      .join(":"));
+  const clock = document.querySelector("#demoClock");
+  if (clockSource === "unset" || !Number.isFinite(clockBase)) {
+    clock.textContent = "IDŐ NINCS";
+    clock.removeAttribute("datetime");
+    return;
+  }
+  const elapsed = Math.floor((performance.now() - demoSyncedAt) / 1000) * 1000;
+  const local = new Date(clockBase + elapsed).toISOString().slice(0, 19);
+  clock.dateTime = local;
+  clock.textContent =
+    (({ internet: "NTP ", manual: "KÉZI ", rtc: "RTC ", saved: "MENTETT ", default: "ALAP " })[clockSource] || "") +
+    local.slice(0, 10).replaceAll("-", ".") + ". " + local.slice(11);
 }
 setInterval(renderDemoClock, 1000);
 const signalHistory = [];
@@ -530,7 +533,7 @@ async function refresh() {
     if (!response.ok) throw Error();
     const data = await response.json();
     firmwareVersion.textContent = "v" + data.version;
-    demoBase = data.demoSeconds;
+    clockBase = data.clock?.local ? Date.parse(data.clock.local + "Z") : NaN;
     clockSource = data.clock?.source || "unset";
     demoSyncedAt = performance.now();
     renderDemoClock();
