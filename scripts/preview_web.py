@@ -19,6 +19,7 @@ import wave
 import zipfile
 
 from scripts.web_assets import WEB_ROOT, load_languages, localize_document
+from scripts.preview_files import PreviewFileManager
 
 SCENARIOS = ("ready", "missing-sd", "recording", "wifi-failure")
 DEFAULT_EPOCH = 946684800
@@ -114,6 +115,7 @@ class PreviewDevice:
         self.files = {"/REC00001.wav": self.wav, "/REC00002.wav": self.wav,
                   "/Archive/sample.wav": self.wav}
         self.directories = {"/Archive"}
+        self.file_manager = PreviewFileManager(self)
         self.recording_name = self.next_recording_name(self.record_source) if self.recording else ""
         self.playing = ""
         self.playback_target = "speaker"
@@ -199,6 +201,11 @@ class PreviewDevice:
 
     def api(self, method, path, params):
         self.tick()
+        managed = self.file_manager.api(method, path, params)
+        if managed is not None:
+            return managed
+        if method == "POST" and path in ("/api/start", "/api/mic/start", "/api/play", "/api/files/delete") and self.file_manager.busy():
+            return 409, "File operation busy"
         elapsed = time.monotonic() - self.started_at
         if method == "GET":
             if path == "/api/radio/schema":
@@ -328,7 +335,7 @@ class PreviewDevice:
                 offset = self.integer({"offset": params.get("offset", "0")}, "offset", 0, 100000)
                 files = [{"name": name.rsplit("/", 1)[-1], "path": name, "bytes": len(data)}
                          for name, data in reversed(list(self.files.items()))
-                         if re.fullmatch(r"(?:/REC\d{5}|/\d{4}-\d{2}-\d{2}/(?:Radio|Mic)(?:Man|Aut)\d{6}_\d{6}(?:_\d{2})?)\.wav", name)]
+                         if name.lower().endswith(".wav") and len(data) >= 44]
                 if path == "/api/recordings":
                     return 200, {"files": files[offset:offset + 20],
                                  "next": offset + 20 if offset + 20 < len(files) else None}
@@ -584,9 +591,18 @@ class PreviewHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.dispatch("POST")
 
+    def do_PUT(self):
+        self.dispatch("PUT")
+
     def dispatch(self, method):
         url = urlsplit(self.path)
         params = {key: values[-1] for key, values in parse_qs(url.query, keep_blank_values=True).items()}
+        if method == "PUT" and url.path == "/transfer/upload":
+            self.server.device.file_manager.upload(self, int(params.get("id", 0)))
+            return
+        if method == "GET" and url.path == "/transfer/zip":
+            self.server.device.file_manager.stream_zip(self, int(params.get("id", 0)))
+            return
         if method == "POST":
             length = int(self.headers.get("Content-Length", "0"))
             if length > 8192:
@@ -595,6 +611,8 @@ class PreviewHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(length).decode("utf-8")
             if url.path == "/api/radio/write":
                 params["patch"] = body
+            elif self.headers.get("Content-Type", "").startswith("application/json"):
+                params.update(json.loads(body))
             else:
                 params.update({key: values[-1] for key, values in parse_qs(body, keep_blank_values=True).items()})
         if url.path == "/preview/live" and method == "GET":
@@ -628,7 +646,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
                 name = routes.get(url.path, url.path.lstrip("/"))
                 allowed = {page + extension for page in ("index", "files", "settings", "radio", "dac_test")
                            for extension in (".html", ".css", ".js")}
-                allowed.update(("test.html", "test.js", "radio_edit.js"))
+                allowed.update(("test.html", "test.js", "radio_edit.js", "file_actions.js"))
                 if name in allowed:
                     source = (WEB_ROOT / name).read_text(encoding="utf-8")
                     if name.endswith(".html"):

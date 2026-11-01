@@ -171,19 +171,24 @@ assert.equal(element.textContent, 'TIME UNSET');
 
     def test_file_manager_pages_folders_before_files_and_loads_on_scroll(self):
         server = (WEB_ROOT.parent / "src" / "web_server.cpp").read_text(encoding="utf-8")
-        script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
-        self.assertIn('folder != (pass == 0)', server)
-        self.assertIn('if (index++ < offset)', server)
+        script = (WEB_ROOT / "file_actions.js").read_text(encoding="utf-8")
+        self.assertIn('fileManagerList(directoryPath, sort', server)
+        self.assertIn('server.arg("revision")', server)
         self.assertIn('new IntersectionObserver(', script)
         self.assertIn('entries[0].isIntersecting', script)
-        self.assertIn('if (!loading && !loadFailed && more.getBoundingClientRect()', script)
+        self.assertIn('if (!loading && more.getBoundingClientRect()', script)
+        home = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+        home_script = (WEB_ROOT / "index.js").read_text(encoding="utf-8")
+        self.assertNotIn('id="files"', home)
+        self.assertNotIn('/api/recordings', home_script)
+        self.assertIn('destinationName', script)
 
     def test_dated_recording_and_file_api_firmware_contract(self):
         root = WEB_ROOT.parent
         recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
         server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
         control = (root / "src" / "app_control.cpp").read_text(encoding="utf-8")
-        files_script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
+        files_script = (WEB_ROOT / "file_actions.js").read_text(encoding="utf-8")
         self.assertIn('static constexpr time_t kMinEpoch = 946684800;', control)
         self.assertIn('clockDefault ? "default" : "saved"', control)
         self.assertIn('SD_MMC.mkdir(folder)', recorder)
@@ -193,8 +198,8 @@ assert.equal(element.textContent, 'TIME UNSET');
         self.assertIn('server.on("/api/files/delete", HTTP_POST, deleteSdEntry)', server)
         self.assertIn('server.on("/api/files/download", HTTP_GET, downloadSdFolder)', server)
         self.assertIn('server.arg("confirm") != "1"', server)
-        self.assertIn('if (!confirm(prompt))', files_script)
-        self.assertIn('radio.dataset.radioPlay = item.path', files_script)
+        self.assertIn('confirm(question +', files_script)
+        self.assertIn('playOnEsp(item.path, "radio")', files_script)
 
     def test_radio_dac_has_separate_playback_target_from_microphone_channel(self):
         root = WEB_ROOT.parent
@@ -734,9 +739,11 @@ class PreviewHttpTests(unittest.TestCase):
             device.directories.add(f'/Folder{number:02d}')
         for number in range(25):
             device.files[f'/Sample{number:02d}.wav'] = device.wav
-        pages = [json.loads(self.request(f'/api/files?offset={offset}')[1])
-                 for offset in (0, 20, 40)]
-        self.assertEqual([page['next'] for page in pages], [20, 40, None])
+        pages = [json.loads(self.request('/api/files')[1])]
+        while pages[-1]['next']:
+            query = urlencode({'after': pages[-1]['next'], 'revision': pages[-1]['revision']})
+            pages.append(json.loads(self.request('/api/files?' + query)[1]))
+        self.assertEqual(pages[-1]['next'], None)
         self.assertEqual([len(page['items']) for page in pages], [20, 20, 10])
         items = [item for page in pages for item in page['items']]
         self.assertTrue(all(item['directory'] for item in items[:23]))

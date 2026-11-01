@@ -323,10 +323,14 @@ int main() {
         source = (root / "src" / "display.cpp").read_text(encoding="utf-8")
         browser = source.split("void refreshBrowseRows()", 1)[1].split("String shortBrowseName", 1)[0]
         playback = source.split("void pressBrowse()", 1)[1].split("void drawBrowse()", 1)[0]
-        self.assertIn("for (uint8_t pass = 0; pass < 2", browser)
-        self.assertIn("folder == (pass == 0)", browser)
-        self.assertIn('lower.endsWith(".wav")', browser)
+        self.assertIn("fileManagerListOffset", browser)
+        manager = (root / "src" / "file_manager.cpp").read_text(encoding="utf-8")
+        self.assertIn('fileManagerList(directory, "date", true', manager)
+        self.assertIn('lower.endsWith(".wav")', manager)
         self.assertIn('browseRows[0] = {".."', browser)
+        self.assertIn("if (playbackChoice == 2) { confirmingDelete = true; playbackChoice = 0;", playback)
+        self.assertIn("fileManagerDeleteFile(selectedFile, error)", playback)
+        self.assertIn("if (playbackChoice == 3)", playback)
         self.assertIn("PlaybackTarget target = playbackChoice == 1 ? PlaybackTarget::radio", playback)
         self.assertIn("appCanStartPlayback()", playback)
         self.assertIn("findPcmData(file, remaining)", playback)

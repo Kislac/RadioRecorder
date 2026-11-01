@@ -8,6 +8,7 @@
 #include "startup_image.h"
 #include "app_control.h"
 #include "language.h"
+#include "file_manager.h"
 #include "playback.h"
 #include "recorder.h"
 #include "web_server.h"
@@ -53,6 +54,7 @@ bool messagePending = false;
 bool screenSleeping = false;
 bool browsingFiles = false;
 bool choosingPlayback = false;
+bool confirmingDelete = false;
 bool graphMode = false;
 bool ownsRadioSignal = false;
 bool ownsMicSignal = false;
@@ -204,45 +206,23 @@ void refreshBrowseRows() {
   for (auto &row : browseRows) row = {};
   browseTotal = 0;
   if (!appSdReady() || recorderState() != CaptureState::idle) return;
-  File directory = SD_MMC.open(browsePath, FILE_READ);
-  if (!directory || !directory.isDirectory()) return;
   bool hasParent = browsePath != "/";
-  browseTotal = hasParent ? 1 : 0;
-  File entry;
-  while ((entry = directory.openNextFile())) {
-    String name = entry.name();
-    name.toLowerCase();
-    if (entry.isDirectory() || name.endsWith(".wav")) ++browseTotal;
-    entry.close();
-  }
-  directory.close();
-  if (browseTotal && browseSelected >= browseTotal) browseSelected = browseTotal - 1;
   uint32_t first = (browseSelected / kBrowseRows) * kBrowseRows;
+  uint8_t parentRow = hasParent && first == 0 ? 1 : 0;
+  ManagedFilePage page;
+  if (!fileManagerListOffset(browsePath, first ? first - (hasParent ? 1 : 0) : 0, kBrowseRows - parentRow, page)) return;
+  browseTotal = page.total + (hasParent ? 1 : 0);
+  if (browseTotal && browseSelected >= browseTotal) {
+    browseSelected = browseTotal - 1; refreshBrowseRows(); return;
+  }
   if (hasParent && first == 0) {
     int separator = browsePath.lastIndexOf('/');
     browseRows[0] = {"..", separator == 0 ? "/" : browsePath.substring(0, separator), true};
   }
-  uint32_t index = hasParent ? 1 : 0;
-  for (uint8_t pass = 0; pass < 2 && index < first + kBrowseRows; ++pass) {
-    directory = SD_MMC.open(browsePath, FILE_READ);
-    if (!directory) break;
-    while ((entry = directory.openNextFile())) {
-      bool folder = entry.isDirectory();
-      String name = entry.name();
-      name = name.substring(name.lastIndexOf('/') + 1);
-      String lower = name;
-      lower.toLowerCase();
-      if (folder == (pass == 0) && (folder || lower.endsWith(".wav"))) {
-        if (index >= first && index < first + kBrowseRows) {
-          String path = browsePath == "/" ? "/" + name : browsePath + "/" + name;
-          browseRows[index - first] = {name, path, folder};
-        }
-        ++index;
-      }
-      entry.close();
-      if (index >= first + kBrowseRows) break;
-    }
-    directory.close();
+  uint8_t row = parentRow;
+  for (const auto &item : page.items) {
+    String name = item.name.c_str();
+    browseRows[row++] = {name, browsePath == "/" ? "/" + name : browsePath + "/" + name, item.directory};
   }
 }
 
@@ -261,7 +241,16 @@ void browseParent() {
 
 void pressBrowse() {
   if (choosingPlayback) {
-    if (playbackChoice == 2) { choosingPlayback = false; return; }
+    if (confirmingDelete) {
+      if (playbackChoice == 1) {
+        String error;
+        if (!fileManagerDeleteFile(selectedFile, error)) { setMessage("Cannot delete file"); return; }
+        confirmingDelete = choosingPlayback = false; refreshBrowseRows(); setMessage("File deleted");
+      } else { confirmingDelete = false; playbackChoice = 2; }
+      return;
+    }
+    if (playbackChoice == 3) { choosingPlayback = false; return; }
+    if (playbackChoice == 2) { confirmingDelete = true; playbackChoice = 0; return; }
     PlaybackTarget target = playbackChoice == 1 ? PlaybackTarget::radio : PlaybackTarget::speaker;
     PlaybackStatus status = playbackStatus();
     if (!appSdReady() || (target == PlaybackTarget::radio ? !status.radioReady : !status.ready)) {
@@ -294,6 +283,7 @@ void pressBrowse() {
     refreshBrowseRows();
   } else {
     selectedFile = item.path;
+    confirmingDelete = false;
     playbackChoice = 0;
     choosingPlayback = true;
   }
@@ -303,9 +293,16 @@ void drawBrowse() {
   oled.setFont(u8g2_font_5x8_tf);
   if (choosingPlayback) {
     oled.drawStr(0, 30, shortBrowseName(selectedFile.substring(selectedFile.lastIndexOf('/') + 1)).c_str());
+    if (confirmingDelete) {
+      drawText(0, 38, "Delete file?");
+      drawText(0, 46, playbackChoice == 0 ? "> Cancel" : "  Cancel");
+      drawText(0, 54, playbackChoice == 1 ? "> Confirm" : "  Confirm");
+      return;
+    }
     drawText(0, 38, playbackChoice == 0 ? "> Speaker" : "  Speaker");
     drawText(0, 46, playbackChoice == 1 ? "> Radio DAC" : "  Radio DAC");
-    drawText(0, 54, playbackChoice == 2 ? "> Back" : "  Back");
+    drawText(0, 54, playbackChoice == 2 ? "> Delete" : "  Delete");
+    drawText(0, 62, playbackChoice == 3 ? "> Back" : "  Back");
     return;
   }
   if (!browsingFiles) {
@@ -316,7 +313,7 @@ void drawBrowse() {
   }
   if (!appSdReady()) { drawText(0, 36, "SD unavailable"); return; }
   if (recorderState() != CaptureState::idle) { drawText(0, 36, "Recording in progress"); return; }
-  if (!browseTotal) { drawText(0, 36, "No WAV files or folders"); return; }
+  if (!browseTotal) { drawText(0, 36, "No files or folders"); return; }
   uint32_t first = (browseSelected / kBrowseRows) * kBrowseRows;
   for (uint8_t row = 0; row < kBrowseRows && first + row < browseTotal; ++row) {
     const BrowseRow &item = browseRows[row];
@@ -701,7 +698,8 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   }
   if (steps) {
     if (choosingPlayback) {
-      playbackChoice = (playbackChoice + (steps % 3) + 3) % 3;
+      int choices = confirmingDelete ? 2 : 4;
+      playbackChoice = (playbackChoice + (steps % choices) + choices) % choices;
     } else if (browsingFiles) {
       refreshBrowseRows();
       if (browseTotal) {

@@ -8,6 +8,7 @@ A rádióhang vételi és adási trafós leválasztásának [tervezési rajzai �
 
 ## Megvalósított funkciók
 
+- Teljes webes SD-fájlkezelő: legfrissebb-elöl, mappák-első rendezés, keresés, többes kijelölés, átnevezés, új mappa, másolás/mozgatás/törlés, feltöltés, tárhelyjelzés és megszakítható műveleti állapot. A ZIP külön szálon, teljes archívumpuffer nélkül készül és tölthető le, fájl-/bájtszámlálóval. A főoldal nem listáz fájlokat; az OLED ugyanígy rendez, és külön megerősítéssel fájlt is töröl. Részletek: [fájlkezelés](docs/file-management.md).
 - Közös, NVS-ben mentett magyar/angol felületi nyelv az OLED Beállítások → Nyelv sorából vagy a webes Beállítások nyelvválasztójából. A feliratok külön [magyar](locales/hu.json) és [angol](locales/en.json) katalógusban vannak; új nyelv ugyanilyen fájllal hozzáadható. Részletek: [többnyelvűség](docs/web-development.md#többnyelvűség).
 - Kézi mono WAV-felvétel a GPIO1 ADC-bemenetről microSD-re, állapot- és hiba-visszajelzéssel. A Hardver teszt oldalon GPIO1/2/3/9 választható nyers, 12 bites ADC-grafikon segíti az előfeszítés és a bemenő jel vizsgálatát felvétel vagy SD-írás nélkül ([mérési lépések](docs/testing.md#adc-nyers-jel)).
 - Külön indítható INMP441-M I2S mikrofonfelvétel ugyanarra a microSD-re (22 050 Hz / 16 bites mono PCM WAV), OLED Mikrofon csempéről vagy a webes főoldalról; egyszerre csak egy forrás rögzíthet. A webes főoldalon külön kapcsolható mikrofon RMS/csúcs grafikon látható, felvétel közben is, SD-írás nélkül.

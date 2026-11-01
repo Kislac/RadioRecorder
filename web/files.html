@@ -21,6 +21,9 @@
         <div class="toolbar-actions">
           <a id="parentFolder" hidden title="Go to parent folder" aria-label="Go to parent folder">↑</a>
           <button id="reload" title="Refresh list">Refresh</button>
+          <button id="newFolder" type="button">New folder</button>
+          <button id="uploadButton" type="button">Upload</button>
+          <input id="uploadFiles" type="file" multiple hidden />
         </div>
       </div>
       <div class="toolbar">
@@ -31,7 +34,7 @@
         <progress id="playbackProgress" max="1" value="0" aria-label="Playback progress"></progress>
         <output id="playbackTime">0:00 / 0:00</output>
       </div>
-      <div class="player-controls">
+      <details class="player-controls"><summary>Playback controls</summary>
       <div class="speaker-volume">
         <label for="speakerVolume">ESP speaker volume</label
         ><input
@@ -84,12 +87,50 @@
           <option value="16">16×</option>
         </select>
       </div>
+      </details>
+      <div class="file-controls">
+        <input id="fileSearch" type="search" placeholder="Search this folder" aria-label="Search this folder" />
+        <label>Sort <select id="fileSort"><option value="date">Date</option><option value="name">Name</option><option value="size">Size</option></select></label>
+        <label>Order <select id="fileOrder"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
       </div>
-      <p id="message">Loading...</p>
-      <ol id="items" class="items"></ol>
+      <p id="storage" class="storage"></p>
+      <div class="selection-toolbar">
+        <span id="selectionCount">0 selected</span>
+        <button id="copySelected" type="button" disabled>Copy</button>
+        <button id="moveSelected" type="button" disabled>Move</button>
+        <button id="deleteSelected" type="button" disabled>Delete</button>
+      </div>
+      <section id="fileOperation" class="file-operation" hidden>
+        <div><strong id="operationTitle">Operation</strong><span id="operationQueue"></span><button id="cancelOperation" type="button">Cancel</button></div>
+        <progress id="operationProgress" max="100"></progress>
+        <p id="operationStatus" role="status"></p>
+        <p id="operationCounters" class="storage"></p>
+        <a id="zipDownload" hidden>Download ZIP</a>
+      </section>
+      <p id="message" role="status">Loading...</p>
+      <div class="file-table-wrap"><table class="file-table">
+        <thead><tr><th><input id="selectAll" type="checkbox" aria-label="Select all loaded items" /></th><th>Name</th><th class="date-column">Modified</th><th>Size</th><th>Actions</th></tr></thead>
+        <tbody id="items"></tbody>
+      </table></div>
       <button id="more" hidden>More</button>
+      <dialog id="fileDialog">
+        <form id="fileDialogForm">
+          <h2 id="dialogTitle">Operation</h2>
+          <label id="nameLabel">Name <input id="entryName" type="text" maxlength="180" autocomplete="off" /></label>
+          <div id="destinationPicker" hidden>
+            <strong>Destination folder</strong>
+            <p id="destinationPath" data-i18n-ignore></p>
+            <button id="destinationParent" type="button" title="Go to parent folder">↑</button>
+            <div id="destinationFolders"></div>
+          </div>
+          <p id="dialogError" role="status"></p>
+          <div class="dialog-actions"><button id="dialogCancel" type="button">Cancel</button><button id="dialogSubmit" type="submit">Apply</button></div>
+        </form>
+      </dialog>
+      <iframe id="downloadFrame" title="ZIP download" hidden></iframe>
     </main>
     <footer>Playback uses audio formats supported by your browser.</footer>
     <script src="/files.js"></script>
+    <script src="/file_actions.js"></script>
   </body>
 </html>

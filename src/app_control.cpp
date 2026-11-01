@@ -1,5 +1,6 @@
 #include "app_control.h"
 #include "language.h"
+#include "file_manager.h"
 
 #include "live_audio.h"
 #include "playback.h"
@@ -13,7 +14,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.75";
+static constexpr char kFirmwareVersion[] = "0.1.76";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -339,18 +340,18 @@ bool appSetScreenOffMinutes(uint16_t minutes) {
 }
 
 bool appStartRecording() {
-  return playbackGetState() == PlaybackState::idle && recorderStart(sdReady);
+  return !fileManagerBusy() && playbackGetState() == PlaybackState::idle && recorderStart(sdReady);
 }
 
 bool appStartMicRecording() {
-  return playbackGetState() == PlaybackState::idle && liveAudioClient() < 0 &&
+  return !fileManagerBusy() && playbackGetState() == PlaybackState::idle && liveAudioClient() < 0 &&
          recorderStart(sdReady, CaptureSource::microphone);
 }
 
 bool appStopRecording() { return stopRecording(); }
 
 bool appCanStartPlayback() {
-  return recorderState() == CaptureState::idle && playbackGetState() == PlaybackState::idle &&
+  return !fileManagerBusy() && recorderState() == CaptureState::idle && playbackGetState() == PlaybackState::idle &&
          liveAudioClient() < 0 &&
          !recorderMicSignalStatus().enabled && !recorderMicSignalStatus().active;
 }

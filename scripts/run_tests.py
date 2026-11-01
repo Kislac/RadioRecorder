@@ -81,12 +81,12 @@ def run_suite(suite, port=None, base_url="http://192.168.4.1", run=subprocess.ru
                 pass
         except HTTPError:
             command("Wi-Fi API and recording", [sys.executable, "-m", "scripts.test_wifi",
-                                               "--base-url", base_url, "--record"])
+                                               "--base-url", base_url, "--record", "--file-manager"])
         except (URLError, OSError, TimeoutError) as error:
             result("Wi-Fi API and recording", None, "ESP HTTP unreachable: " + str(error))
         else:
             command("Wi-Fi API and recording", [sys.executable, "-m", "scripts.test_wifi",
-                                               "--base-url", base_url, "--record"])
+                                               "--base-url", base_url, "--record", "--file-manager"])
     else:
         raise ValueError("Unknown test suite: " + suite)
 

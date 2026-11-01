@@ -4,9 +4,6 @@ const stateEl = document.querySelector("#state"),
   lowpassToggle = document.querySelector("#lowpassToggle"),
   message = document.querySelector("#message"),
   firmwareVersion = document.querySelector("#firmwareVersion");
-const files = document.querySelector("#files"),
-  empty = document.querySelector("#empty"),
-  more = document.querySelector("#more");
 const speakerStatus = document.querySelector("#speakerStatus"),
   speakerStop = document.querySelector("#speakerStop");
 const speakerVolume = document.querySelector("#speakerVolume"),
@@ -25,10 +22,7 @@ const liveToggle = document.querySelector("#liveToggle"),
   liveStatus = document.querySelector("#liveStatus"),
   liveVolume = document.querySelector("#liveVolume"),
   liveTest = document.querySelector("#liveTest");
-let currentState = "",
-  nextOffset = null,
-  loaded = false,
-  listing = false;
+let currentState = "";
 let meterRunning = false,
   meterGeneration = 0,
   meterTimer = null,
@@ -473,61 +467,6 @@ addEventListener("resize", () => {
   if (meterRunning) drawSignal();
   if (micMeterRunning) drawSignal(micSignalChart, micSignalHistory, 32768);
 });
-async function list(reset) {
-  if (listing) return;
-  listing = true;
-  try {
-    if (reset) {
-      files.replaceChildren();
-      nextOffset = 0;
-      loaded = false;
-    }
-    if (nextOffset === null) return;
-    const response = await fetch("/api/recordings?offset=" + nextOffset, {
-      cache: "no-store",
-    });
-    if (!response.ok) return;
-    const data = await response.json();
-    for (const item of data.files) {
-      const row = document.createElement("li"),
-        info = document.createElement("div"),
-        title = document.createElement("span"),
-        size = document.createElement("span");
-      title.className = "filename";
-      title.dataset.i18nIgnore = "";
-      title.textContent = item.name;
-      size.className = "size";
-      size.textContent = (item.bytes / 1024).toFixed(0) + " kB";
-      const audio = document.createElement("audio");
-      audio.controls = true;
-      audio.preload = "none";
-      audio.src = "/file?path=" + encodeURIComponent(item.path || "/" + item.name);
-      info.append(title, size, audio);
-      const actions = document.createElement("div");
-      actions.className = "fileactions";
-      const espPlay = document.createElement("button");
-      espPlay.type = "button";
-      espPlay.dataset.espPlay = item.path || "/" + item.name;
-      espPlay.textContent = "Play on ESP";
-      espPlay.title = "Play on the ESP speaker";
-      espPlay.addEventListener("click", () => playOnEsp(item.path || "/" + item.name));
-      const download = document.createElement("a");
-      download.href = audio.src + "&download=1";
-      download.download = item.name;
-      download.textContent = "Download";
-      actions.append(espPlay, download);
-      row.append(info, actions);
-      files.append(row);
-    }
-    nextOffset = data.next;
-    more.hidden = nextOffset === null;
-    empty.hidden = files.children.length > 0;
-    empty.textContent = "No saved recordings.";
-    loaded = true;
-  } finally {
-    listing = false;
-  }
-}
 async function refresh() {
   try {
     const response = await fetch("/api/status", { cache: "no-store" });
@@ -552,9 +491,7 @@ async function refresh() {
         ? data.state === "starting"
           ? "Starting recording..."
           : data.recordSource === "microphone" ? "Microphone recording in progress" : "ADC recording in progress"
-        : data.hasRecordings
-          ? "Saved recordings available"
-          : "No saved recordings";
+        : "Ready to record";
     toggle.textContent = busy && data.recordSource === "adc" ? "Stop recording" : "Start recording";
     micToggle.textContent = busy && data.recordSource === "microphone" ? "Stop microphone recording" : "Start microphone recording";
     toggle.classList.toggle("recording", busy && data.recordSource === "adc");
@@ -564,17 +501,17 @@ async function refresh() {
       (busy && data.recordSource !== "adc") ||
       data.state === "starting" ||
       (busy && data.stopping) ||
-      playing;
+      playing || (!busy && data.fileBusy);
     micToggle.disabled =
       (!data.micReady && !busy) ||
       (busy && data.recordSource !== "microphone") ||
       data.state === "starting" ||
       (busy && data.stopping) ||
-      playing || (!busy && !!liveSocket);
+      playing || (!busy && (!!liveSocket || data.fileBusy));
     speakerStop.disabled = !playing;
     speakerStatus.textContent = playing
       ? (data.playbackTarget === "radio" ? "Radio DAC: " : "ESP speaker: ") +
-        (data.playback === "starting" ? "indul..." : data.playbackPath)
+        (data.playback === "starting" ? "Starting..." : data.playbackPath)
       : data.playbackError || "ESP speaker: off";
     if (!volumeSending) {
       speakerVolume.value = data.speakerVolume;
@@ -586,12 +523,9 @@ async function refresh() {
     micSignalToggle.disabled = (!data.micReady || meterRunning || !!liveSocket) && !micMeterRunning;
     liveToggle.disabled = (!data.liveReady || playing) && !liveSocket;
     message.textContent = data.error || "";
-    if (!busy && (!loaded || currentState !== "idle")) await list(true);
-    for (const button of files.querySelectorAll("[data-esp-play]"))
-      button.disabled = busy || playing || !data.speakerReady || !!liveSocket;
     currentState = data.state;
   } catch {
-    stateEl.textContent = "A kapcsolat megszakadt";
+    stateEl.textContent = "Connection lost";
     toggle.disabled = true;
   }
 }
@@ -634,7 +568,6 @@ lowpassToggle.addEventListener("change", async () => {
   await refresh();
   lowpassToggle.disabled = false;
 });
-more.addEventListener("click", () => list(false));
 refresh();
 setInterval(refresh, 1500);
 fetch("/api/signal", { cache: "no-store" })

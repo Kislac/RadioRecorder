@@ -1,13 +1,18 @@
 """Wi-Fi AP smoke tests; run only when the PC can reach the RadioRecorder AP."""
 
 import argparse
+from datetime import datetime
+import io
 import json
 import os
 import subprocess
 import tempfile
 import time
+import uuid
+import zipfile
 import xml.etree.ElementTree as ET
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, ProxyHandler
+from urllib.parse import urlsplit
 
 from scripts.oled_viewer import find_device
 from scripts.test_device import delete_test_recording
@@ -171,11 +176,95 @@ def test_record_and_delete(base_url, status, report):
         return name + " recorded, verified and deleted"
 
 
+def test_file_operations(base_url, report):
+    root = "/FileTest-" + datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+    created = False
+    last_job = 0
+    payload = bytes(range(256)) * 4
+    opener = build_opener(ProxyHandler({}))
+
+    def api(path, data=None):
+        body = json.dumps(data).encode() if data is not None else None
+        request = Request(base_url + path, data=body, headers={"Content-Type": "application/json"}, method="POST" if body is not None else "GET")
+        with opener.open(request, timeout=10) as response:
+            return json.loads(response.read())
+
+    def wait_job(job, ready=False):
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            current = api("/api/files/jobs/status?id=" + str(job["id"]))
+            if current["state"] == "complete" or ready and current["state"] == "ready":
+                return current
+            if current["state"] in ("failed", "cancelled"):
+                raise AssertionError(current.get("error") or current["state"])
+            time.sleep(0.05)
+        raise TimeoutError("File operation did not finish: " + str(job["id"]))
+
+    def start(action, source="", destination="", **extra):
+        nonlocal last_job
+        job = api("/api/files/jobs", {"action": action, "source": source, "destination": destination, **extra})
+        last_job = job["id"]
+        return job
+
+    def transfer_url(job, kind):
+        port = job.get("transferPort", 0)
+        if not port:
+            return base_url + "/transfer/" + kind + "?id=" + str(job["id"])
+        host = urlsplit(base_url).hostname
+        if ":" in host:
+            host = "[" + host + "]"
+        return "http://" + host + ":" + str(port) + "/" + kind + "?id=" + str(job["id"])
+
+    try:
+        status = api("/api/status")
+        if not status.get("ready") or status["state"] != "idle" or status.get("playback") != "idle":
+            raise AssertionError("File tests require an idle ready SD device")
+        api("/api/files/mkdir", {"path": root})
+        created = True
+        report.detail("FILE TEST created exact folder " + root)
+        api("/api/files/mkdir", {"path": root + "/Sub"})
+        upload = wait_job(start("upload", destination=root + "/probe.bin", bytes=len(payload)), ready=True)
+        with opener.open(Request(transfer_url(upload, "upload"), data=payload, headers={"Content-Type": "application/octet-stream"}, method="PUT"), timeout=10) as response:
+            response.read()
+        wait_job(upload)
+        wait_job(start("copy", root + "/probe.bin", root + "/copy.bin"))
+        api("/api/files/rename", {"source": root + "/copy.bin", "destination": root + "/renamed.bin"})
+        wait_job(start("move", root + "/renamed.bin", root + "/Sub/moved.bin"))
+        bundle = wait_job(start("zip", root), ready=True)
+        with opener.open(transfer_url(bundle, "zip"), timeout=15) as response:
+            archive_bytes = response.read()
+        wait_job(bundle)
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            if archive.testzip() is not None:
+                raise AssertionError("ZIP integrity failed")
+            label = root[1:]
+            if archive.read(label + "/probe.bin") != payload or archive.read(label + "/Sub/moved.bin") != payload:
+                raise AssertionError("Copied or uploaded content differs")
+        report.detail("FILE TEST verified upload/copy/rename/move/ZIP bytes in " + root)
+    finally:
+        if created:
+            current = api("/api/files/jobs/status")
+            if current.get("id") == last_job and current.get("state") in ("preparing", "ready", "running", "verifying"):
+                api("/api/files/jobs/cancel?id=" + str(last_job), {})
+                deadline = time.monotonic() + 10
+                while api("/api/files/jobs/status?id=" + str(last_job))["state"] in ("preparing", "ready", "running", "verifying"):
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Test operation cleanup remains busy")
+                    time.sleep(0.05)
+            wait_job(start("delete", root, confirm=True))
+            items = api("/api/files?filter=" + root[1:])["items"]
+            if any(item["path"] == root for item in items):
+                raise AssertionError("Exact test folder cleanup failed")
+            report.detail("FILE TEST removed exact verified test folder " + root)
+    return "upload, copy, rename, move and ZIP verified; exact test folder removed"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Test the ESP HTTP API via its Wi-Fi AP")
     parser.add_argument("--base-url", default="http://192.168.4.1")
     parser.add_argument("--connect", action="store_true", help="Switch Windows Wi-Fi to the open RadioRecorder AP")
     parser.add_argument("--record", action="store_true", help="Write a short real WAV to the SD card")
+    parser.add_argument("--file-manager", action="store_true", help="Opt in to run-specific SD upload/copy/move/rename/ZIP/delete tests with exact cleanup")
     args = parser.parse_args()
     base_url = args.base_url.rstrip("/")
     report = TestRun("wifi")
@@ -187,6 +276,11 @@ def main():
             report.skip("Wi-Fi recording/deletion", "pass --record to opt in")
         elif args.record:
             report.skip("Wi-Fi recording/deletion", "API checks failed")
+        if args.file_manager:
+            if passed and firmware_at_least(str(status.get("version", "")), (0, 1, 76)):
+                report.case("File manager read/write operations and exact cleanup", lambda: test_file_operations(base_url, report))
+            else:
+                report.skip("File manager read/write operations", "requires reachable ready API and firmware 0.1.76+")
     finally:
         successful = report.summary()
     return 0 if successful else 1
