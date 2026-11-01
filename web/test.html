@@ -13,6 +13,24 @@
     </header>
     <main>
       <h1>Hardver teszt</h1>
+      <section class="adc-test">
+        <h2>ADC nyers jel</h2>
+        <div class="adc-controls">
+          <label for="adcPin">Bemenet</label>
+          <select id="adcPin">
+            <option value="1">GPIO1 · rádióhang</option>
+            <option value="2">GPIO2 · szabad</option>
+            <option value="3">GPIO3 · boot láb</option>
+            <option value="9">GPIO9 · kamera leválasztva</option>
+          </select>
+          <label for="adcScale">Skála</label>
+          <select id="adcScale"><option value="full">0–4095</option><option value="auto">Automatikus nagyítás</option></select>
+          <button id="adcToggle" type="button">Mérés indítása</button>
+        </div>
+        <p id="adcStatus" role="status" aria-live="polite">Nem mér</p>
+        <canvas id="adcChart" role="img" aria-label="Nyers ADC minták grafikonja"></canvas>
+        <output id="adcStats">Min – · Átlag – · Max – · Csúcs-csúcs –</output>
+      </section>
       <section class="ptt-test">
         <h2>PTT relé</h2>
         <p>Csak leválasztott rádióval, ellenőrzött GPIO10 és aktív alacsony relémodullal. Az impulzus 1 másodpercig tart; a kapcsoló bekapcsolva marad, amíg ki nem kapcsolod.</p>

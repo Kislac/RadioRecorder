@@ -955,6 +955,32 @@ void initWeb() {
   server.on("/api/files/delete", HTTP_POST, deleteSdEntry);
   server.on("/api/files/download", HTTP_GET, downloadSdFolder);
   server.on("/api/signal", HTTP_GET, sendSignal);
+  server.on("/api/adc/raw", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    String pin = server.arg("gpio");
+    if (pin.length() != 1 && pin.length() != 2) { server.send(400, "text/plain", "Invalid ADC GPIO"); return; }
+    for (char digit : pin) {
+      if (!isDigit(digit)) { server.send(400, "text/plain", "Invalid ADC GPIO"); return; }
+    }
+    uint16_t samples[kAdcProbeSamples];
+    AdcProbeResult result = recorderReadAdcSamples(static_cast<uint8_t>(pin.toInt()), samples);
+    if (result != AdcProbeResult::ok) {
+      int code = result == AdcProbeResult::invalidPin ? 400 : result == AdcProbeResult::busy ? 409 :
+                 result == AdcProbeResult::unavailable ? 503 : 500;
+      server.send(code, "text/plain", result == AdcProbeResult::busy ? "ADC busy: stop recording, live audio or signal monitoring" :
+                  result == AdcProbeResult::invalidPin ? "Invalid ADC GPIO" : "ADC unavailable");
+      return;
+    }
+    String json = "{\"gpio\":" + pin + ",\"samples\":[";
+    json.reserve(800);
+    for (size_t index = 0; index < kAdcProbeSamples; ++index) {
+      if (index) json += ',';
+      json += String(samples[index]);
+    }
+    json += "]}";
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", json);
+  });
   server.on("/api/signal/off", HTTP_POST, []() { wifiManagerNotifyActivity(); setSignal(false); });
   server.on("/api/signal/on", HTTP_POST, []() { wifiManagerNotifyActivity(); setSignal(true); });
   server.on("/api/mic/signal", HTTP_GET, sendMicSignal);

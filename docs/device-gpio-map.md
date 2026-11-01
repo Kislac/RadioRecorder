@@ -19,6 +19,8 @@ Ez a jegyzék a jelenlegi firmware ([src/main.cpp](../src/main.cpp)) lábkioszt�
 | [D096-12864-I2C-GV-WH OLED](https://www.hestore.hu/prod_10048304.html) | SDA = GPIO4, SCL = GPIO5 | Bekötve, 3V3 és közös GND; SH1106-ként inicializálva, az RTC-vel közös I2C-buszon. A konkrét vezérlőtípus hardveres igazolása még szükséges. |
 | [DS3231+AT24C32 RTCM](https://www.hestore.hu/prod_10038042.html) | SDA = GPIO4, SCL = GPIO5 | Bekötve, 3V3 és közös GND; DS3231 (0x68) UTC-óra támogatott, az AT24C32 EEPROM nincs használatban. A SQW és a 32K órajelkimenet nincs bekötve: egyik sem az elem feszültsége. A tartalék elem és töltőáramkör ellenőrzése szükséges. |
 
+A `/test` oldali nyers ADC-próba a GPIO1 (rádióhang, előfeszítve), GPIO2 (szabad), GPIO3 (bootstrapping) és GPIO9 (kamera leválasztva) ADC1-bemeneteket engedi. A GPIO1 hangfelvételi driverét használja; GPIO1-en nem konfigurálja át, másik lábról visszatérve helyreállítja a GPIO1 csatornát. Nem ad kalibrált feszültséget, és nem mér aktív hangrögzítés/jelmonitorozás közben. A GPIO4/5 az I2C, GPIO6/7/8 a mikrofon, GPIO10 a PTT lába; ezek nem választhatók.
+
 ## Tervezett modulok, firmware-támogatás nélkül
 
 **Feltétel:** a [helyi panelképen](2026-10-24_11h20_03.png) a GPIO4–11 kamerajelként is szerepelnek. A megvett panel OV5640-es, a kép régebbi kamerakiosztást is tartalmazhat: a kamera szalagkábelét áramtalanítva le kell választani, majd a tényleges panelen kimérni a kivezetéseket és azt, hogy nincs más meghajtó vagy nem megfelelő felhúzás rajtuk. GPIO11 már a hangszóró új DIN-je; GPIO4-en egy korábbi ADC-próba eltérő feszültséget mutatott, ezt a GPIO4/5 I2C-bekötés előtt külön ellenőrizni kell. Az alábbi GPIO-k **jelöltek**, nem kimért végleges kapcsolás.

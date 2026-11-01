@@ -177,6 +177,20 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('esp_err_to_name(result)', playback)
         self.assertIn('written, bytes', playback)
 
+    def test_adc_probe_reads_raw_adc1_without_changing_audio_capture(self):
+        root = WEB_ROOT.parent
+        recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        page = render_page("test")
+        self.assertIn('i2s_new_channel(&channel, nullptr, &micHandle)', recorder)
+        self.assertIn('adc_continuous_io_to_channel(gpio, &unit, &channel)', recorder)
+        self.assertIn('adc_continuous_config(adcHandle, &config)', recorder)
+        self.assertIn('adc_continuous_config(adcHandle, &restore)', recorder)
+        self.assertIn('server.on("/api/adc/raw", HTTP_GET', server)
+        self.assertIn('id="adcPin"', page)
+        self.assertIn('id="adcChart"', page)
+        self.assertIn('id="pttToggle"', page)
+
     def test_radio_dac_and_microphone_use_separate_pins_and_serial_status(self):
         root = WEB_ROOT.parent
         recorder = (root / "src" / "recorder.cpp").read_text(encoding="utf-8")
@@ -396,6 +410,28 @@ class PreviewHttpTests(unittest.TestCase):
 
     def setUp(self):
         self.server.device = PreviewDevice()
+
+    def test_raw_adc_probe_validates_gpio_and_audio_busy_without_sd_writes(self):
+        initial_files = dict(self.server.device.files)
+        self.assertEqual(self.request('/api/adc/raw?gpio=4')[0], 400)
+        self.assertEqual(self.request('/api/adc/raw?gpio=abc')[0], 400)
+        for gpio in (1, 2, 3, 9):
+            code, payload, _ = self.request('/api/adc/raw?gpio=' + str(gpio))
+            self.assertEqual(code, 200)
+            result = json.loads(payload)
+            self.assertEqual(result['gpio'], gpio)
+            self.assertEqual(len(result['samples']), 128)
+            self.assertTrue(all(0 <= sample <= 4095 for sample in result['samples']))
+        self.assertEqual(self.server.device.files, initial_files)
+        self.server.device.recording = True
+        self.assertEqual(self.request('/api/adc/raw?gpio=1')[0], 409)
+        self.server.device.recording = False
+        self.server.device.signal_enabled = True
+        self.assertEqual(self.request('/api/adc/raw?gpio=1')[0], 409)
+        self.server.device.signal_enabled = False
+        self.server.device.playing = '/REC00001.wav'
+        self.server.device.play_until = time.monotonic() + 2
+        self.assertEqual(self.request('/api/adc/raw?gpio=1')[0], 409)
 
     def test_dac_tone_is_timed_stoppable_and_rejects_bad_or_busy_requests(self):
         settings = {"frequency": "1000", "rate": "44100", "bits": "16", "format": "philips", "level": "50"}

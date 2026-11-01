@@ -139,6 +139,37 @@ footer {
 .ptt-test h2 {
   font: normal 24px Georgia, serif;
 }
+.adc-test h2 {
+  font: normal 24px Georgia, serif;
+}
+.adc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+}
+.adc-controls select {
+  min-width: 0;
+}
+.adc-controls button {
+  margin: 0;
+}
+#adcStatus {
+  min-height: 1.5em;
+  color: var(--muted);
+}
+#adcChart {
+  display: block;
+  width: 100%;
+  height: 240px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+#adcStats {
+  display: block;
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .ptt-actions {
   display: flex;
   flex-wrap: wrap;

@@ -19,6 +19,7 @@ static adc_channel_t audioChannel;
 static TaskHandle_t recorderTask = nullptr;
 static std::atomic<bool> stopRequested{false};
 static std::atomic<bool> adcOverflow{false};
+static std::atomic<bool> adcProbeActive{false};
 static std::atomic<bool> signalEnabled{false};
 static std::atomic<bool> serialMeterEnabled{false};
 static std::atomic<bool> audioLowpassEnabled{false};
@@ -49,6 +50,68 @@ static uint8_t pcmBuffer[kDmaBufferSize / 2];
 
 bool recorderAdcReady() { return adcReady; }
 bool recorderMicReady() { return micReady; }
+
+AdcProbeResult recorderReadAdcSamples(uint8_t gpio, uint16_t *samples) {
+  if (gpio != 1 && gpio != 2 && gpio != 3 && gpio != 9) return AdcProbeResult::invalidPin;
+  if (!adcReady || !adcHandle) return AdcProbeResult::unavailable;
+  if (captureState.load() != CaptureState::idle || signalEnabled.load() || signalActive.load() ||
+      serialMeterEnabled.load() || liveAudioClient() >= 0 || playbackGetState() != PlaybackState::idle ||
+      adcProbeActive.exchange(true))
+    return AdcProbeResult::busy;
+  adc_unit_t unit;
+  adc_channel_t channel;
+  if (adc_continuous_io_to_channel(gpio, &unit, &channel) != ESP_OK || unit != ADC_UNIT_1) {
+    adcProbeActive.store(false);
+    return AdcProbeResult::invalidPin;
+  }
+  adc_digi_pattern_config_t pattern = {};
+  pattern.atten = ADC_ATTEN_DB_12;
+  pattern.channel = channel;
+  pattern.unit = ADC_UNIT_1;
+  pattern.bit_width = ADC_BITWIDTH_12;
+  adc_continuous_config_t config = {};
+  config.pattern_num = 1;
+  config.adc_pattern = &pattern;
+  config.sample_freq_hz = kSampleRate;
+  config.conv_mode = ADC_CONV_SINGLE_UNIT_1;
+  config.format = ADC_DIGI_OUTPUT_FORMAT_TYPE2;
+  bool reconfigured = channel != audioChannel;
+  esp_err_t result = reconfigured ? adc_continuous_config(adcHandle, &config) : ESP_OK;
+  bool started = false;
+  if (result == ESP_OK) result = adc_continuous_flush_pool(adcHandle);
+  if (result == ESP_OK) {
+    result = adc_continuous_start(adcHandle);
+    started = result == ESP_OK;
+  }
+  if (started) {
+    uint8_t frame[1024];
+    uint32_t length = 0;
+    result = adc_continuous_read(adcHandle, frame, sizeof(frame), &length, 100);
+    size_t count = 0;
+    if (result == ESP_OK && length % SOC_ADC_DIGI_RESULT_BYTES == 0) {
+      for (uint32_t offset = 0; offset < length && count < kAdcProbeSamples; offset += SOC_ADC_DIGI_RESULT_BYTES) {
+        adc_digi_output_data_t sample;
+        memcpy(&sample, frame + offset, sizeof(sample));
+        if (sample.type2.unit == ADC_UNIT_1 && sample.type2.channel == channel)
+          samples[count++] = sample.type2.data;
+      }
+    }
+    if (count != kAdcProbeSamples) result = ESP_FAIL;
+    esp_err_t stopped = adc_continuous_stop(adcHandle);
+    if (stopped != ESP_OK) result = stopped;
+  }
+  adc_digi_pattern_config_t originalPattern = pattern;
+  originalPattern.channel = audioChannel;
+  adc_continuous_config_t restore = config;
+  restore.adc_pattern = &originalPattern;
+  if (reconfigured && adc_continuous_config(adcHandle, &restore) != ESP_OK) {
+    adcReady = false;
+    result = ESP_FAIL;
+  }
+  adcProbeActive.store(false);
+  return result == ESP_OK ? AdcProbeResult::ok : AdcProbeResult::error;
+}
+
 bool recorderTaskReady() { return recorderTask != nullptr; }
 void recorderNotify() { if (recorderTask) xTaskNotifyGive(recorderTask); }
 CaptureState recorderState() { return captureState.load(); }
@@ -292,7 +355,7 @@ bool nextRecordingName(CaptureSource source) {
 
 bool recorderStart(bool sdAvailable, CaptureSource source) {
   if (!sdAvailable || !(source == CaptureSource::adc ? adcReady : micReady) || recorderTask == nullptr ||
-      captureState.load() != CaptureState::idle) return false;
+  captureState.load() != CaptureState::idle || adcProbeActive.load()) return false;
   if (!nextRecordingName(source)) {
     snprintf(lastError, sizeof(lastError), "No free recording filename");
     return false;
@@ -435,7 +498,8 @@ void recordLoop(void *) {
       monitorMicIdle();
       watchdogUnsubscribeCurrentTask(monitorWatchdog);
     }
-    if (captureState.load() == CaptureState::idle && (signalRequested() || liveAudioClient() >= 0)) {
+    if (!adcProbeActive.load() && captureState.load() == CaptureState::idle &&
+      (signalRequested() || liveAudioClient() >= 0)) {
       bool monitorWatchdog = watchdogSubscribeCurrentTask();
       monitorIdle();
       watchdogUnsubscribeCurrentTask(monitorWatchdog);

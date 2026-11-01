@@ -41,6 +41,8 @@ Sem a felvétel, sem a kézi DAC-próbahang nem nyúl valódi SD-hez vagy DAC-ho
 
 A szimulált Wi-Fi módváltás szándékosan nem bontja le a localhost-előnézetet. Nem modellezi a valós időzítést, RF-jelet, watchdogot, NVS-megbízhatóságot, hangminőséget vagy energiafogyasztást; ezekhez hardveres teszt kell.
 
+A Hardver teszt oldali ADC-grafikon az előnézetben csak generált 12 bites mintákat rajzol a GPIO1/2/3/9 választáshoz; nem ad visszajelzést a valódi előfeszítésről vagy rádiós hangról.
+
 ## Firmware-be ágyazás
 
 A PlatformIO előfeldolgozó hook (`scripts/embed_web.py`) a `scripts/web_assets.py` csomagolóval összefűzi a HTML/CSS/JS fájlokat. A generált `.pio/generated/web_pages.generated.h` Git által ignorált; kézzel nem szerkesztendő. A firmware ugyanazokat a `kPage`, `kFilesPage`, `kSettingsPage` szimbólumokat szolgálja ki, teljesen beágyazva, SD és külön asset-route-ok nélkül.

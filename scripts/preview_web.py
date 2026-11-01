@@ -264,6 +264,16 @@ class PreviewDevice:
                 return 200, b"PREVIEW ONLY - NOT A RADIO IMAGE"
             if path == "/api/ptt-test":
                 return 200, {"active": bool(self.ptt_until or self.ptt_latched), "pulseMs": 1000}
+            if path == "/api/adc/raw":
+                if params.get("gpio") not in ("1", "2", "3", "9"):
+                    return 400, "Invalid ADC GPIO"
+                if self.recording or self.signal_enabled or self.playing:
+                    return 409, "ADC busy: stop recording, live audio or signal monitoring"
+                gpio = int(params["gpio"])
+                center = {1: 2048, 2: 960, 3: 2750, 9: 1580}[gpio]
+                samples = [round(center + 90 * math.sin(index * math.tau / 32 + elapsed * 3))
+                           for index in range(128)]
+                return 200, {"gpio": gpio, "samples": samples}
             if path == "/api/status":
                 clock = self.clock_info()
                 tone = self.playing.startswith("DAC tone")
