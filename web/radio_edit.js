@@ -11,8 +11,8 @@ let editSnapshot = null;
 let queuedChanges = [];
 let editorRevision = "";
 
-const fieldLabels = {squelch:"0 SQL", save:"3 SAVE", vox:"4 VOX", backlight:"6 ABR", dualWatch:"7 TDR", beep:"8 BEEP", timeoutRaw:"9 TOT", voiceRaw:"14 VOICE", dtmfSidetoneRaw:"16 DTMFST", scanResumeRaw:"18 SC-REV", pttIdRaw:"19 PTT-ID", pttDelayRaw:"20 PTT-LT", displayARaw:"21 MDF-A", displayBRaw:"22 MDF-B", busyLockRaw:"23 BCL", autoLockRaw:"24 AUTOLK", standbyLedRaw:"29 WT-LED", rxLedRaw:"30 RX-LED", txLedRaw:"31 TX-LED", alarmModeRaw:"32 AL-MOD", txPriorityRaw:"34 TDR-AB", tailEliminateRaw:"35 STE", repeaterTailRaw:"36 RP-STE", repeaterDelayRaw:"37 RPT-RL", powerOnModeRaw:"38 PONMSG", rogerRaw:"39 ROGER", frequencyHz:"Frekvencia · MHz", offsetHz:"26 OFFSET · MHz", rxHz:"RX · MHz", txHz:"TX · MHz", rxToneRaw:"RX DCS/CTCSS", txToneRaw:"TX DCS/CTCSS", shiftRaw:"25 SFT-D", signalCodeRaw:"17 S-CODE", stepRaw:"1 STEP", powerRaw:"2 TXP", bandwidthRaw:"5 W/N", name:"Csatornanév", scanRaw:"Scan", channelA:"A csatorna", channelB:"B csatorna", workModeRaw:"VFO/MR", activeLineRaw:"Aktív sor", keypadLockRaw:"Billentyűzár", fmRadioEnabledRaw:"FM rádió", aniCode:"15 ANI-ID", alarmCode:"Riasztási kód", aniModeRaw:"ANI küldés", toneOnRaw:"DTMF hangidő", toneOffRaw:"DTMF szünet"};
-const choices = {voiceRaw:["Ki","Angol","Kínai"], save:["Ki","1:1","1:2","1:3","1:4"], dtmfSidetoneRaw:["OFF","DT-ST","ANI-ST","DT+ANI"], scanResumeRaw:["TO","CO","SE"], pttIdRaw:["OFF","BOT","EOT","BOTH"], aniModeRaw:["OFF","BOT","EOT","BOTH"], displayARaw:["CH","NAME","FREQ"], displayBRaw:["CH","NAME","FREQ"], shiftRaw:["OFF","+","-"], powerRaw:["HIGH","LOW"], stepRaw:["2.5 kHz","5 kHz","6.25 kHz","10 kHz","12.5 kHz","20 kHz","25 kHz","50 kHz"], alarmModeRaw:["SITE","TONE","CODE"], txPriorityRaw:["OFF","A","B"], powerOnModeRaw:["FULL","MSG"], activeLineRaw:["A","B"], workModeRaw:["VFO","MR"]};
+const fieldLabels = {squelch:"0 SQL", save:"3 SAVE", vox:"4 VOX", backlight:"6 ABR", dualWatch:"7 TDR", beep:"8 BEEP", timeoutRaw:"9 TOT", voiceRaw:"14 VOICE", dtmfSidetoneRaw:"16 DTMFST", scanResumeRaw:"18 SC-REV", pttIdRaw:"19 PTT-ID", pttDelayRaw:"20 PTT-LT", displayARaw:"21 MDF-A", displayBRaw:"22 MDF-B", busyLockRaw:"23 BCL", autoLockRaw:"24 AUTOLK", standbyLedRaw:"29 WT-LED", rxLedRaw:"30 RX-LED", txLedRaw:"31 TX-LED", alarmModeRaw:"32 AL-MOD", txPriorityRaw:"34 TDR-AB", tailEliminateRaw:"35 STE", repeaterTailRaw:"36 RP-STE", repeaterDelayRaw:"37 RPT-RL", powerOnModeRaw:"38 PONMSG", rogerRaw:"39 ROGER", frequencyHz:"Frequency · MHz", offsetHz:"26 OFFSET · MHz", rxHz:"RX · MHz", txHz:"TX · MHz", rxToneRaw:"RX DCS/CTCSS", txToneRaw:"TX DCS/CTCSS", shiftRaw:"25 SFT-D", signalCodeRaw:"17 S-CODE", stepRaw:"1 STEP", powerRaw:"2 TXP", bandwidthRaw:"5 W/N", name:"Channel name", scanRaw:"Scan", channelA:"Channel A", channelB:"Channel B", workModeRaw:"VFO/MR", activeLineRaw:"Active line", keypadLockRaw:"Keypad lock", fmRadioEnabledRaw:"FM radio", aniCode:"15 ANI-ID", alarmCode:"Alarm code", aniModeRaw:"ANI transmit", toneOnRaw:"DTMF tone duration", toneOffRaw:"DTMF gap"};
+const choices = {voiceRaw:["Off","English","Chinese"], save:["Off","1:1","1:2","1:3","1:4"], dtmfSidetoneRaw:["OFF","DT-ST","ANI-ST","DT+ANI"], scanResumeRaw:["TO","CO","SE"], pttIdRaw:["OFF","BOT","EOT","BOTH"], aniModeRaw:["OFF","BOT","EOT","BOTH"], displayARaw:["CH","NAME","FREQ"], displayBRaw:["CH","NAME","FREQ"], shiftRaw:["OFF","+","-"], powerRaw:["HIGH","LOW"], stepRaw:["2.5 kHz","5 kHz","6.25 kHz","10 kHz","12.5 kHz","20 kHz","25 kHz","50 kHz"], alarmModeRaw:["SITE","TONE","CODE"], txPriorityRaw:["OFF","A","B"], powerOnModeRaw:["FULL","MSG"], activeLineRaw:["A","B"], workModeRaw:["VFO","MR"]};
 const queuedKey = change => `${change.group}:${change.index ?? ""}:${change.field}`;
 
 function selectedField() {
@@ -39,12 +39,12 @@ function renderEditValue() {
   let control;
   let options = choices[field.field];
   if (field.field === "bandwidthRaw") options = editGroup.value === "channel" ? ["Narrow","Wide"] : ["Wide","Narrow"];
-  if (["standbyLedRaw","rxLedRaw","txLedRaw"].includes(field.field)) options = ["Ki","Kék","Narancs","Lila"];
+  if (["standbyLedRaw","rxLedRaw","txLedRaw"].includes(field.field)) options = ["Off","Blue","Orange","Purple"];
   if (field.kind === "tone" || options) {
     control = document.createElement("select");
     if (options) options.forEach((label, value) => addOption(control, value, label));
     else {
-      addOption(control, 0, "Ki");
+      addOption(control, 0, "Off");
       dtcs.forEach((code, index) => { addOption(control, index + 1, `D${String(code).padStart(3,"0")}N`); addOption(control, index + 106, `D${String(code).padStart(3,"0")}R`); });
       [670,693,719,744,770,797,825,854,885,915,948,974,1000,1035,1072,1109,1148,1188,1230,1273,1318,1365,1413,1462,1514,1567,1598,1622,1655,1679,1713,1738,1773,1799,1835,1862,1899,1928,1966,1995,2035,2065,2107,2181,2257,2291,2336,2418,2503,2541].forEach(value => addOption(control, value, `${value / 10} Hz`));
     }
@@ -71,7 +71,7 @@ function renderEditValue() {
     toggle.checked = current === null;
     control.disabled = toggle.checked;
     toggle.addEventListener("change", () => { control.disabled = toggle.checked; });
-    disabled.append(toggle, document.createTextNode("Adás tiltása"));
+    disabled.append(toggle, document.createTextNode("Disable transmission"));
     editValue.append(disabled);
   }
 }
@@ -91,7 +91,7 @@ function renderQueued() {
     item.append(document.createTextNode(label));
     const remove = document.createElement("button");
     remove.type = "button";
-    remove.textContent = "Eltávolítás";
+    remove.textContent = "Remove";
     remove.addEventListener("click", () => { queuedChanges.splice(index, 1); writeConfirm.checked = false; renderQueued(); });
     item.append(remove);
     list.append(item);
@@ -102,7 +102,7 @@ function renderQueued() {
 function radioEditorUpdate(state) {
   const available = state.state === "done" && state.writeSupported && fieldSchema.length;
   editor.hidden = !available;
-  document.getElementById("writeAvailability").textContent = state.state === "done" && !state.writeSupported ? "Az írás csak az ellenőrzött N5R2407BFB297 rádióváltozathoz engedélyezett." : "";
+  document.getElementById("writeAvailability").textContent = state.state === "done" && !state.writeSupported ? "Writing is permitted only for the verified N5R2407BFB297 radio variant." : "";
   if (!available) return;
   editSnapshot = state;
   if (editorRevision !== state.revision) {
@@ -134,14 +134,14 @@ document.getElementById("editForm").addEventListener("submit", event => {
   if (change.group === "channel") change.index = Number(editChannel.value);
   const next = queuedChanges.filter(item => queuedKey(item) !== queuedKey(change));
   next.push(change);
-  if (next.length > 32 || JSON.stringify({revision:editorRevision,changes:next}).length > 4096) { editError.textContent = "Legfeljebb 32 módosítás és 4096 bájt küldhető egyszerre."; return; }
+  if (next.length > 32 || JSON.stringify({revision:editorRevision,changes:next}).length > 4096) { editError.textContent = "Send at most 32 changes and 4096 bytes at once."; return; }
   queuedChanges = next;
   writeConfirm.checked = false;
   editError.textContent = "";
   renderQueued();
 });
 writeRadio.addEventListener("click", async () => {
-  if (writeRadio.disabled || !confirm(`${queuedChanges.length} módosítás írása a rádióba?`)) return;
+  if (writeRadio.disabled || !confirm(`${queuedChanges.length} changes to the radio?`)) return;
   clearTimeout(timer);
   busy = true;
   writeRadio.disabled = readRadio.disabled = true;
@@ -151,7 +151,7 @@ writeRadio.addEventListener("click", async () => {
   timer = setTimeout(poll, 500);
 });
 request("/api/radio/schema").then(schema => {
-  if (!Array.isArray(schema.fields)) throw new Error("Érvénytelen mezőséma");
+  if (!Array.isArray(schema.fields)) throw new Error("Invalid field schema");
   fieldSchema = schema.fields;
   if (snapshot) radioEditorUpdate(snapshot);
 }).catch(error => { editError.textContent = error.message; });

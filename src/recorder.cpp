@@ -224,7 +224,7 @@ bool recorderSerialMeterEnabled() { return serialMeterEnabled.load(); }
 
 bool recorderSetSerialMeter(bool enabled) {
   if (enabled && (!adcReady || recorderTask == nullptr || micSignalEnabled.load())) {
-    Serial.println("ADC meres nem elerheto");
+    Serial.println("ADC measurement unavailable");
     return false;
   }
   serialMeterEnabled.store(enabled);
@@ -232,7 +232,7 @@ bool recorderSetSerialMeter(bool enabled) {
     signalFault.store(0);
     recorderNotify();
   }
-  Serial.println(enabled ? "Soros ADC meres bekapcsolva" : "Soros ADC meres kikapcsolva");
+  Serial.println(enabled ? "Serial ADC measurement enabled" : "Serial ADC measurement disabled");
   return true;
 }
 
@@ -391,7 +391,7 @@ void pollSerialMeter() {
   if (millis() - lastPrintAt < 500) return;
   uint8_t fault = signalFault.load();
   if (fault) {
-    Serial.printf("ADC meresi hiba (%u)\n", fault);
+    Serial.printf("ADC measurement error (%u)\n", fault);
     serialMeterEnabled.store(false);
     return;
   }
@@ -405,7 +405,7 @@ void pollSerialMeter() {
     snprintf(recordingLabel, sizeof(recordingLabel), "REC %s | t=%lu.%03lu s | ", recordingName,
              static_cast<unsigned long>(elapsedMs / 1000), static_cast<unsigned long>(elapsedMs % 1000));
   }
-  Serial.printf("%sGPIO%d RMS: %u | Csucs: %u | DC-kozep: %u (ADC)\n", recordingLabel, kAudioGpio,
+  Serial.printf("%sGPIO%d RMS: %u | Peak: %u | DC-offset: %u (ADC)\n", recordingLabel, kAudioGpio,
                 signalRms.load(), signalPeak.load(), signalBias.load());
 }
 

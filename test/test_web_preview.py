@@ -49,7 +49,7 @@ assert.equal(output.textContent, '00:00:00 00:01:00');
 showClock({uptimeSeconds:0, zone:0, source:'rtc'});
 assert.equal(output.textContent, '00:00:00 00:00:00');
 showClock({zone:0, source:'unset'});
-assert.equal(output.textContent, 'Nem elérhető');
+assert.equal(output.textContent, 'Unavailable');
 """
         result = subprocess.run([node, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -88,7 +88,7 @@ const element = { textContent: '', dateTime: '', removeAttribute: () => { elemen
 const document = { querySelector: () => element };
 const setInterval = () => {};
 """ + clock_script + """
-for (const [source, prefix] of Object.entries({internet:'NTP', manual:'KÉZI', rtc:'RTC', saved:'MENTETT', default:'ALAP'})) {
+for (const [source, prefix] of Object.entries({internet:'NTP', manual:'MANUAL', rtc:'RTC', saved:'SAVED', default:'DEFAULT'})) {
   clockSource = source;
   clockBase = Date.parse('2026-11-01T16:10:02Z');
   demoSyncedAt = now;
@@ -107,12 +107,12 @@ for (const [start, expected] of [['2026-12-31T23:59:59','2027.01.01. 00:00:00'],
 }
 clockSource = 'unset';
 renderDemoClock();
-assert.equal(element.textContent, 'IDŐ NINCS');
+assert.equal(element.textContent, 'TIME UNSET');
 assert.equal(element.dateTime, '');
 clockSource = 'rtc';
 clockBase = NaN;
 renderDemoClock();
-assert.equal(element.textContent, 'IDŐ NINCS');
+assert.equal(element.textContent, 'TIME UNSET');
 """
         result = subprocess.run([node, "-"], input=script, text=True, encoding="utf-8",
                                 capture_output=True)
@@ -193,7 +193,7 @@ assert.equal(element.textContent, 'IDŐ NINCS');
         self.assertIn('server.on("/api/files/delete", HTTP_POST, deleteSdEntry)', server)
         self.assertIn('server.on("/api/files/download", HTTP_GET, downloadSdFolder)', server)
         self.assertIn('server.arg("confirm") != "1"', server)
-        self.assertIn('confirm(`Biztosan törlöd', files_script)
+        self.assertIn('if (!confirm(prompt))', files_script)
         self.assertIn('radio.dataset.radioPlay = item.path', files_script)
 
     def test_radio_dac_has_separate_playback_target_from_microphone_channel(self):
@@ -246,7 +246,7 @@ assert.equal(element.textContent, 'IDŐ NINCS');
         self.assertIn('\\"playbackBytesPlayed\\"', server)
         self.assertIn('\\"playbackBytesTotal\\"', server)
         self.assertIn('server.on("/api/play/radio-volume"', server)
-        self.assertIn('"Radio hang"', display)
+        self.assertIn('"Radio volume"', display)
         self.assertIn('playbackSetRadioVolume(', display)
         self.assertIn('id="radioVolume"', page)
         self.assertIn('id="playbackProgress"', page)
@@ -334,11 +334,11 @@ assert.equal(element.textContent, 'IDŐ NINCS');
 
     def test_file_manager_explains_unavailable_radio_and_keeps_play_request_errors(self):
         script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
-        self.assertIn('Rádió DAC: nem elérhető', script)
+        self.assertIn('Radio DAC: unavailable', script)
         self.assertIn('playbackRequestError = error.message', script)
         self.assertIn('data.playbackError || playbackRequestError', script)
         self.assertIn('button.title = !data.radioReady', script)
-        self.assertIn('Lejátszás befejeződött', script)
+        self.assertIn('Playback finished', script)
 
     def test_clock_firmware_contract(self):
         root = WEB_ROOT.parent
@@ -353,7 +353,7 @@ assert.equal(element.textContent, 'IDŐ NINCS');
         self.assertIn('if (clockDay(now) != savedDay) saveClock(now)', control)
         self.assertIn('appClockStartSync();', wifi)
         self.assertIn('appClockStopSync();', wifi)
-        self.assertIn('case 12: oled.drawStr(9, y, "Idozona")', display)
+        self.assertIn('case 12: drawText(9, y, "Timezone")', display)
         self.assertIn('if (!appClockSetLocal(value))', display)
         self.assertIn('server.on("/api/time", HTTP_POST, setClock)', server)
         self.assertIn('server.on("/api/time/zone", HTTP_POST, setClockZone)', server)
@@ -784,6 +784,24 @@ class PreviewHttpTests(unittest.TestCase):
         settings = json.loads(self.request('/api/settings')[1])
         self.assertEqual(settings["screenOffMinutes"], 0)
         self.assertEqual(settings["wifiAutoOffMinutes"], 999)
+
+    def test_language_setting_validates_and_restores_saved_selection(self):
+        for path in ('/', '/files', '/settings', '/test', '/radio', '/dac-test'):
+            status, content, _ = self.request(path)
+            self.assertEqual(status, 200)
+            self.assertIn(b'window.RR_LANGUAGES', content)
+            self.assertIn(b'window.RR_I18N', content)
+        self.assertEqual(json.loads(self.request('/api/settings')[1])["language"], "hu")
+        self.assertEqual(self.request('/api/language', 'POST', {"language": "en"})[0], 200)
+        self.assertEqual(json.loads(self.request('/api/settings')[1])["language"], "en")
+        for language in ("", "invalid", "EN", "../en"):
+            with self.subTest(language=language):
+                self.assertEqual(self.request('/api/language', 'POST', {"language": language})[0], 400)
+                self.assertEqual(json.loads(self.request('/api/settings')[1])["language"], "en")
+        self.server.device = PreviewDevice(saved_language="en")
+        self.assertEqual(json.loads(self.request('/api/settings')[1])["language"], "en")
+        self.assertEqual(self.request('/api/language', 'POST', {"language": "hu"})[0], 200)
+        self.assertEqual(json.loads(self.request('/api/settings')[1])["language"], "hu")
 
     def test_clock_manual_timezone_dst_and_restored_date(self):
         clock = lambda: json.loads(self.request('/api/time')[1])

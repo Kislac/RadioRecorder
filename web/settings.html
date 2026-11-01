@@ -1,21 +1,26 @@
 <!doctype html>
-<html lang="hu">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Beállítások - Radio Recorder</title>
+    <title>Settings - Radio Recorder</title>
     <link rel="stylesheet" href="/settings.css" />
   </head>
   <body>
     <header>
       RADIO RECORDER
-      <nav><a href="/">Főoldal</a> · <a href="/files">Fájlkezelő</a> · <a href="/radio">Radio Programming</a></nav>
+      <nav><a href="/">Home</a> · <a href="/files">File manager</a> · <a href="/radio">Radio Programming</a></nav>
     </header>
     <main>
-      <h1>Beállítások</h1>
+      <h1>Settings</h1>
+      <div class="setting">
+        <label for="language">Language</label>
+        <select id="language"><option value="hu">Hungarian</option><option value="en">English</option></select>
+      </div>
+      <p id="languageStatus" role="status"></p>
       <form id="settingsForm">
         <div class="setting">
-          <label for="screenOffMinutes">Képernyő kikapcsolása</label>
+          <label for="screenOffMinutes">Display timeout</label>
           <div class="value">
             <input
               id="screenOffMinutes"
@@ -24,12 +29,12 @@
               max="999"
               step="1"
               required
-            /><span>perc</span>
+            /><span>minutes</span>
           </div>
         </div>
         <div class="setting">
           <label for="wifiAutoOffMinutes"
-            >Wi-Fi kikapcsolása inaktivitáskor</label
+            >Wi-Fi inactivity timeout</label
           >
           <div class="value">
             <input
@@ -39,35 +44,35 @@
               max="999"
               step="1"
               required
-            /><span>perc</span>
+            /><span>minutes</span>
           </div>
         </div>
-        <button id="save" type="submit" disabled>Mentés</button
-        ><button id="wakeDisplay" type="button">Kijelző felébresztése</button>
-        <p id="result" role="status" aria-live="polite">Betöltés...</p>
+        <button id="save" type="submit" disabled>Save</button
+        ><button id="wakeDisplay" type="button">Wake display</button>
+        <p id="result" role="status" aria-live="polite">Loading...</p>
       </form>
       <section class="clock-settings">
-        <h2>Dátum és idő</h2>
-        <p id="clockStatus" role="status">Időállapot betöltése...</p>
+        <h2>Date and time</h2>
+        <p id="clockStatus" role="status">Loading clock status...</p>
         <p id="clockCurrent" class="clock-current"></p>
-        <p class="clock-current">Üzemidő: <output id="runtime">Betöltés...</output></p>
+        <p class="clock-current">Runtime: <output id="runtime">Loading...</output></p>
         <form id="clockForm">
-          <label for="clockLocal">Helyi dátum és idő</label>
+          <label for="clockLocal">Local date and time</label>
           <input id="clockLocal" type="datetime-local" min="2020-01-01T00:00" max="2099-12-31T23:59" required />
-          <button type="submit">Idő beállítása</button>
+          <button type="submit">Set time</button>
         </form>
         <div class="clock-zone">
-          <label for="clockZone">Időzóna</label>
+          <label for="clockZone">Timezone</label>
           <select id="clockZone"></select>
         </div>
       </section>
       <section class="wifi-settings">
-        <h2>Wi-Fi hálózat</h2>
-        <p id="wifiStatus" role="status">Állapot betöltése...</p>
+        <h2>Wi-Fi network</h2>
+        <p id="wifiStatus" role="status">Loading status...</p>
         <div class="wifi-actions">
-          <button id="scanNetworks" type="button">Hálózatok keresése</button
+          <button id="scanNetworks" type="button">Scan networks</button
           ><button id="forgetNetwork" type="button" disabled>
-            Hálózat elfelejtése
+            Forget network
           </button>
         </div>
         <div id="networks" class="networks"></div>
@@ -80,17 +85,17 @@
               autocomplete="off"
               required /></label
           ><label for="wifiPassword"
-            >Jelszó<input
+            >Password<input
               id="wifiPassword"
               type="password"
               maxlength="64"
               autocomplete="new-password" /></label
           ><label class="keep-ap"
             ><input id="keepApHost" type="checkbox" />Keep AP host</label
-          ><button id="connectWifi" type="submit">Csatlakozás</button>
+          ><button id="connectWifi" type="submit">Connect</button>
         </form>
       </section>
-      <p><a href="/test">Hardver tesztoldal</a></p>
+      <p><a href="/test">Hardware test page</a></p>
     </main>
     <footer>ESP32-S3 / Radio Recorder</footer>
     <script src="/settings.js"></script>

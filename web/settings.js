@@ -17,7 +17,7 @@ const clockForm = document.querySelector("#clockForm"),
   clockZone = document.querySelector("#clockZone"),
   clockStatus = document.querySelector("#clockStatus"),
   clockCurrent = document.querySelector("#clockCurrent");
-const zoneLabels = ["Budapest (téli/nyári idő)", "UTC"];
+const zoneLabels = ["Budapest (standard/daylight time)", "UTC"];
 for (let offset = -12; offset <= 14; offset++)
   zoneLabels.push("UTC" + (offset >= 0 ? "+" : "") + offset);
 zoneLabels.forEach((label, index) => clockZone.add(new Option(label, index)));
@@ -31,7 +31,7 @@ function formatUptime(seconds) {
 let uptimeBase = null,
   uptimeSyncedAt = performance.now();
 function renderUptime() {
-  document.querySelector("#runtime").textContent = uptimeBase === null ? "Nem elérhető" :
+  document.querySelector("#runtime").textContent = uptimeBase === null ? "Unavailable" :
     formatUptime(uptimeBase + Math.floor((performance.now() - uptimeSyncedAt) / 1000));
 }
 setInterval(renderUptime, 1000);
@@ -41,11 +41,11 @@ function showClock(clock) {
   uptimeSyncedAt = performance.now();
   renderUptime();
   clockZone.value = String(clock.zone);
-  clockCurrent.textContent = clock.local ? clock.local.replace("T", " ") : "Az idő nincs beállítva";
-  clockStatus.textContent = ({ internet: "Internetről szinkronizálva", manual: "Kézzel beállítva",
-    rtc: "RTC-ből visszaállítva",
-    saved: "Mentett idő (RTC nélkül)", default: "Alapdátum (2000-01-01)",
-    unset: "Az idő nincs beállítva" })[clock.source] || "Időállapot nem elérhető";
+  clockCurrent.textContent = clock.local ? clock.local.replace("T", " ") : "Time is not set";
+  clockStatus.textContent = ({ internet: "Synchronized from NTP", manual: "Set manually",
+    rtc: "Restored from RTC",
+    saved: "Saved time (without RTC)", default: "Default date (2000-01-01)",
+    unset: "Time is not set" })[clock.source] || "Clock status unavailable";
   if (clock.local && !clockLocal.value) clockLocal.value = clock.local.slice(0, 16);
 }
 async function loadClock() {
@@ -54,7 +54,7 @@ async function loadClock() {
     if (!response.ok) throw Error();
     showClock(await response.json());
   } catch {
-    clockStatus.textContent = "Az időállapot nem elérhető.";
+    clockStatus.textContent = "Clock status unavailable.";
   }
 }
 clockForm.addEventListener("submit", async (event) => {
@@ -67,7 +67,7 @@ clockForm.addEventListener("submit", async (event) => {
     if (!response.ok) throw Error(await response.text());
     showClock(await response.json());
   } catch (error) {
-    clockStatus.textContent = error.message || "Az idő beállítása sikertelen.";
+    clockStatus.textContent = error.message || "Could not set time.";
   } finally {
     button.disabled = false;
   }
@@ -80,7 +80,7 @@ clockZone.addEventListener("change", async () => {
     clockLocal.value = "";
     showClock(await response.json());
   } catch (error) {
-    clockStatus.textContent = error.message || "Az időzóna mentése sikertelen.";
+    clockStatus.textContent = error.message || "Could not save timezone.";
     await loadClock();
   } finally {
     clockZone.disabled = false;
@@ -99,9 +99,9 @@ async function loadSettings() {
     keepApInput.checked = !!settings.wifi.keepApHost;
     forgetButton.disabled = !settings.wifi.hasSavedNetwork;
     wifiStatus.textContent = wifiSummary(settings.wifi);
-    result.textContent = "Beállítások betöltve.";
+    result.textContent = "Settings loaded.";
   } catch {
-    result.textContent = "A beállítások betöltése sikertelen.";
+    result.textContent = "Could not load settings.";
   }
 }
 function wifiSummary(status) {
@@ -118,7 +118,7 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!form.reportValidity()) return;
   save.disabled = true;
-  result.textContent = "Mentés...";
+  result.textContent = "Saving...";
   try {
     const params = new URLSearchParams({
       screenOffMinutes: minutes.value,
@@ -128,13 +128,13 @@ form.addEventListener("submit", async (event) => {
     if (!response.ok) throw Error(await response.text());
     const settings = await response.json();
     result.textContent =
-      "Elmentve · kijelző " +
+      "Saved · display " +
       settings.screenOffMinutes +
       " min · Wi-Fi " +
       settings.wifiAutoOffMinutes +
       " min";
   } catch (error) {
-    result.textContent = error.message || "A mentés sikertelen.";
+    result.textContent = error.message || "Save failed.";
   } finally {
     save.disabled = false;
   }
@@ -144,9 +144,9 @@ wakeDisplay.addEventListener("click", async () => {
   try {
     const response = await fetch("/api/display/wake", { method: "POST" });
     if (!response.ok) throw Error();
-    result.textContent = "A kijelző felébredt.";
+    result.textContent = "Display is awake.";
   } catch {
-    result.textContent = "A kijelző ébresztése sikertelen.";
+    result.textContent = "Could not wake display.";
   } finally {
     wakeDisplay.disabled = false;
   }
@@ -159,29 +159,28 @@ async function readScan() {
 function showNetworks(data) {
   networkList.replaceChildren();
   if (data.state === "scanning") {
-    wifiStatus.textContent = "Hálózatok keresése...";
+    wifiStatus.textContent = "Scanning networks...";
     return;
   }
   if (data.state === "failed") {
-    wifiStatus.textContent = "A keresés sikertelen.";
+    wifiStatus.textContent = "Scan failed.";
     return;
   }
   for (const network of data.networks || []) {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent =
-      network.ssid +
-      " · " +
-      network.rssi +
-      " dBm" +
-      (network.open ? " · nyílt" : "");
+    const name = document.createElement("span");
+    name.dataset.i18nIgnore = "";
+    name.textContent = network.ssid;
+    button.append(name, document.createTextNode(" · " + network.rssi + " dBm"),
+      document.createTextNode(network.open ? " · open" : ""));
     button.addEventListener("click", () => {
       ssidInput.value = network.ssid;
       passwordInput.focus();
     });
     networkList.append(button);
   }
-  if (!data.networks?.length) wifiStatus.textContent = "Nem található hálózat.";
+  if (!data.networks?.length) wifiStatus.textContent = "No networks found.";
 }
 scanButton.addEventListener("click", async () => {
   scanButton.disabled = true;
@@ -196,7 +195,7 @@ scanButton.addEventListener("click", async () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
   } catch (error) {
-    wifiStatus.textContent = error.message || "A keresés sikertelen.";
+    wifiStatus.textContent = error.message || "Scan failed.";
   } finally {
     scanButton.disabled = false;
   }
@@ -205,7 +204,7 @@ connectForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!connectForm.reportValidity()) return;
   document.querySelector("#connectWifi").disabled = true;
-  wifiStatus.textContent = "Csatlakozás...";
+  wifiStatus.textContent = "Connecting to network...";
   try {
     const body = new URLSearchParams({
       ssid: ssidInput.value,
@@ -219,7 +218,7 @@ connectForm.addEventListener("submit", async (event) => {
     });
     if (!response.ok) throw Error(await response.text());
     passwordInput.value = "";
-    wifiStatus.textContent = "Csatlakozási kísérlet elindítva...";
+    wifiStatus.textContent = "Connection attempt started...";
     for (let attempt = 0; attempt < 30; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const statusResponse = await fetch("/api/wifi/status", {
@@ -231,7 +230,7 @@ connectForm.addEventListener("submit", async (event) => {
       if (!status.connecting) break;
     }
   } catch (error) {
-    wifiStatus.textContent = error.message || "A csatlakozás nem indult el.";
+    wifiStatus.textContent = error.message || "Could not start connection.";
   } finally {
     document.querySelector("#connectWifi").disabled = false;
     loadSettings();
@@ -242,12 +241,12 @@ forgetButton.addEventListener("click", async () => {
   try {
     const response = await fetch("/api/wifi/forget", { method: "POST" });
     if (!response.ok) throw Error(await response.text());
-    wifiStatus.textContent = "Hálózat elfelejtve; AP mód aktív.";
+    wifiStatus.textContent = "Network forgotten; AP mode active.";
     keepApInput.checked = false;
     passwordInput.value = "";
   } catch (error) {
     wifiStatus.textContent =
-      error.message || "A hálózat elfelejtése sikertelen.";
+      error.message || "Could not forget network.";
   } finally {
     loadSettings();
   }

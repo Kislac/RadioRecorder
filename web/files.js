@@ -42,8 +42,8 @@ function renderDemoClock() {
   const seconds =
     (demoBase + Math.floor((performance.now() - demoSyncedAt) / 1000)) % 86400;
   document.querySelector("#demoClock").textContent =
-    (clockSource === "unset" ? "IDŐ NINCS" :
-      ({ internet: "NTP ", manual: "KÉZI ", rtc: "RTC ", saved: "MENTETT ", default: "ALAP " })[clockSource] || "") +
+    (clockSource === "unset" ? "TIME UNSET" :
+      ({ internet: "NTP ", manual: "MANUAL ", rtc: "RTC ", saved: "SAVED ", default: "DEFAULT " })[clockSource] || "") +
     (clockSource === "unset" ? "" :
     [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
       .map((value) => String(value).padStart(2, "0"))
@@ -65,7 +65,7 @@ async function sendSpeakerVolume() {
       });
       if (!response.ok) throw Error();
     } catch {
-      speakerStatus.textContent = "A hangerő módosítása sikertelen.";
+      speakerStatus.textContent = "Could not change volume.";
     }
   }
   volumeSending = false;
@@ -100,7 +100,7 @@ async function sendRadioVolume() {
       const response = await fetch("/api/play/radio-volume?value=" + value, { method: "POST" });
       if (!response.ok) throw Error();
     } catch {
-      speakerStatus.textContent = "A rádió hangerő módosítása sikertelen.";
+      speakerStatus.textContent = "Could not change radio volume.";
     }
   }
   radioVolumeSending = false;
@@ -127,7 +127,7 @@ radioBoost.addEventListener("change", async () => {
   }
   radioBoostUpdating = false;
   await refreshSpeaker();
-  if (failed) speakerStatus.textContent = "A rádió erősítés módosítása sikertelen.";
+  if (failed) speakerStatus.textContent = "Could not change radio gain.";
 });
 speakerBoost.addEventListener("change", async () => {
   boostUpdating = true;
@@ -144,7 +144,7 @@ speakerBoost.addEventListener("change", async () => {
   }
   boostUpdating = false;
   await refreshSpeaker();
-  if (failed) speakerStatus.textContent = "Az erősítés módosítása sikertelen.";
+  if (failed) speakerStatus.textContent = "Could not change gain.";
 });
 async function refreshSpeaker() {
   try {
@@ -161,11 +161,11 @@ async function refreshSpeaker() {
     renderDemoClock();
     speakerStop.disabled = !playing;
     speakerStatus.textContent = playing
-      ? (data.playbackTarget === "radio" ? "Rádió DAC: " : "ESP hangszóró: ") +
+      ? (data.playbackTarget === "radio" ? "Radio DAC: " : "ESP speaker: ") +
         (data.playback === "starting" ? "indul..." : data.playbackPath)
       : data.playbackError || playbackRequestError ||
-        (lastPlaybackFinished ? "Lejátszás befejeződött" :
-          data.radioReady === false ? "Rádió DAC: nem elérhető" : "Lejátszás: kikapcsolva");
+        (lastPlaybackFinished ? "Playback finished" :
+          data.radioReady === false ? "Radio DAC: unavailable" : "Playback: off");
     const bytesTotal = Number(data.playbackBytesTotal) || 0;
     const bytesPlayed = Math.min(bytesTotal, Number(data.playbackBytesPlayed) || 0);
     playbackProgressWrap.hidden = !playing || !bytesTotal;
@@ -195,11 +195,11 @@ async function refreshSpeaker() {
     for (const button of listEl.querySelectorAll("[data-radio-play]")) {
       button.disabled = playing || data.state !== "idle" || !data.radioReady;
       button.title = !data.radioReady
-        ? "Rádió DAC nem elérhető (az I2S TX nem inicializálódott)"
-        : "Lejátszás a rádió DAC-kimenetén";
+        ? "Radio DAC unavailable (I2S TX not initialized)"
+        : "Play through the radio DAC";
     }
   } catch {
-    speakerStatus.textContent = playbackRequestError || "ESP-lejátszás állapota nem elérhető.";
+    speakerStatus.textContent = playbackRequestError || "ESP playback status unavailable.";
   }
 }
 async function playOnEsp(path, target = "speaker") {
@@ -212,7 +212,7 @@ async function playOnEsp(path, target = "speaker") {
     if (!response.ok) throw Error(await response.text());
     await refreshSpeaker();
   } catch (error) {
-    playbackRequestError = error.message || "ESP-lejátszás nem indult.";
+    playbackRequestError = error.message || "Could not start ESP playback.";
     speakerStatus.textContent = playbackRequestError;
   }
 }
@@ -223,7 +223,7 @@ speakerStop.addEventListener("click", async () => {
     if (!response.ok) throw Error(await response.text());
     playbackRequestError = "";
   } catch (error) {
-    speakerStatus.textContent = error.message || "Leállítás sikertelen.";
+    speakerStatus.textContent = error.message || "Could not stop.";
   }
   await refreshSpeaker();
 });
@@ -251,8 +251,10 @@ function breadcrumbs() {
   parent.href = link(folder.slice(0, folder.lastIndexOf("/")) || "/");
 }
 async function deleteEntry(item) {
-  const kind = item.directory ? "mappát és minden tartalmát" : "fájlt";
-  if (!confirm(`Biztosan törlöd a(z) ${item.name} ${kind}? Ez nem vonható vissza.`)) return;
+  const prompt = item.directory
+    ? `Delete the folder ${item.name} and all its contents? This cannot be undone.`
+    : `Delete the file ${item.name}? This cannot be undone.`;
+  if (!confirm(prompt)) return;
   try {
     const response = await fetch("/api/files/delete?path=" + encodeURIComponent(item.path) + "&confirm=1", {
       method: "POST",
@@ -260,7 +262,7 @@ async function deleteEntry(item) {
     if (!response.ok) throw Error(await response.text());
     await load(true);
   } catch (error) {
-    message.textContent = "Törlés sikertelen: " + error.message;
+    message.textContent = "Delete failed: " + error.message;
   }
 }
 function actionButton(label, title, action) {
@@ -276,6 +278,7 @@ function render(item) {
     info = document.createElement("div"),
     name = document.createElement("div");
   name.className = "name";
+  name.dataset.i18nIgnore = "";
   if (item.directory) {
     const anchor = document.createElement("a");
     anchor.href = link(item.path);
@@ -285,7 +288,7 @@ function render(item) {
   const meta = document.createElement("div");
   meta.className = "meta";
   meta.textContent = item.directory
-    ? "Mappa"
+    ? "Folder"
     : (item.bytes / 1024).toFixed(0) + " kB";
   info.append(name, meta);
   row.append(info);
@@ -294,29 +297,29 @@ function render(item) {
   if (item.directory) {
     const download = document.createElement("a");
     download.href = "/api/files/download?path=" + encodeURIComponent(item.path);
-    download.textContent = "ZIP letöltése";
-    download.title = "Mappa letöltése ZIP fájlban";
+    download.textContent = "Download ZIP";
+    download.title = "Download folder as ZIP";
     actions.append(download);
   } else {
     if (sound(item.name)) {
       if (/\.wav$/i.test(item.name)) {
-        const radio = actionButton("Rádión", "Lejátszás a rádió DAC-kimenetén", () => playOnEsp(item.path, "radio"));
+        const radio = actionButton("Radio", "Play through the radio DAC", () => playOnEsp(item.path, "radio"));
         radio.dataset.radioPlay = item.path;
         actions.append(radio);
       }
-      const play = actionButton("Telefonon", "Lejátszás ezen a készüléken", () => {
+      const play = actionButton("Browser", "Play on this device", () => {
         const existing = info.querySelector("audio");
         if (existing) {
           existing.pause();
           existing.remove();
-          play.textContent = "Telefonon";
+          play.textContent = "Browser";
           return;
         }
         const audio = document.createElement("audio");
         audio.controls = true;
         audio.src = "/file?path=" + encodeURIComponent(item.path);
         info.append(audio);
-        play.textContent = "Bezárás";
+        play.textContent = "Close";
         audio.play().catch(() => {});
       });
       actions.append(play);
@@ -325,8 +328,8 @@ function render(item) {
       const espPlay = document.createElement("button");
       espPlay.type = "button";
       espPlay.dataset.espPlay = item.path;
-      espPlay.textContent = "ESP-n lejátszás";
-      espPlay.title = "Lejátszás az ESP hangszóróján";
+      espPlay.textContent = "Play on ESP";
+      espPlay.title = "Play on the ESP speaker";
       espPlay.addEventListener("click", () => playOnEsp(item.path));
       actions.append(espPlay);
     }
@@ -334,10 +337,10 @@ function render(item) {
     download.href =
       "/file?path=" + encodeURIComponent(item.path) + "&download=1";
     download.download = item.name;
-    download.textContent = "Letöltés";
+    download.textContent = "Download";
     actions.append(download);
   }
-  actions.append(actionButton("Törlés", "Végleges törlés megerősítéssel", () => deleteEntry(item)));
+  actions.append(actionButton("Delete", "Permanently delete with confirmation", () => deleteEntry(item)));
   row.append(actions);
   listEl.append(row);
 }
@@ -357,21 +360,21 @@ async function load(reset = false) {
     if (!response.ok)
       throw Error(
         response.status === 409
-          ? "Felvétel alatt a fájlok nem olvashatók."
-          : "A mappa nem elérhető.",
+          ? "Files cannot be read while recording."
+          : "Folder unavailable.",
       );
     const data = await response.json();
     data.items.forEach(render);
     next = data.next;
     refreshSpeaker();
     more.hidden = next === null;
-    more.textContent = "Továbbiak";
-    message.textContent = listEl.children.length ? "" : "Üres mappa.";
+    more.textContent = "More";
+    message.textContent = listEl.children.length ? "" : "Empty folder.";
   } catch (error) {
     message.textContent = error.message;
     loadFailed = true;
     more.hidden = false;
-    more.textContent = "Újrapróbálás";
+    more.textContent = "Retry";
   } finally {
     loading = false;
   }

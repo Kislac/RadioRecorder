@@ -12,6 +12,7 @@
 #include "recorder.h"
 #include "live_audio.h"
 #include "app_control.h"
+#include "language.h"
 #include "display.h"
 #include "wifi_manager.h"
 #include "ptt_test.h"
@@ -163,6 +164,7 @@ void sendSettings() {
   wifiManagerNotifyActivity();
   server.sendHeader("Cache-Control", "no-store");
   String json = "{\"screenOffMinutes\":" + String(appScreenOffMinutes());
+  json += ",\"language\":\"" + String(appLanguage()) + "\"";
   json += ",\"wifiAutoOffMinutes\":" + String(wifiManagerAutoOffMinutes());
   json += ",\"wifi\":" + wifiManagerStatusJson() + "}";
   server.send(200, "application/json", json);
@@ -172,6 +174,20 @@ void sendClock() {
   wifiManagerNotifyActivity();
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", appClockJson());
+}
+
+void setLanguage() {
+  String language = server.arg("language");
+  if (!appLanguageSupported(language.c_str())) {
+    server.send(400, "text/plain", "Unsupported language");
+    return;
+  }
+  if (!appSetLanguage(language)) {
+    server.send(500, "text/plain", "Could not save language to NVS");
+    return;
+  }
+  displayWake();
+  sendSettings();
 }
 
 void setClock() {
@@ -775,6 +791,7 @@ void initWeb() {
   server.on("/api/settings", HTTP_GET, sendSettings);
   server.on("/api/settings", HTTP_POST, saveSettings);
   server.on("/api/time", HTTP_GET, sendClock);
+  server.on("/api/language", HTTP_POST, setLanguage);
   server.on("/api/time", HTTP_POST, setClock);
   server.on("/api/time/zone", HTTP_POST, setClockZone);
   server.on("/api/ptt-test", HTTP_GET, []() {

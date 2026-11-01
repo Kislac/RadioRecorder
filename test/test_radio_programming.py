@@ -482,19 +482,19 @@ class RadioMenuWebTests(unittest.TestCase):
         let settings = definitions('settings');
         assert.equal(settings['3 SAVE'], '1:3');
         assert.equal(settings['9 TOT'], '60 s');
-        assert.equal(settings['14 VOICE'], 'Ki');
+        assert.equal(settings['14 VOICE'], 'Off');
         assert.equal(settings['16 DTMFST'], 'DT+ANI');
         assert.equal(settings['18 SC-REV'], 'TO');
         assert.equal(settings['21 MDF-A'], 'FREQ');
-        assert.equal(settings['27 MEM-CH'], 'Csatornamentési művelet');
+        assert.equal(settings['27 MEM-CH'], 'Save channel action');
         const vfos = Object.fromEntries(elements.get('vfos').children.map(row => [row.children[0].textContent, row.children.slice(1).map(cell => cell.textContent)]));
-        assert.equal(vfos['Frekvencia · MHz'][0], '420.42000');
+        assert.equal(vfos['Frequency · MHz'][0], '420.42000');
         assert.equal(vfos['1 STEP · kHz'][0], 20);
         assert.equal(vfos['2 TXP'][0], 'LOW');
         assert.equal(vfos['10 R-DCS'][0], 'D023N');
         assert.equal(vfos['13 T-CTCS'][0], '88.5 Hz');
         assert.equal(vfos['26 OFFSET · MHz'][0], '0.60000');
-        assert.equal(definitions('codes')['DTMF hangidő'], '80 ms');
+        assert.equal(definitions('codes')['DTMF tone duration'], '80 ms');
         const menuLabels = Object.keys(settings).concat(Object.keys(vfos));
         for (let index = 0; index <= 40; ++index) assert(menuLabels.some(label => label.startsWith(index + ' ')), 'Missing menu ' + index);
         state.settings.voiceRaw = 255;
@@ -504,7 +504,7 @@ class RadioMenuWebTests(unittest.TestCase):
         delete state.vfoA;
         delete state.dtmf;
         vm.runInContext('render(state)', context);
-        assert.equal(definitions('settings')['14 VOICE'], 'Nem exportált');
+        assert.equal(definitions('settings')['14 VOICE'], 'Not exported');
         console.log('PASS menu rendering and old JSON compatibility');
         """
         result = subprocess.run([node, "-"], input=script, cwd=ROOT, capture_output=True, text=True,

@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 from scripts.oled_viewer import (FRAME_BYTES, KEY_COMMANDS, SCREENSHOT_DIR, bind_controls, body_pixels,
                                  find_device, parse_frame, pixel, read_frame, save_frame_png)
 from scripts.test_device import (DISPLAY_TILES, SETTINGS_TILE, delete_test_recording, menu_state, rtc_live_check, rtc_snapshot,
-                                 test_display_all, valid_signal, validate_display_frames, verify_rtc_progress)
+                                 test_display_all, test_signal, valid_signal, validate_display_frames, verify_rtc_progress)
 from scripts.test_support import TestRun, firmware_at_least
 from scripts.test_watchdog import trigger_and_verify_reset
 from scripts.run_tests import run_suite
@@ -196,8 +196,8 @@ class FrameTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         source = (root / "src" / "display.cpp").read_text(encoding="utf-8")
         self.assertIn("kTileCount = 12", source)
-        self.assertIn('"Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel"', source)
-        self.assertIn('"Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel"', source)
+        self.assertIn('"Manual radio record", "Manual mic record", "Auto radio record"', source)
+        self.assertIn('"File manager", "Radio signal", "Microphone signal"', source)
         self.assertIn("kBrowseRows = 5", source)
         self.assertIn("if (!inMenu) oled.drawHLine(0, 56, 128);", source)
         self.assertIn('snprintf(footer, sizeof(footer), "< %u/%u >"', source)
@@ -231,10 +231,10 @@ class FrameTests(unittest.TestCase):
         self.assertIn("appUptimeText()", time_tile)
         self.assertIn("kTimeTile = 10", source)
         self.assertIn("kSettingsTile = kTileCount - 1", source)
-        self.assertIn('"Time", "Beallitasok"', source)
+        self.assertIn('"Time", "Settings"', source)
         names = re.findall(r'"([^"]+)"', source.split("kTileNames[kTileCount] = {", 1)[1].split("};", 1)[0])
         self.assertEqual(tuple(names), DISPLAY_TILES)
-        self.assertEqual((len(DISPLAY_TILES), SETTINGS_TILE, DISPLAY_TILES[-1]), (12, 11, "Beallitasok"))
+        self.assertEqual((len(DISPLAY_TILES), SETTINGS_TILE, DISPLAY_TILES[-1]), (12, 11, "Settings"))
         self.assertIn("tile == kWifiTile || tile == kTimeTile", source)
         uptime = control.split("uint64_t appUptimeSeconds()", 1)[1].split("static String clockTimezoneRule()", 1)[0]
         self.assertIn("esp_timer_get_time()", uptime)
@@ -293,7 +293,7 @@ int main() {
         def write(command):
             if command == b"l":
                 field = "setting" if state["settings"] else "tile"
-                state[field] = (state[field] + 1) % (15 if state["settings"] else 12)
+                state[field] = (state[field] + 1) % (16 if state["settings"] else 12)
             elif command == b"k":
                 self.assertIn(state["tile"], (4, SETTINGS_TILE))
                 state["settings"] = state["tile"] == SETTINGS_TILE
@@ -425,7 +425,7 @@ int main() {
         self.assertIn("return;", wake_branch)
         self.assertIn('Serial.printf("OLED_STATE %u %u %u %u %u\\n", tile, setting, inSettings, editing, screenSleeping)', display_source)
         self.assertIn("if (command == 'o') displaySleep();", (root / "src" / "main.cpp").read_text(encoding="utf-8"))
-        self.assertIn("Kijelző felébresztése", page_source)
+        self.assertIn("Wake display", page_source)
         self.assertIn("/api/display/wake", page_source)
         self.assertIn("oled.drawXBM(0, 0, 128, 64, kStartupImageBits)", display_source)
         self.assertIn("playbackPlayCue(PlaybackCue::startup)", (root / "src" / "main.cpp").read_text(encoding="utf-8"))
@@ -453,7 +453,7 @@ int main() {
         self.assertIn('server.on("/api/wifi/forget", HTTP_POST', server_source)
         self.assertIn('id="keepApHost" type="checkbox"', page_source)
         self.assertNotIn('id="keepApHost" type="checkbox" checked', page_source)
-        self.assertIn('"Wi-Fi", "Time", "Beallitasok"', display_source)
+        self.assertIn('"Wi-Fi", "Time", "Settings"', display_source)
         self.assertIn('kWifiTimeoutKey[] = "wifiOffMin"', wifi_source)
         self.assertIn('kDefaultTimeoutMinutes = 5', wifi_source)
         self.assertIn('kConnectTimeoutMs = 15000', wifi_source)
@@ -540,12 +540,24 @@ int main() {
         self.assertIn("SUMMARY: 0 passed, 1 failed, 0 skipped", log)
 
     def test_signal_sample_must_be_in_adc_range(self):
-        self.assertEqual(valid_signal(["GPIO1 RMS: 12 | Csucs: 30 | DC-kozep: 2010 (ADC)"]), (12, 30, 2010))
-        for line in ("GPIO1 RMS: 31 | Csucs: 30 | DC-kozep: 2010 (ADC)",
-                     "GPIO1 RMS: 12 | Csucs: 30 | DC-kozep: 5000 (ADC)",
-                     "ADC meresi hiba (3)"):
+        self.assertEqual(valid_signal(["GPIO1 RMS: 12 | Peak: 30 | DC-offset: 2010 (ADC)"]), (12, 30, 2010))
+        for line in ("GPIO1 RMS: 31 | Peak: 30 | DC-offset: 2010 (ADC)",
+                 "GPIO1 RMS: 12 | Peak: 30 | DC-offset: 5000 (ADC)",
+                 "ADC measurement error (3)"):
             with self.subTest(line=line), self.assertRaises(AssertionError):
                 valid_signal([line])
+
+    def test_serial_signal_probe_accepts_english_meter_responses(self):
+        device = FakeDevice(b"Serial ADC measurement enabled\n",
+                            b"GPIO1 RMS: 12 | Peak: 30 | DC-offset: 2010 (ADC)\n",
+                            b"Serial ADC measurement disabled\n")
+        states = [(SETTINGS_TILE, 0, 0, 0, 0), (SETTINGS_TILE, 0, 1, 0, 0),
+                  (SETTINGS_TILE, 1, 1, 0, 0), (SETTINGS_TILE, 1, 1, 0, 0),
+                  (SETTINGS_TILE, 1, 0, 0, 0)]
+        report = SimpleNamespace(detail=lambda line: None)
+        with patch("scripts.test_device.menu_state", side_effect=states):
+            self.assertEqual(test_signal(device, report), "GPIO1 RMS=12 peak=30 bias=2010")
+        self.assertEqual(device.commands, [b"k", b"l", b"k", b"k", b"b"])
 
     def test_auto_detect_skips_unresponsive_port(self):
         other = FakeDevice(b"Other device\n")

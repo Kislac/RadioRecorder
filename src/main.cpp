@@ -16,6 +16,7 @@
 
 void printSetupStatus() {
   Serial.printf("Firmware: v%s\n", appFirmwareVersion().c_str());
+  Serial.printf("Language: %s\n", appLanguage());
   Serial.printf("Build time: %s\n", appFirmwareBuildDateTime().c_str());
   Serial.println("Watchdog: active (10 s, both cores)");
   Serial.printf("3.4 kHz low-pass: %s (f = toggle)\n", recorderLowpass() ? "on" : "off");

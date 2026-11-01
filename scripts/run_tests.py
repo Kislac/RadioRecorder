@@ -73,7 +73,7 @@ def run_suite(suite, port=None, base_url="http://192.168.4.1", run=subprocess.ru
         device = [sys.executable, "-m", "scripts.test_device"]
         if port:
             device.extend(["--port", port])
-        command("Device recording and cleanup", device + ["--record"])
+        command("Device recording and cleanup", device + ["--record", "--language-test"])
         command("OLED display", device + ["--display-only"])
         command("RTC without NTP and software restart", device + ["--rtc-reboot"])
         try:

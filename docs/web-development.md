@@ -24,6 +24,16 @@ A fájlkezelő előbb a mappákat, majd a fájlokat adja vissza, legfeljebb 20 e
 
 A `/radio` Radio Programming oldal is elérhető: megerősítés után kétmásodperces szimulált kiolvasást és két mintacsatornát mutat. Valódi UART-ot nem használ; a bináris letöltés `preview-only.bin` jelölőszöveg, nem rádiókép. A JSON szintén kizárólag mintabeállításokat tartalmaz. A készülékhez tartozó bekötést és próbalépéseket a [tesztelési útmutató](testing.md#uv-5r-konfiguráció-kiolvasása) ismerteti.
 
+## Többnyelvűség
+
+Az OLED és mind a hat weboldal közös, NVS-ben mentett nyelvet használ; alapértelmezés magyar (`hu`), választható angol (`en`). Az OLED **Beállítások → Nyelv** során rövid nyomás a következő nyelvre vált; a webes `/settings` oldalon legördülő választó van. Az OLED azonnal frissül, a nyitott weboldalak legfeljebb öt másodpercen belül követik a másik felületen történt váltást. Újraindítás után a mentett nyelv marad. A felhasználói fájl-/mappa-/hálózatneveket és a protokoll mezőit nem fordítjuk.
+
+A [locales/hu.json](../locales/hu.json) és [locales/en.json](../locales/en.json) fájlok `name`, `oled` és `web` részeket tartalmaznak. Minden programforrásbeli felirat és katalóguskulcs angol; az angol katalógusban a kulcs és az érték azonos, a magyar szövegek kizárólag a magyar katalógus értékei. Például `Settings` → `Beallitasok` az OLED-en, illetve `Settings` → `Beállítások` a weben. A build nem angol forráskulcsnál hibázik. A magyar alapértelmezés és a mentett nyelvválasztás változatlan. A webes `{name}` helyőrzők és az OLED `%s`/`%u` formázási jelölői változatlanul szükségesek. Az OLED szövegek ASCII-t használnak a jelenlegi betűkészlethez, legfeljebb 25 karakterrel; a 6 képpontos főcímek legfeljebb 21 karakteresek legyenek. A webes fordítások UTF-8-asak.
+
+Új nyelvhez másold a teljes katalógust például `locales/de.json` néven, állítsd be a megjelenített nevét, és fordítsd le ugyanazokat a kulcsokat. A nyelvlista, az OLED választás, a HTTP-validálás és a webes választó a katalógusokból származik. A nyelvkód két kisbetű (opcionális régióval, például `pt-BR`). A build hiányzó kulcsnál vagy eltérő helyőrzőnél hibázik. A PlatformIO a fordítás előtt generálja a gitignored `.pio/generated/language.generated.h` táblát és a webes oldalakba ágyazza a katalógusokat; nincs SD-/internet-/külső asset-függőség. A közös böngészős fordító a `web/i18n.js` fájlban van, dinamikus feliratokra, címekre, hozzáférhetőségi címkékre és megerősítésekre is alkalmazva. Felhasználói adatot tartalmazó DOM-elemeket `data-i18n-ignore` jelöl.
+
+HTTP: `GET /api/settings` tartalmazza a `language` kódot; `POST /api/language?language=en` ment és frissít. Nem támogatott nyelv 400, NVS-mentési hiba 500. Az `i` soros státusz `Language: hu` vagy `Language: en` sort is ad. Offline teszt: `python -m unittest test.test_language test.test_web_preview -v`.
+
 ## Szerkeszthető fájlok
 
 | Oldal | HTML | Stílus | Viselkedés |

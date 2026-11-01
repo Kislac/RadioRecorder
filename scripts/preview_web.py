@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlsplit
 import wave
 import zipfile
 
-from scripts.web_assets import WEB_ROOT
+from scripts.web_assets import WEB_ROOT, load_languages, localize_document
 
 SCENARIOS = ("ready", "missing-sd", "recording", "wifi-failure")
 DEFAULT_EPOCH = 946684800
@@ -84,11 +84,12 @@ def sample_wav():
 
 
 class PreviewDevice:
-    def __init__(self, scenario="ready", saved_clock=None):
+    def __init__(self, scenario="ready", saved_clock=None, saved_language="hu"):
         if scenario not in SCENARIOS:
             raise ValueError("Unknown preview scenario")
         self.lock = threading.RLock()
         self.scenario = scenario
+        self.language = saved_language if saved_language in load_languages() else "hu"
         self.started_at = time.monotonic()
         self.saved_epoch, self.clock_zone = saved_clock or (None, 0)
         self.clock_epoch = self.saved_epoch if self.saved_epoch is not None else DEFAULT_EPOCH
@@ -298,7 +299,7 @@ class PreviewDevice:
                              "error": "" if self.sd_ready else "SD unavailable", "wifi": dict(self.wifi)}
             if path == "/api/settings":
                 return 200, {"screenOffMinutes": self.screen_minutes, "wifiAutoOffMinutes": self.wifi_minutes,
-                             "wifi": dict(self.wifi)}
+                             "wifi": dict(self.wifi), "language": self.language}
             if path == "/api/time":
                 return 200, self.clock_info()
             if path == "/api/wifi/status":
@@ -346,6 +347,12 @@ class PreviewDevice:
                 if self.clock_epoch is not None:
                     self.saved_day = clock_local(self.clock_info()["epoch"], self.clock_zone).date()
                 return 200, self.clock_info()
+            if path == "/api/language":
+                language = params.get("language", "")
+                if language not in load_languages():
+                    return 400, "Unsupported language"
+                self.language = language
+                return 200, {"language": self.language}
             if path == "/api/time":
                 text = params.get("local", "")
                 try:
@@ -625,6 +632,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
                 if name in allowed:
                     source = (WEB_ROOT / name).read_text(encoding="utf-8")
                     if name.endswith(".html"):
+                        source = localize_document(source)
                         source = source.replace("<head>", "<head><script>window.radioRecorderAudioUrl="
                                                 "'ws://'+location.host+'/preview/live';</script>", 1)
                         source = source.replace("<title>", "<title>[Offline] ", 1)

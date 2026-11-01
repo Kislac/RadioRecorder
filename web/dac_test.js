@@ -15,7 +15,7 @@ async function request(path, data) {
 async function update() {
   try {
     const response = await fetch('/api/status', { cache: 'no-store' });
-    if (!response.ok) throw new Error('Állapot nem érhető el');
+    if (!response.ok) throw new Error('Status unavailable');
     const state = await response.json();
     const tone = state.playbackPath.startsWith('DAC tone') && state.playback !== 'idle';
     const available = !pending && state.speakerReady && state.playback === 'idle' && state.state === 'idle';
@@ -29,8 +29,8 @@ async function update() {
       wasTone = true;
     } else {
       if (state.playbackError) message = state.playbackError;
-      else if (wasTone) message = 'A 10 mp-es próba véget ért.';
-      statusText.textContent = message || (state.speakerReady ? 'Készen áll' : 'I²S kimenet nem érhető el');
+      else if (wasTone) message = 'The 10-second test finished.';
+      statusText.textContent = message || (state.speakerReady ? 'Ready' : 'I²S output unavailable');
       wasTone = false;
     }
   } catch (error) {

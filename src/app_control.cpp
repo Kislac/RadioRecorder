@@ -1,4 +1,5 @@
 #include "app_control.h"
+#include "language.h"
 
 #include "live_audio.h"
 #include "playback.h"
@@ -12,7 +13,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.73";
+static constexpr char kFirmwareVersion[] = "0.1.75";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -20,6 +21,8 @@ static constexpr char kSettingsNamespace[] = "radio-recorder";
 static constexpr char kScreenOffKey[] = "screenOffMin";
 static constexpr char kEpochKey[] = "clockEpoch";
 static constexpr char kZoneKey[] = "clockZone";
+static constexpr char kLanguageKey[] = "language";
+static String selectedLanguage = "hu";
 static constexpr time_t kMinEpoch = 946684800;
 static constexpr uint8_t kRtcAddress = 0x68;
 static uint16_t screenOffMinutes = kDefaultScreenOffMinutes;
@@ -290,11 +293,13 @@ bool appInitSettings() {
   if (nvsReady) {
     screenOffMinutes = preferences.getUShort(kScreenOffKey, kDefaultScreenOffMinutes);
     clockZone = preferences.getUChar(kZoneKey, 0);
+    selectedLanguage = preferences.getString(kLanguageKey, "hu");
     savedEpoch = preferences.getULong64(kEpochKey, 0);
     preferences.end();
   }
   if (screenOffMinutes > kMaxScreenOffMinutes) screenOffMinutes = kDefaultScreenOffMinutes;
   if (clockZone > 28) clockZone = 0;
+  if (!appLanguageSupported(selectedLanguage.c_str())) selectedLanguage = "hu";
   applyClockTimezone();
   bool savedValid = savedEpoch >= static_cast<uint64_t>(kMinEpoch) && savedEpoch <= 4102444799ULL;
   if (rtcValid || savedValid) {
@@ -307,6 +312,20 @@ bool appInitSettings() {
 }
 
 uint16_t appScreenOffMinutes() { return screenOffMinutes; }
+
+const char *appLanguage() { return selectedLanguage.c_str(); }
+
+bool appSetLanguage(const String &language) {
+  if (!appLanguageSupported(language.c_str())) return false;
+  if (language == appLanguage()) return true;
+  Preferences preferences;
+  if (!preferences.begin(kSettingsNamespace, false)) return false;
+  size_t written = preferences.putString(kLanguageKey, language);
+  preferences.end();
+  if (written != language.length()) return false;
+  selectedLanguage = language;
+  return true;
+}
 
 bool appSetScreenOffMinutes(uint16_t minutes) {
   if (minutes > kMaxScreenOffMinutes) return false;

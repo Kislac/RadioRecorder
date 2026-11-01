@@ -8,13 +8,13 @@ from scripts.oled_viewer import body_pixels, find_device, read_frame
 from scripts.test_support import TestRun, firmware_at_least
 
 
-SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Csucs: (\d+) \| DC-kozep: (\d+) \(ADC\)")
+SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Peak: (\d+) \| DC-offset: (\d+) \(ADC\)")
 RTC_PATTERN = re.compile(r"RTC_TIME rtc=(\d+) system=(\d+) source=([A-Z-]) offline=([01])")
-DISPLAY_TILES = ("Man Radio Felvetel", "Man Mikrofon Felvetel", "Aut Radio Felvetel",
-                 "Aut Mikrofon Felvetel", "Fajlkezelo", "Radio Elo jel", "Mikrofon Elo jel",
-                 "Diagnosztika", "PTT aktivalas", "Wi-Fi", "Time", "Beallitasok")
-SETTINGS_TILE = DISPLAY_TILES.index("Beallitasok")
-SETTING_COUNT = 15
+DISPLAY_TILES = ("Manual radio record", "Manual mic record", "Auto radio record",
+                 "Auto mic record", "File manager", "Radio signal", "Microphone signal",
+                 "Diagnostics", "PTT control", "Wi-Fi", "Time", "Settings")
+SETTINGS_TILE = DISPLAY_TILES.index("Settings")
+SETTING_COUNT = 16
 
 
 def verify_rtc_progress(before, after, elapsed, reboot=False):
@@ -169,7 +169,7 @@ def test_signal(device, report):
     device.write(b"k")
     meter_enabled = False
     try:
-        lines = read_until(device, lambda line: "Soros ADC meres bekapcsolva" in line,
+        lines = read_until(device, lambda line: "Serial ADC measurement enabled" in line,
                            timeout=3, report=report)
         meter_enabled = True
         lines.extend(read_until(device, lambda line: SIGNAL_PATTERN.search(line) is not None,
@@ -179,7 +179,7 @@ def test_signal(device, report):
     finally:
         if meter_enabled:
             device.write(b"k")
-            read_until(device, lambda line: "Soros ADC meres kikapcsolva" in line,
+            read_until(device, lambda line: "Serial ADC measurement disabled" in line,
                        timeout=3, report=report)
         state = menu_state(device)
         if state[2]:
@@ -448,6 +448,61 @@ def test_wake_input(device):
             raise AssertionError("Could not restore original tile after wake test")
 
 
+def language_snapshot(device, report):
+    device.write(b"i")
+    lines = read_until(device, lambda line: line.startswith("Wi-Fi auto-off:"), report=report)
+    language = next((line.split(": ", 1)[1] for line in lines if line.startswith("Language: ")), None)
+    if language not in ("hu", "en"):
+        raise AssertionError("Expected hu/en language status")
+    return language
+
+
+def test_language_selection(device, report):
+    state = menu_state(device)
+    original_tile = state[0]
+    original_settings = bool(state[2])
+    original_setting = state[1]
+    original_language = language_snapshot(device, report)
+
+    def select_language_row():
+        state = menu_state(device)
+        if not state[2]:
+            for _ in range((SETTINGS_TILE - state[0]) % len(DISPLAY_TILES)):
+                device.write(b"l")
+            device.write(b"k")
+        state = menu_state(device)
+        if not state[2] or state[3]:
+            raise AssertionError("Language test requires a non-editing settings menu")
+        for _ in range((14 - state[1]) % SETTING_COUNT):
+            device.write(b"l")
+
+    try:
+        select_language_row()
+        before = read_frame(device)
+        device.write(b"k")
+        expected = "en" if original_language == "hu" else "hu"
+        if language_snapshot(device, report) != expected:
+            raise AssertionError("OLED language selection did not update the shared setting")
+        if body_pixels(before) == body_pixels(read_frame(device)):
+            raise AssertionError("OLED text did not change after language selection")
+    finally:
+        if language_snapshot(device, report) != original_language:
+            select_language_row()
+            device.write(b"k")
+        if language_snapshot(device, report) != original_language:
+            raise AssertionError("Could not restore original language")
+        if original_settings:
+            state = menu_state(device)
+            for _ in range((original_setting - state[1]) % SETTING_COUNT):
+                device.write(b"l")
+        else:
+            device.write(b"b")
+            state = menu_state(device)
+            for _ in range((original_tile - state[0]) % len(DISPLAY_TILES)):
+                device.write(b"l")
+    return "hu/en switch changed OLED text; original language and navigation restored"
+
+
 def test_oled_navigation(device):
     for _ in range(2):
         if not menu_state(device)[2]:
@@ -489,12 +544,15 @@ def main():
     parser = argparse.ArgumentParser(description="Check SD, ADC, OLED and serial encoder on RadioRecorder")
     parser.add_argument("--port", help="ESP serial port (default: auto-detect)")
     parser.add_argument("--record", action="store_true", help="Write and verify a brief WAV on the SD card")
+    parser.add_argument("--language-test", action="store_true", help="Opt in to hu/en language NVS writes, restoring the original selection")
     parser.add_argument("--play-radio", metavar="WAV_PATH", help="Opt in to DAC playback of an existing SD WAV, no PTT")
     parser.add_argument("--list-wav", action="store_true", help="List supported SD WAV paths over serial (read-only)")
     parser.add_argument("--display-only", action="store_true", help="Test every OLED tile and setting row")
     parser.add_argument("--rtc", action="store_true", help="Check RTC against elapsed time, AP-only without NTP")
     parser.add_argument("--rtc-reboot", action="store_true", help="Also reboot ESP and verify RTC recovery (opt-in)")
     args = parser.parse_args()
+    if args.language_test and (args.play_radio or args.list_wav or args.rtc or args.rtc_reboot or args.display_only):
+        parser.error("--language-test must run separately from playback, RTC, and display-only checks")
     if (args.play_radio or args.list_wav) and (args.record or args.rtc or args.rtc_reboot or args.display_only or
                                                args.play_radio and args.list_wav):
         parser.error("--play-radio and --list-wav must run separately from other device checks")
@@ -553,6 +611,12 @@ def main():
                                 report.skip("SD recording/deletion", "a previous check failed")
                             else:
                                 report.skip("SD recording/deletion", "pass --record to opt in")
+                            if args.language_test:
+                                if oled_ok and firmware_at_least(firmware_version, (0, 1, 74)):
+                                    report.case("OLED shared language selection and restoration",
+                                                lambda: test_language_selection(device, report))
+                                else:
+                                    report.skip("OLED language selection", "requires ready OLED and firmware 0.1.74+")
                     else:
                         if args.display_only:
                             report.skip("All OLED tiles and settings rows", "OLED status check failed")

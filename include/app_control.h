@@ -12,6 +12,8 @@ bool appCanStartPlayback();
 bool appCanConnectLiveAudio();
 String appFirmwareVersion();
 String appFirmwareBuildDateTime();
+const char *appLanguage();
+bool appSetLanguage(const String &language);
 uint32_t appDemoTimeSeconds();
 uint64_t appUptimeSeconds();
 String appUptimeText();

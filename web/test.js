@@ -64,13 +64,13 @@ async function pollAdc() {
     adcSamples = result.samples;
     const minimum = Math.min(...adcSamples), maximum = Math.max(...adcSamples);
     const average = Math.round(adcSamples.reduce((sum, value) => sum + value, 0) / adcSamples.length);
-    adcStats.textContent = `Min ${minimum} · Átlag ${average} · Max ${maximum} · Csúcs-csúcs ${maximum - minimum}`;
+    adcStats.textContent = `Min ${minimum} · Average ${average} · Max ${maximum} · Peak-to-peak ${maximum - minimum}`;
     adcStatus.textContent = `GPIO${pin} · ${adcSamples.length} minta · 12 bit`;
     drawAdc();
   } catch (error) {
     if (generation !== adcGeneration || pin !== adcPin.value) return;
     adcRunning = false;
-    adcToggle.textContent = "Mérés indítása";
+    adcToggle.textContent = "Start measurement";
     adcStatus.textContent = error.message;
   } finally {
     if (adcRunning && generation === adcGeneration) adcTimer = setTimeout(pollAdc, 200);
@@ -80,11 +80,11 @@ async function pollAdc() {
 adcToggle.addEventListener("click", () => {
   adcRunning = !adcRunning;
   adcGeneration++;
-  adcToggle.textContent = adcRunning ? "Mérés leállítása" : "Mérés indítása";
+  adcToggle.textContent = adcRunning ? "Stop measurement" : "Start measurement";
   if (adcRunning) pollAdc();
-  else { clearTimeout(adcTimer); adcStatus.textContent = "Nem mér"; }
+  else { clearTimeout(adcTimer); adcStatus.textContent = "Not measuring"; }
 });
-adcPin.addEventListener("change", () => { adcSamples = []; drawAdc(); if (adcRunning) adcStatus.textContent = "Mérés..."; });
+adcPin.addEventListener("change", () => { adcSamples = []; drawAdc(); if (adcRunning) adcStatus.textContent = "Measuring..."; });
 adcScale.addEventListener("change", drawAdc);
 window.addEventListener("resize", drawAdc);
 document.addEventListener("visibilitychange", () => {
@@ -101,12 +101,12 @@ async function refreshPtt() {
     pttOn.disabled = state.active;
     pttToggle.disabled = false;
     pttToggle.setAttribute("aria-pressed", String(state.active));
-    pttToggle.textContent = state.active ? "Relé kikapcsolása" : "Relé bekapcsolása";
-    pttStatus.textContent = state.active ? "PTT aktív" : "PTT kikapcsolva";
+    pttToggle.textContent = state.active ? "Disable relay" : "Enable relay";
+    pttStatus.textContent = state.active ? "PTT active" : "PTT off";
   } catch {
     pttOn.disabled = true;
     pttToggle.disabled = true;
-    pttStatus.textContent = "PTT állapot nem elérhető";
+    pttStatus.textContent = "PTT status unavailable";
   }
 }
 pttOn.addEventListener("click", async () => {
@@ -126,7 +126,7 @@ pttToggle.addEventListener("click", async () => {
     if (!response.ok) throw Error();
     await refreshPtt();
   } catch {
-    pttStatus.textContent = "A relé állapota nem igazolható; ellenőrizd a relét!";
+    pttStatus.textContent = "Relay state cannot be verified; check the relay!";
     await refreshPtt();
   }
 });
@@ -137,7 +137,7 @@ pttOff.addEventListener("click", async () => {
     if (!response.ok) throw Error();
     await refreshPtt();
   } catch {
-    pttStatus.textContent = "Kikapcsolás nem igazolható; ellenőrizd a relét!";
+    pttStatus.textContent = "Switch-off cannot be verified; check the relay!";
   } finally {
     pttOff.disabled = false;
   }

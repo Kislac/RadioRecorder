@@ -1,39 +1,39 @@
 <!doctype html>
-<html lang="hu">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Fájlkezelő - Radio Recorder</title>
+    <title>File manager - Radio Recorder</title>
     <link rel="stylesheet" href="/files.css" />
   </head>
   <body>
     <header>
       RADIO RECORDER <span id="firmwareVersion">v?</span>
-      <a href="/">Felvétel</a>
+      <a href="/">Recording</a>
       <a href="/radio">Radio Programming</a>
     </header>
     <main>
-      <h1>Fájlkezelő</h1>
-      <p id="demoClock">IDŐ NINCS</p>
+      <h1>File manager</h1>
+      <p id="demoClock">TIME UNSET</p>
       <ol id="crumbs" class="crumbs"></ol>
       <div class="toolbar">
         <strong id="location">microSD</strong>
         <div class="toolbar-actions">
-          <a id="parentFolder" hidden title="Vissza a szülőmappába" aria-label="Vissza a szülőmappába">↑</a>
-          <button id="reload" title="Lista frissítése">Frissítés</button>
+          <a id="parentFolder" hidden title="Go to parent folder" aria-label="Go to parent folder">↑</a>
+          <button id="reload" title="Refresh list">Refresh</button>
         </div>
       </div>
       <div class="toolbar">
-        <span id="speakerStatus">Lejátszás: kikapcsolva</span
-        ><button id="speakerStop" disabled>Lejátszás leállítása</button>
+        <span id="speakerStatus">Playback: off</span
+        ><button id="speakerStop" disabled>Stop playback</button>
       </div>
       <div id="playbackProgressWrap" class="playback-progress" hidden>
-        <progress id="playbackProgress" max="1" value="0" aria-label="Lejátszási folyamat"></progress>
+        <progress id="playbackProgress" max="1" value="0" aria-label="Playback progress"></progress>
         <output id="playbackTime">0:00 / 0:00</output>
       </div>
       <div class="player-controls">
       <div class="speaker-volume">
-        <label for="speakerVolume">ESP hangszóró hangereje</label
+        <label for="speakerVolume">ESP speaker volume</label
         ><input
           id="speakerVolume"
           type="range"
@@ -46,21 +46,21 @@
           <button
             id="speakerDown"
             type="button"
-            aria-label="Hangerő csökkentése 5%-kal"
-            title="5%-kal halkabb"
+            aria-label="Decrease volume by 5%"
+            title="5% quieter"
           >
             ←</button
           ><output id="speakerVolumeValue" for="speakerVolume">25%</output
           ><button
             id="speakerUp"
             type="button"
-            aria-label="Hangerő növelése 5%-kal"
-            title="5%-kal hangosabb"
+            aria-label="Increase volume by 5%"
+            title="5% louder"
           >
             →
           </button>
         </div>
-        <label class="boost-label" for="speakerBoost">Lejátszási erősítés</label
+        <label class="boost-label" for="speakerBoost">Playback gain</label
         ><select id="speakerBoost">
           <option value="1">1×</option>
           <option value="2">2×</option>
@@ -68,14 +68,14 @@
         </select>
       </div>
       <div class="speaker-volume">
-        <label for="radioVolume">Rádió DAC hangereje</label>
+        <label for="radioVolume">Radio DAC volume</label>
         <input id="radioVolume" type="range" min="0" max="100" step="1" value="5" />
         <div class="speaker-volume-steps">
-          <button id="radioDown" type="button" aria-label="Rádió hangerejének csökkentése 5%-kal" title="5%-kal halkabb">−</button>
+          <button id="radioDown" type="button" aria-label="Decrease radio volume by 5%" title="5% quieter">−</button>
           <output id="radioVolumeValue" for="radioVolume">5%</output>
-          <button id="radioUp" type="button" aria-label="Rádió hangerejének növelése 5%-kal" title="5%-kal hangosabb">+</button>
+          <button id="radioUp" type="button" aria-label="Increase radio volume by 5%" title="5% louder">+</button>
         </div>
-        <label class="boost-label" for="radioBoost">Rádió DAC WAV erősítés</label>
+        <label class="boost-label" for="radioBoost">Radio DAC WAV gain</label>
         <select id="radioBoost">
           <option value="1">1×</option>
           <option value="2">2×</option>
@@ -85,11 +85,11 @@
         </select>
       </div>
       </div>
-      <p id="message">Betöltés...</p>
+      <p id="message">Loading...</p>
       <ol id="items" class="items"></ol>
-      <button id="more" hidden>Továbbiak</button>
+      <button id="more" hidden>More</button>
     </main>
-    <footer>Lejátszás a böngésző által támogatott hangformátumokkal.</footer>
+    <footer>Playback uses audio formats supported by your browser.</footer>
     <script src="/files.js"></script>
   </body>
 </html>

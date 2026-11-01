@@ -50,7 +50,7 @@ let clockBase = NaN,
 function renderDemoClock() {
   const clock = document.querySelector("#demoClock");
   if (clockSource === "unset" || !Number.isFinite(clockBase)) {
-    clock.textContent = "IDŐ NINCS";
+    clock.textContent = "TIME UNSET";
     clock.removeAttribute("datetime");
     return;
   }
@@ -58,7 +58,7 @@ function renderDemoClock() {
   const local = new Date(clockBase + elapsed).toISOString().slice(0, 19);
   clock.dateTime = local;
   clock.textContent =
-    (({ internet: "NTP ", manual: "KÉZI ", rtc: "RTC ", saved: "MENTETT ", default: "ALAP " })[clockSource] || "") +
+    (({ internet: "NTP ", manual: "MANUAL ", rtc: "RTC ", saved: "SAVED ", default: "DEFAULT " })[clockSource] || "") +
     local.slice(0, 10).replaceAll("-", ".") + ". " + local.slice(11);
 }
 setInterval(renderDemoClock, 1000);
@@ -76,7 +76,7 @@ async function sendSpeakerVolume() {
       });
       if (!response.ok) throw Error();
     } catch {
-      speakerStatus.textContent = "A hangerő módosítása sikertelen.";
+      speakerStatus.textContent = "Could not change volume.";
     }
   }
   volumeSending = false;
@@ -116,7 +116,7 @@ speakerBoost.addEventListener("change", async () => {
   }
   boostUpdating = false;
   await refresh();
-  if (failed) speakerStatus.textContent = "Az erősítés módosítása sikertelen.";
+  if (failed) speakerStatus.textContent = "Could not change gain.";
 });
 async function playOnEsp(path) {
   try {
@@ -126,7 +126,7 @@ async function playOnEsp(path) {
     if (!response.ok) throw Error(await response.text());
     await refresh();
   } catch (error) {
-    speakerStatus.textContent = error.message || "ESP-lejátszás nem indult.";
+    speakerStatus.textContent = error.message || "Could not start ESP playback.";
   }
 }
 speakerStop.addEventListener("click", async () => {
@@ -135,7 +135,7 @@ speakerStop.addEventListener("click", async () => {
     const response = await fetch("/api/play/stop", { method: "POST" });
     if (!response.ok) throw Error(await response.text());
   } catch (error) {
-    speakerStatus.textContent = error.message || "Leállítás sikertelen.";
+    speakerStatus.textContent = error.message || "Could not stop.";
   }
   await refresh();
 });
@@ -147,8 +147,8 @@ function stopLive() {
   audioContext = null;
   audioGain = null;
   if (context) context.close().catch(() => {});
-  liveToggle.textContent = "Hallgatás indítása";
-  liveStatus.textContent = "Kikapcsolva";
+  liveToggle.textContent = "Start listening";
+  liveStatus.textContent = "Disabled";
 }
 liveToggle.addEventListener("click", async () => {
   if (liveSocket) {
@@ -173,11 +173,11 @@ liveToggle.addEventListener("click", async () => {
     );
     socket.binaryType = "arraybuffer";
     liveSocket = socket;
-    liveStatus.textContent = "Kapcsolódás...";
+    liveStatus.textContent = "Connecting...";
     socket.onopen = () => {
       if (socket !== liveSocket) return;
-      liveToggle.textContent = "Hallgatás leállítása";
-      liveStatus.textContent = "Várakozás hangra...";
+      liveToggle.textContent = "Stop listening";
+      liveStatus.textContent = "Waiting for audio...";
     };
     socket.onmessage = (event) => {
       if (
@@ -199,9 +199,9 @@ liveToggle.addEventListener("click", async () => {
       }
       if (audioContext.state !== "running") {
         liveStatus.textContent =
-          "Lejátszás szünetel (" +
+          "Playback paused (" +
           audioContext.state +
-          "), PCM csúcs: " +
+          "), PCM peak: " +
           Math.round(peak * 100) +
           "%";
         return;
@@ -215,7 +215,7 @@ liveToggle.addEventListener("click", async () => {
       source.start(nextAudioTime);
       nextAudioTime += buffer.duration;
       liveStatus.textContent =
-        "Élő hang, PCM csúcs: " +
+        "Live audio, PCM peak: " +
         Math.round(peak * 100) +
         "%, kb. " +
         Math.round((nextAudioTime - now) * 1000) +
@@ -224,16 +224,16 @@ liveToggle.addEventListener("click", async () => {
     socket.onclose = () => {
       if (socket !== liveSocket) return;
       stopLive();
-      liveStatus.textContent = "A kapcsolat lezárult.";
+      liveStatus.textContent = "Connection closed.";
     };
     socket.onerror = () => {
       if (socket !== liveSocket) return;
       stopLive();
-      liveStatus.textContent = "A hangkapcsolat nem elérhető.";
+      liveStatus.textContent = "Audio connection unavailable.";
     };
   } catch {
     stopLive();
-    liveStatus.textContent = "A böngésző nem tudja elindítani a hangot.";
+    liveStatus.textContent = "The browser could not start audio.";
   }
   liveToggle.disabled = false;
 });
@@ -243,7 +243,7 @@ liveVolume.addEventListener("input", () => {
 liveTest.addEventListener("click", async () => {
   const Context = window.AudioContext || window.webkitAudioContext;
   if (!Context) {
-    liveStatus.textContent = "Hangpróba nem támogatott.";
+    liveStatus.textContent = "Audio test unsupported.";
     return;
   }
   const context = audioContext || new Context({ latencyHint: "interactive" });
@@ -262,10 +262,10 @@ liveTest.addEventListener("click", async () => {
     tone.start();
     tone.stop(context.currentTime + 0.4);
     await context.resume();
-    liveStatus.textContent = "Hangpróba lejátszva.";
+    liveStatus.textContent = "Audio test played.";
   } catch {
     if (context !== audioContext) context.close().catch(() => {});
-    liveStatus.textContent = "A hangpróba nem sikerült.";
+    liveStatus.textContent = "Audio test failed.";
   }
 });
 addEventListener("pagehide", stopLive);
@@ -339,13 +339,13 @@ async function pollSignal(generation) {
     if (!data.enabled) {
       meterRunning = false;
       signalPlot.hidden = true;
-      signalToggle.textContent = "Mérés bekapcsolása";
+      signalToggle.textContent = "Enable measurement";
       signalValues.textContent = data.fault
-        ? "ADC mérési hiba (" + data.fault + ")"
-        : "Kikapcsolva";
+        ? "ADC measurement error (" + data.fault + ")"
+        : "Disabled";
       return;
     }
-    signalToggle.textContent = "Mérés kikapcsolása";
+    signalToggle.textContent = "Disable measurement";
     signalPlot.hidden = false;
     if (
       data.active &&
@@ -361,14 +361,14 @@ async function pollSignal(generation) {
       data.active && data.sequence > 0
         ? "RMS: " +
           data.rms +
-          " | Csúcs: " +
+          " | Peak: " +
           data.peak +
-          " | DC-közép: " +
+          " | DC offset: " +
           data.bias +
           " (ADC)"
-        : "Mérés indul...";
+        : "Starting measurement...";
   } catch {
-    signalValues.textContent = "A mérési adatok nem elérhetők.";
+    signalValues.textContent = "Measurement data unavailable.";
   } finally {
     if (meterRunning && generation === meterGeneration)
       meterTimer = setTimeout(() => pollSignal(generation), 250);
@@ -395,12 +395,12 @@ signalToggle.addEventListener("click", async () => {
       pollSignal(meterGeneration);
     } else {
       signalPlot.hidden = true;
-      signalValues.textContent = "Kikapcsolva";
-      signalToggle.textContent = "Mérés bekapcsolása";
+      signalValues.textContent = "Disabled";
+      signalToggle.textContent = "Enable measurement";
     }
   } catch {
     meterRunning = previous;
-    signalValues.textContent = "A mérés kapcsolása sikertelen.";
+    signalValues.textContent = "Could not toggle measurement.";
   }
   signalToggle.disabled = false;
 });
@@ -414,13 +414,13 @@ async function pollMicSignal(generation) {
     if (!data.enabled) {
       micMeterRunning = false;
       micSignalPlot.hidden = true;
-      micSignalToggle.textContent = "Mérés bekapcsolása";
+      micSignalToggle.textContent = "Enable measurement";
       micSignalValues.textContent = data.fault
-        ? "Mikrofon mérési hiba (" + data.fault + ")"
-        : "Kikapcsolva";
+        ? "Microphone measurement error (" + data.fault + ")"
+        : "Disabled";
       return;
     }
-    micSignalToggle.textContent = "Mérés kikapcsolása";
+    micSignalToggle.textContent = "Disable measurement";
     micSignalPlot.hidden = false;
     if (data.active && data.sequence > 0 && data.sequence !== lastMicSequence) {
       lastMicSequence = data.sequence;
@@ -429,10 +429,10 @@ async function pollMicSignal(generation) {
       drawSignal(micSignalChart, micSignalHistory, 32768);
     }
     micSignalValues.textContent = data.active && data.sequence > 0
-      ? "RMS: " + data.rms + " | Csúcs: " + data.peak + " (PCM)"
-      : "Mérés indul...";
+      ? "RMS: " + data.rms + " | Peak: " + data.peak + " (PCM)"
+      : "Starting measurement...";
   } catch {
-    micSignalValues.textContent = "A mikrofonmérés nem elérhető.";
+    micSignalValues.textContent = "Microphone measurement unavailable.";
   } finally {
     if (micMeterRunning && generation === micMeterGeneration)
       micMeterTimer = setTimeout(() => pollMicSignal(generation), 250);
@@ -456,12 +456,12 @@ micSignalToggle.addEventListener("click", async () => {
       pollMicSignal(micMeterGeneration);
     } else {
       micSignalPlot.hidden = true;
-      micSignalValues.textContent = "Kikapcsolva";
-      micSignalToggle.textContent = "Mérés bekapcsolása";
+      micSignalValues.textContent = "Disabled";
+      micSignalToggle.textContent = "Enable measurement";
     }
   } catch {
     micMeterRunning = previous;
-    micSignalValues.textContent = "A mikrofonmérés kapcsolása sikertelen.";
+    micSignalValues.textContent = "Could not toggle microphone measurement.";
   }
   micSignalToggle.disabled = false;
 });
@@ -494,6 +494,7 @@ async function list(reset) {
         title = document.createElement("span"),
         size = document.createElement("span");
       title.className = "filename";
+      title.dataset.i18nIgnore = "";
       title.textContent = item.name;
       size.className = "size";
       size.textContent = (item.bytes / 1024).toFixed(0) + " kB";
@@ -507,13 +508,13 @@ async function list(reset) {
       const espPlay = document.createElement("button");
       espPlay.type = "button";
       espPlay.dataset.espPlay = item.path || "/" + item.name;
-      espPlay.textContent = "ESP-n lejátszás";
-      espPlay.title = "Lejátszás az ESP hangszóróján";
+      espPlay.textContent = "Play on ESP";
+      espPlay.title = "Play on the ESP speaker";
       espPlay.addEventListener("click", () => playOnEsp(item.path || "/" + item.name));
       const download = document.createElement("a");
       download.href = audio.src + "&download=1";
       download.download = item.name;
-      download.textContent = "Letöltés";
+      download.textContent = "Download";
       actions.append(espPlay, download);
       row.append(info, actions);
       files.append(row);
@@ -521,7 +522,7 @@ async function list(reset) {
     nextOffset = data.next;
     more.hidden = nextOffset === null;
     empty.hidden = files.children.length > 0;
-    empty.textContent = "Nincs mentett felvétel.";
+    empty.textContent = "No saved recordings.";
     loaded = true;
   } finally {
     listing = false;
@@ -538,24 +539,24 @@ async function refresh() {
     demoSyncedAt = performance.now();
     renderDemoClock();
     lowpassToggle.checked = data.lowpass;
-    signalHeading.textContent = "GPIO" + data.audioGpio + " jel";
+    signalHeading.textContent = "GPIO" + data.audioGpio + " signal";
     signalChart.setAttribute(
       "aria-label",
-      "GPIO" + data.audioGpio + " RMS és csúcs idősor",
+      "GPIO" + data.audioGpio + " RMS and peak history",
     );
     const busy = data.state !== "idle";
     const playing = data.playback !== "idle";
     stateEl.textContent = !data.ready && !data.micReady
-      ? "SD vagy hangbemenet nem elérhető"
+      ? "SD or audio input unavailable"
       : busy
         ? data.state === "starting"
-          ? "Felvétel indul..."
-          : data.recordSource === "microphone" ? "Mikrofonfelvétel folyamatban" : "ADC-felvétel folyamatban"
+          ? "Starting recording..."
+          : data.recordSource === "microphone" ? "Microphone recording in progress" : "ADC recording in progress"
         : data.hasRecordings
-          ? "Van mentett felvétel"
-          : "Nincs mentett felvétel";
-    toggle.textContent = busy && data.recordSource === "adc" ? "Felvétel leállítása" : "Felvétel indítása";
-    micToggle.textContent = busy && data.recordSource === "microphone" ? "Mikrofonfelvétel leállítása" : "Mikrofonfelvétel indítása";
+          ? "Saved recordings available"
+          : "No saved recordings";
+    toggle.textContent = busy && data.recordSource === "adc" ? "Stop recording" : "Start recording";
+    micToggle.textContent = busy && data.recordSource === "microphone" ? "Stop microphone recording" : "Start microphone recording";
     toggle.classList.toggle("recording", busy && data.recordSource === "adc");
     micToggle.classList.toggle("recording", busy && data.recordSource === "microphone");
     toggle.disabled =
@@ -572,9 +573,9 @@ async function refresh() {
       playing || (!busy && !!liveSocket);
     speakerStop.disabled = !playing;
     speakerStatus.textContent = playing
-      ? (data.playbackTarget === "radio" ? "Rádió DAC: " : "ESP hangszóró: ") +
+      ? (data.playbackTarget === "radio" ? "Radio DAC: " : "ESP speaker: ") +
         (data.playback === "starting" ? "indul..." : data.playbackPath)
-      : data.playbackError || "ESP hangszóró: kikapcsolva";
+      : data.playbackError || "ESP speaker: off";
     if (!volumeSending) {
       speakerVolume.value = data.speakerVolume;
       speakerVolumeValue.textContent = data.speakerVolume + "%";
@@ -603,7 +604,7 @@ toggle.addEventListener("click", async () => {
     );
     if (!response.ok) message.textContent = await response.text();
   } catch {
-    message.textContent = "A kérés nem sikerült.";
+    message.textContent = "Request failed.";
   }
   await refresh();
 });
@@ -613,7 +614,7 @@ micToggle.addEventListener("click", async () => {
     const response = await fetch(currentState === "idle" ? "/api/mic/start" : "/api/stop", { method: "POST" });
     if (!response.ok) message.textContent = await response.text();
   } catch {
-    message.textContent = "A mikrofonkérés nem sikerült.";
+    message.textContent = "Microphone request failed.";
   }
   await refresh();
 });
@@ -628,7 +629,7 @@ lowpassToggle.addEventListener("change", async () => {
     if (!response.ok) throw Error();
   } catch {
     lowpassToggle.checked = !enabled;
-    message.textContent = "A zajszűrő kapcsolása sikertelen.";
+    message.textContent = "Could not toggle low-pass filter.";
   }
   await refresh();
   lowpassToggle.disabled = false;
@@ -641,7 +642,7 @@ fetch("/api/signal", { cache: "no-store" })
   .then((data) => {
     if (data.enabled) {
       meterRunning = true;
-      signalToggle.textContent = "Mérés kikapcsolása";
+      signalToggle.textContent = "Disable measurement";
       signalPlot.hidden = false;
       pollSignal(meterGeneration);
     }
@@ -652,7 +653,7 @@ fetch("/api/mic/signal", { cache: "no-store" })
   .then((data) => {
     if (data.enabled) {
       micMeterRunning = true;
-      micSignalToggle.textContent = "Mérés kikapcsolása";
+      micSignalToggle.textContent = "Disable measurement";
       micSignalPlot.hidden = false;
       pollMicSignal(micMeterGeneration);
     }

@@ -1,44 +1,44 @@
 <!doctype html>
-<html lang="hu">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Hardver teszt - Radio Recorder</title>
+    <title>Hardware tests - Radio Recorder</title>
     <link rel="stylesheet" href="/settings.css" />
   </head>
   <body>
     <header>
       RADIO RECORDER
-      <nav><a href="/">Főoldal</a> · <a href="/settings">Beállítások</a></nav>
+      <nav><a href="/">Home</a> · <a href="/settings">Settings</a></nav>
     </header>
     <main>
-      <h1>Hardver teszt</h1>
+      <h1>Hardware tests</h1>
       <section class="adc-test">
-        <h2>ADC nyers jel</h2>
+        <h2>Raw ADC signal</h2>
         <div class="adc-controls">
-          <label for="adcPin">Bemenet</label>
+          <label for="adcPin">Input</label>
           <select id="adcPin">
-            <option value="1">GPIO1 · rádióhang</option>
-            <option value="2">GPIO2 · szabad</option>
-            <option value="3">GPIO3 · boot láb</option>
-            <option value="9">GPIO9 · kamera leválasztva</option>
+            <option value="1">GPIO1 · radio audio</option>
+            <option value="2">GPIO2 · unused</option>
+            <option value="3">GPIO3 · boot pin</option>
+            <option value="9">GPIO9 · camera disconnected</option>
           </select>
-          <label for="adcScale">Skála</label>
-          <select id="adcScale"><option value="full">0–4095</option><option value="auto">Automatikus nagyítás</option></select>
-          <button id="adcToggle" type="button">Mérés indítása</button>
+          <label for="adcScale">Scale</label>
+          <select id="adcScale"><option value="full">0–4095</option><option value="auto">Auto scale</option></select>
+          <button id="adcToggle" type="button">Start measurement</button>
         </div>
-        <p id="adcStatus" role="status" aria-live="polite">Nem mér</p>
-        <canvas id="adcChart" role="img" aria-label="Nyers ADC minták grafikonja"></canvas>
-        <output id="adcStats">Min – · Átlag – · Max – · Csúcs-csúcs –</output>
+        <p id="adcStatus" role="status" aria-live="polite">Not measuring</p>
+        <canvas id="adcChart" role="img" aria-label="Raw ADC sample chart"></canvas>
+        <output id="adcStats">Min – · Average – · Max – · Peak-to-peak –</output>
       </section>
       <section class="ptt-test">
-        <h2>PTT relé</h2>
-        <p>Csak leválasztott rádióval, ellenőrzött GPIO10 és aktív alacsony relémodullal. Az impulzus 1 másodpercig tart; a kapcsoló bekapcsolva marad, amíg ki nem kapcsolod.</p>
-        <p id="pttStatus" role="status" aria-live="polite">Állapot betöltése...</p>
+        <h2>PTT relay</h2>
+        <p>Use only with the radio disconnected, verified GPIO10 and an active-low relay module. The pulse lasts one second; the switch stays on until you turn it off.</p>
+        <p id="pttStatus" role="status" aria-live="polite">Loading status...</p>
         <div class="ptt-actions">
-          <button id="pttOn" type="button" disabled>1 mp tesztimpulzus</button>
-          <button id="pttToggle" type="button" aria-pressed="false" disabled>Relé bekapcsolása</button>
-          <button id="pttOff" type="button">Azonnali kikapcsolás</button>
+          <button id="pttOn" type="button" disabled>1-second test pulse</button>
+          <button id="pttToggle" type="button" aria-pressed="false" disabled>Enable relay</button>
+          <button id="pttOff" type="button">Switch off now</button>
         </div>
       </section>
     </main>
