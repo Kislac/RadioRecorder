@@ -13,7 +13,7 @@ Az írás első támogatott célja a már kiolvasott **N5R2407BFB297** firmware-
 Telepítés: `python -m pip install -r scripts/requirements-test.txt` (pyserial). A rádióműveletek külön VS Code taskokként és CLI-parancsokként érhetők el, nem részei a két összesített tesztnek:
 
 - **RadioRecorder: Radio Status (USB, read-only)**: csak az ESP állapotát kérdezi, a rádió UART-ját nem aktiválja.
-- **RadioRecorder: Radio Read (USB)**: COM-port (`auto` vagy például `COM3`), majd `READ UV5R` megerősítés. Mentés a `.test-logs/radio-backup-<időbélyeg>/` könyvtárba: `radio.img`, `radio.json` és `patch.json` sablon.
+- **RadioRecorder: Radio Read (USB)**: COM-port (`auto` vagy például `COM3`), majd `READ UV5R` megerősítés. Mentés a `.test-logs/radio-programmer/radio-backup-<időbélyeg>/` könyvtárba: `radio.img`, `radio.json` és `patch.json` sablon.
 - **RadioRecorder: Radio Write (USB, opt-in)**: a módosított `patch.json` elérési útja, COM-port és `WRITE UV5R` megerősítés kell. A kliens újraolvassa a rádiót, külön eredeti mentést készít, és csak az egyező kiinduló revision alapján ír. A sikeresen visszaellenőrzött eredményt külön `-verified` könyvtárba menti.
 
 Parancssorból:
@@ -22,7 +22,7 @@ Parancssorból:
 python -m scripts.radio_programmer --port COM3 status
 python -m scripts.radio_programmer --port COM3 schema
 python -m scripts.radio_programmer --port COM3 read --confirm-read "READ UV5R"
-python -m scripts.radio_programmer --port COM3 write --patch ".test-logs/radio-backup-.../patch.json" --confirm-write "WRITE UV5R"
+python -m scripts.radio_programmer --port COM3 write --patch ".test-logs/radio-programmer/radio-backup-.../patch.json" --confirm-write "WRITE UV5R"
 ```
 
 A sablonban hagyd meg a kiolvasott `revision` értéket, és csak a kívánt változásokat add meg. Példa (a revision helyére a saját mentés értéke kerül):
@@ -42,7 +42,7 @@ A sablonban hagyd meg a kiolvasott `revision` értéket, és csak a kívánt vá
 
 Legfeljebb 32 változás, 4096 bájt/patch. Az értékek egész számok, nem logikai JSON-értékek: kapcsolók 0/1, frekvenciák Hz-ben, VFO-offset 1000 Hz-es egységre illesztve. A `schema` listázza az engedélyezett csoportokat, mezőket és maximumokat; a firmware ezen felül a frekvenciasávot, tónuskódot, szövegkaraktereket és a meglévő csatornát is ellenőrzi. Csatorna-TX `null` értéke tiltja az adást. A `bandwidthRaw` VFO-nál 0=Wide/1=Narrow, csatornánál 0=Narrow/1=Wide. Az S-CODE nyers indexe 0–14; CTCSS például 885=88,5 Hz, DCS 1–105 normál és 106–210 fordított kódindex, 0/65535 kikapcsolt. Csatornanév legfeljebb hét támogatott nagybetűs ASCII karakter.
 
-A kliens nem írja felül a meglévő mentéskönyvtárat, és minden futás PASS/FAIL/SKIP összesítést és időbélyeges `.test-logs/radio-programmer-*.log` naplót készít. A sablon üres változáslistájával írás nem indul. Eltérő revision esetén készíts friss mentést és vizsgáld felül a változásokat; a régi revision egyszerű lecserélése nem biztonságos felülvizsgálat.
+A kliens nem írja felül a meglévő mentéskönyvtárat, és minden futás PASS/FAIL/SKIP összesítést és időbélyeges `.test-logs/radio-programmer/radio-programmer-*.log` naplót készít. A `--log-dir` egyedi naplógyökeret ad meg; ezen belül is a `radio-programmer/` almappába kerülnek a naplók és az automatikus mentések. A sablon üres változáslistájával írás nem indul. Eltérő revision esetén készíts friss mentést és vizsgáld felül a változásokat; a régi revision egyszerű lecserélése nem biztonságos felülvizsgálat.
 
 ## Web / PC nélkül
 

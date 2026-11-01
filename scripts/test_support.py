@@ -8,9 +8,9 @@ import traceback
 
 class TestRun:
     def __init__(self, suite, log_dir=None):
-        safe_suite = re.sub(r"[^a-zA-Z0-9_-]+", "-", suite).strip("-")
+        safe_suite = re.sub(r"[^a-zA-Z0-9_-]+", "-", suite).strip("-") or "general"
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        self.log_path = Path(log_dir or Path(__file__).resolve().parents[1] / ".test-logs")
+        self.log_path = Path(log_dir or Path(__file__).resolve().parents[1] / ".test-logs") / safe_suite
         self.log_path.mkdir(parents=True, exist_ok=True)
         self.log_path /= f"{safe_suite}-{timestamp}.log"
         self.results = []

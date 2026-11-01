@@ -1,4 +1,5 @@
 import json
+import queue
 import sys
 import subprocess
 import unittest
@@ -12,7 +13,8 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from scripts.oled_viewer import FRAME_BYTES, KEY_COMMANDS, body_pixels, find_device, parse_frame, pixel, read_frame
+from scripts.oled_viewer import (FRAME_BYTES, KEY_COMMANDS, SCREENSHOT_DIR, bind_controls, body_pixels,
+                                 find_device, parse_frame, pixel, read_frame, save_frame_png)
 from scripts.test_device import (delete_test_recording, menu_state, rtc_live_check, rtc_snapshot,
                                  valid_signal, validate_display_frames, verify_rtc_progress)
 from scripts.test_support import TestRun, firmware_at_least
@@ -396,6 +398,7 @@ class FrameTests(unittest.TestCase):
     def test_test_run_summary_is_saved_to_log(self):
         with TemporaryDirectory() as directory, redirect_stdout(StringIO()):
             run = TestRun("offline test", log_dir=directory)
+            self.assertEqual(run.log_path.parent, Path(directory) / "offline-test")
             self.assertTrue(run.case("frame check", lambda: "valid")[0])
             self.assertTrue(run.case("serial connection", lambda: SimpleNamespace(port="COM3"))[0])
             run.skip("recording", "opt-in")
@@ -404,6 +407,22 @@ class FrameTests(unittest.TestCase):
         self.assertIn("PASS: frame check - valid", log)
         self.assertIn("PASS: serial connection - COM3", log)
         self.assertIn("SUMMARY: 2 passed, 0 failed, 1 skipped", log)
+
+    def test_test_runs_keep_default_and_custom_log_roots_free_of_files(self):
+        suites = ("offline", "online", "device", "display", "rtc", "rtc-reboot",
+                  "wifi", "watchdog", "radio-programmer", "../unsafe suite", "...")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("scripts.test_support.__file__", str(root / "scripts" / "test_support.py")):
+                for log_dir in (None, root / "custom-logs"):
+                    log_root = root / ".test-logs" if log_dir is None else log_dir
+                    for suite in suites:
+                        with self.subTest(suite=suite, log_dir=log_dir):
+                            run = TestRun(suite, log_dir=log_dir)
+                            self.assertEqual(run.log_path.parent.parent, log_root)
+                            self.assertTrue(run.log_path.is_file())
+                            self.assertTrue(run.log_path.name.startswith(run.log_path.parent.name + "-"))
+                    self.assertTrue(all(entry.is_dir() for entry in log_root.iterdir()))
 
     def test_test_run_summary_marks_failures(self):
         with TemporaryDirectory() as directory, redirect_stdout(StringIO()):
@@ -439,9 +458,64 @@ class FrameTests(unittest.TestCase):
 
     def test_space_sends_long_press(self):
         commands = dict(KEY_COMMANDS)
+        self.assertEqual(commands["<Left>"], "j")
+        self.assertEqual(commands["<Up>"], "j")
+        self.assertEqual(commands["<Right>"], "l")
+        self.assertEqual(commands["<Down>"], "l")
         self.assertEqual(commands["<Return>"], "k")
         self.assertEqual(commands["<space>"], "b")
         self.assertEqual(commands["<Escape>"], "b")
+
+    def test_keyboard_controls_do_not_activate_focused_buttons(self):
+        import tkinter as tk
+
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        commands = queue.Queue()
+        activated = []
+        toolbar = tk.Frame(root)
+        toolbar.pack()
+        button = tk.Button(toolbar, text="Save PNG", command=lambda: activated.append(True))
+        button.pack()
+        bind_controls(root, commands)
+        root.update()
+        button.focus_force()
+        root.update()
+        for key, expected in KEY_COMMANDS:
+            with self.subTest(key=key):
+                button.event_generate(key)
+                button.event_generate(key.replace("<", "<KeyRelease-"))
+                root.update()
+                self.assertEqual(commands.get_nowait(), expected)
+                self.assertTrue(commands.empty())
+                self.assertEqual(activated, [])
+
+    def test_saves_timestamped_png_with_correct_oled_pixels(self):
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        self.addCleanup(root.destroy)
+        frame = bytearray(FRAME_BYTES)
+        frame[0] = 1
+        frame[128] = 128
+        frame[-1] = 128
+        self.assertEqual(SCREENSHOT_DIR, Path(__file__).resolve().parents[1] / ".test-logs" / "oled")
+        with TemporaryDirectory() as folder:
+            directory = Path(folder) / "logs" / "oled"
+            first = save_frame_png(frame, root, directory)
+            second = save_frame_png(bytes(FRAME_BYTES), root, directory)
+            self.assertEqual(first.parent, directory)
+            self.assertRegex(first.name, r"^oled-\d{8}-\d{6}-\d{6}\.png$")
+            self.assertNotEqual(first, second)
+            self.assertEqual(first.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+            image = tk.PhotoImage(master=root, file=str(first))
+            self.assertEqual((image.width(), image.height()), (128, 64))
+            for coordinates in ((0, 0), (0, 15), (127, 63)):
+                self.assertEqual(image.get(*coordinates), (198, 241, 115))
+            self.assertEqual(image.get(0, 1), (20, 26, 25))
+            blank = tk.PhotoImage(master=root, file=str(second))
+            self.assertEqual(blank.get(0, 0), (20, 26, 25))
 
     def test_decodes_u8g2_vertical_tiles(self):
         frame = bytearray(FRAME_BYTES)

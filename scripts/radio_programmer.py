@@ -131,7 +131,7 @@ def save_snapshot(client, state, directory):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", help="ESP COM port, or auto (close monitor/viewer first)")
-    parser.add_argument("--log-dir", type=Path)
+    parser.add_argument("--log-dir", type=Path, help="Log root; logs and automatic backups go in its radio-programmer subfolder")
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("status", help="Read ESP status only; does not activate radio UART")
     commands.add_parser("schema", help="List writable groups, fields and ranges")

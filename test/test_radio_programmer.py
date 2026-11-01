@@ -39,18 +39,19 @@ class RadioClientTests(unittest.TestCase):
         client.image.return_value = bytes(6472)
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary) / "backup"
+            log_directory = Path(temporary) / "radio-programmer"
             with patch("scripts.radio_programmer.find_device", return_value=device), \
                     patch("scripts.radio_programmer.RadioClient", return_value=client), redirect_stdout(output):
-                result = main(["--log-dir", temporary, "--port", "COM3", "read", "--confirm-read", "READ UV5R",
-                               "--output", str(directory)])
+                result = main(["--log-dir", temporary, "--port", "COM3", "read", "--confirm-read", "READ UV5R"])
             self.assertEqual(result, 0)
+            directory = next(log_directory.glob("radio-backup-*"))
+            self.assertEqual(list(Path(temporary).iterdir()), [log_directory])
             self.assertIn("PASS: read radio - " + json.dumps(state, ensure_ascii=False, indent=2), output.getvalue())
             self.assertNotIn("'settings':", output.getvalue())
             self.assertEqual(json.loads((directory / "radio.json").read_text(encoding="utf-8")), state)
             self.assertEqual((directory / "radio.img").stat().st_size, 6472)
             self.assertIn('"enabled": true', output.getvalue())
-            log = next(Path(temporary).glob("*.log")).read_text(encoding="utf-8")
+            log = next(log_directory.glob("*.log")).read_text(encoding="utf-8")
             self.assertIn('"settings": {\n    "squelch": 5,', log)
         device.close.assert_called_once()
 
@@ -92,7 +93,8 @@ class RadioClientTests(unittest.TestCase):
             self.assertEqual(main(["--log-dir", temporary, "read"]), 2)
             self.assertEqual(main(["--log-dir", temporary, "write", "--patch", "missing.json"]), 2)
             finder.assert_not_called()
-            self.assertEqual(len(list(Path(temporary).glob("*.log"))), 2)
+            self.assertEqual(len(list((Path(temporary) / "radio-programmer").glob("*.log"))), 2)
+            self.assertFalse(list(Path(temporary).glob("*.log")))
 
     def test_patch_validation_rejects_bad_roots_and_channel_indices(self):
         with tempfile.TemporaryDirectory() as temporary:
