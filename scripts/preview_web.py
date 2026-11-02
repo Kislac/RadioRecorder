@@ -20,6 +20,7 @@ import zipfile
 
 from scripts.web_assets import WEB_ROOT, load_languages, localize_document
 from scripts.preview_files import PreviewFileManager
+from scripts.preview_auto import PreviewAutomaticRecording
 
 SCENARIOS = ("ready", "missing-sd", "recording", "wifi-failure")
 DEFAULT_EPOCH = 946684800
@@ -85,7 +86,7 @@ def sample_wav():
 
 
 class PreviewDevice:
-    def __init__(self, scenario="ready", saved_clock=None, saved_language="hu"):
+    def __init__(self, scenario="ready", saved_clock=None, saved_language="hu", saved_auto=None):
         if scenario not in SCENARIOS:
             raise ValueError("Unknown preview scenario")
         self.lock = threading.RLock()
@@ -132,6 +133,7 @@ class PreviewDevice:
         self.wifi = {"mode": "AP", "ssid": "RadioRecorder", "ip": "192.168.4.1", "apIp": "192.168.4.1",
                      "savedSsid": "", "hasSavedNetwork": False, "keepApHost": False,
                      "connecting": False, "apAvailable": True, "autoOffMinutes": 5}
+        self.automatic = PreviewAutomaticRecording(self, saved_auto)
 
     def tick(self):
         now = time.monotonic()
@@ -166,14 +168,23 @@ class PreviewDevice:
         return {"local": local, "epoch": epoch, "zone": self.clock_zone, "source": self.clock_source,
             "uptimeSeconds": max(0, int(time.monotonic() - self.started_at))}
 
-    def finish_recording(self):
+    def finish_recording(self, elapsed_ms=None):
         self.recording = False
-        self.files[self.recording_name] = self.wav
+        if elapsed_ms is None:
+            self.files[self.recording_name] = self.wav
+            return
+        samples = int(max(0, elapsed_ms) * 22050 / 1000)
+        pcm = self.wav[44:]
+        content = (pcm * ((samples * 2 + len(pcm) - 1) // len(pcm)))[:samples * 2]
+        output = io.BytesIO()
+        with wave.open(output, "wb") as recording:
+            recording.setnchannels(1); recording.setsampwidth(2); recording.setframerate(22050); recording.writeframes(content)
+        self.files[self.recording_name] = output.getvalue()
 
-    def next_recording_name(self, source):
+    def next_recording_name(self, source, automatic=False):
         local = clock_local(self.clock_info()["epoch"], self.clock_zone)
         folder = "/" + local.strftime("%Y-%m-%d")
-        prefix = "MicMan" if source == "microphone" else "RadioMan"
+        prefix = ("MicAut" if automatic else "MicMan") if source == "microphone" else ("RadioAut" if automatic else "RadioMan")
         stem = folder + "/" + prefix + local.strftime("%y%m%d_%H%M%S")
         for number in range(100):
             path = stem + (f"_{number:02d}" if number else "") + ".wav"
@@ -201,6 +212,10 @@ class PreviewDevice:
 
     def api(self, method, path, params):
         self.tick()
+        self.automatic.tick(time.monotonic())
+        automatic = self.automatic.api(method, path, params)
+        if automatic is not None:
+            return automatic
         managed = self.file_manager.api(method, path, params)
         if managed is not None:
             return managed
@@ -290,6 +305,8 @@ class PreviewDevice:
                 seconds = 10 if tone else 2
                 pcm_played = min(pcm_total, max(0, int((time.monotonic() - (self.play_until - seconds)) * pcm_total / seconds))) if self.playing else 0
                 return 200, {"version": "preview", "ready": self.sd_ready, "micReady": self.sd_ready,
+                             "automatic": self.automatic.status(), "recordingMode": self.automatic.mode,
+                             "recordElapsedMs": self.automatic.elapsed(), "fileBusy": self.file_manager.busy(),
                              "clock": clock, "demoSeconds": sum(int(value) * scale for value, scale in
                              zip(clock["local"][11:19].split(":"), (3600, 60, 1))) if clock["local"] else 0,
                              "recordSource": self.record_source, "meterReady": True,
@@ -439,11 +456,8 @@ class PreviewDevice:
                 self.ptt_latched = False
                 return 200, "PTT test off"
             if path in ("/api/start", "/api/mic/start"):
-                if not self.sd_ready or self.recording or self.playing:
+                if not self.automatic.manual("microphone" if path == "/api/mic/start" else "adc"):
                     return 409, "Recorder unavailable or busy"
-                self.recording = True
-                self.record_source = "microphone" if path == "/api/mic/start" else "adc"
-                self.recording_name = self.next_recording_name(self.record_source)
                 return 200, self.recording_name
             if path == "/api/files/delete":
                 target = params.get("path", "")
@@ -462,7 +476,7 @@ class PreviewDevice:
             if path == "/api/stop":
                 if not self.recording:
                     return 409, "Not recording"
-                self.finish_recording()
+                self.automatic.stop()
                 return 200, "Stopping"
             if path in ("/api/filter/on", "/api/filter/off"):
                 self.lowpass = path.endswith("/on")
@@ -612,7 +626,14 @@ class PreviewHandler(BaseHTTPRequestHandler):
             if url.path == "/api/radio/write":
                 params["patch"] = body
             elif self.headers.get("Content-Type", "").startswith("application/json"):
-                params.update(json.loads(body))
+                try:
+                    values = json.loads(body) if body else {}
+                    if not isinstance(values, dict):
+                        raise ValueError("JSON object required")
+                    params.update(values)
+                except ValueError:
+                    self.reply(400, "Invalid JSON request")
+                    return
             else:
                 params.update({key: values[-1] for key, values in parse_qs(body, keep_blank_values=True).items()})
         if url.path == "/preview/live" and method == "GET":
@@ -646,7 +667,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
                 name = routes.get(url.path, url.path.lstrip("/"))
                 allowed = {page + extension for page in ("index", "files", "settings", "radio", "dac_test")
                            for extension in (".html", ".css", ".js")}
-                allowed.update(("test.html", "test.js", "radio_edit.js", "file_actions.js"))
+                allowed.update(("test.html", "test.js", "radio_edit.js", "file_actions.js", "automatic.js"))
                 if name in allowed:
                     source = (WEB_ROOT / name).read_text(encoding="utf-8")
                     if name.endswith(".html"):

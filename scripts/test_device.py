@@ -1,6 +1,7 @@
 """Serial hardware-in-the-loop checks; WAV recording is opt-in via --record."""
 
 import argparse
+import json
 import re
 import time
 
@@ -14,7 +15,7 @@ DISPLAY_TILES = ("Manual radio record", "Manual mic record", "Auto radio record"
                  "Auto mic record", "File manager", "Radio signal", "Microphone signal",
                  "Diagnostics", "PTT control", "Wi-Fi", "Time", "Settings")
 SETTINGS_TILE = DISPLAY_TILES.index("Settings")
-SETTING_COUNT = 16
+SETTING_COUNT = 24
 
 
 def verify_rtc_progress(before, after, elapsed, reboot=False):
@@ -448,6 +449,119 @@ def test_wake_input(device):
             raise AssertionError("Could not restore original tile after wake test")
 
 
+def automatic_snapshot(device, report):
+    device.write(b"a")
+    lines = read_until(device, lambda line: line.startswith("AUTO_STATE "), report=report)
+    return json.loads(lines[-1].removeprefix("AUTO_STATE "))
+
+
+def test_automatic_settings(device, report):
+    original = automatic_snapshot(device, report)
+    if original["activeMode"] != "none" or any(original[source]["armed"] for source in ("radio", "microphone")):
+        raise AssertionError("Automatic test requires inactive recording and arming")
+    if any(original[source].get("blocked") for source in ("radio", "microphone")):
+        raise AssertionError("Automatic test requires idle playback, live audio and file operations")
+    original_navigation = menu_state(device)
+    if original_navigation[2] or original_navigation[3]:
+        raise AssertionError("Automatic settings test requires a non-editing home tile")
+    original_tile = original_navigation[0]
+    created = set()
+
+    def snapshot():
+        state = automatic_snapshot(device, report)
+        for source in ("radio", "microphone"):
+            path = state[source].get("lastFile", "")
+            if path and path != original[source].get("lastFile", ""):
+                created.add(path)
+        if state.get("activeFile") and state["activeMode"] in ("autoRadio", "autoMic"):
+            created.add(state["activeFile"])
+        return state
+
+    def select_tile(target):
+        state = menu_state(device)
+        while state[2] or state[3]:
+            device.write(b"b"); state = menu_state(device)
+        forward = (target - state[0]) % len(DISPLAY_TILES)
+        backward = (state[0] - target) % len(DISPLAY_TILES)
+        for _ in range(min(forward, backward)):
+            device.write(b"l" if forward <= backward else b"j"); state = menu_state(device)
+
+    def edit_step(row, direction):
+        state = menu_state(device)
+        if state[3]:
+            device.write(b"b"); state = menu_state(device)
+        if not state[2]:
+            select_tile(SETTINGS_TILE); device.write(b"k"); state = menu_state(device)
+        for _ in range((row - state[1]) % SETTING_COUNT):
+            device.write(b"l")
+        device.write(b"k")
+        if not menu_state(device)[3]:
+            raise AssertionError("Automatic setting did not enter editing")
+        device.write(b"l" if direction > 0 else b"j")
+        device.write(b"k")
+        if menu_state(device)[3]:
+            raise AssertionError("Automatic setting did not commit")
+
+    fields = ((15, "radio", "threshold", 4095, 10), (16, "radio", "silenceSeconds", 60, 1),
+              (17, "microphone", "threshold", 32768, 10), (18, "microphone", "silenceSeconds", 60, 1))
+    try:
+        for row, source, field, maximum, step in fields:
+            value = original[source][field]
+            direction = -1 if value + step > maximum else 1
+            edit_step(row, direction)
+            if snapshot()[source][field] != value + direction * step:
+                raise AssertionError("Automatic setting did not change: " + field)
+            edit_step(row, -direction)
+            if snapshot()[source][field] != value:
+                raise AssertionError("Automatic setting did not restore: " + field)
+        edit_step(19, 1)
+        order = snapshot()["priorities"]
+        if order == original["priorities"] or len(set(order)) != 4:
+            raise AssertionError("Priority edit did not produce a unique changed order")
+        edit_step(19, -1)
+        if snapshot()["priorities"] != original["priorities"]:
+            raise AssertionError("Priority order did not restore")
+        select_tile(2); device.write(b"k")
+        if not snapshot()["radio"]["armed"]:
+            raise AssertionError("Radio automatic arming failed")
+        device.write(b"l"); device.write(b"k")
+        state = snapshot()
+        if not state["microphone"]["armed"] or state["activeMode"] != "none":
+            raise AssertionError("Microphone arming or warm-up guard failed")
+    finally:
+        state = snapshot()
+        for source, tile in (("radio", 2), ("microphone", 3)):
+            if state[source]["armed"]:
+                select_tile(tile); device.write(b"k"); state = snapshot()
+        deadline = time.monotonic() + 5
+        while state.get("activeFile") and state["activeMode"] in ("autoRadio", "autoMic"):
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Automatic test WAV did not close")
+            time.sleep(0.05); state = snapshot()
+        state = snapshot()
+        for row, source, field, _, step in fields:
+            difference = original[source][field] - state[source][field]
+            if difference % step:
+                raise AssertionError("Cannot restore changed automatic setting exactly")
+            for _ in range(abs(difference) // step):
+                edit_step(row, 1 if difference > 0 else -1)
+            state = snapshot()
+        modes = ["manualMic", "manualRadio", "autoRadio", "autoMic"]
+        for rank, desired in enumerate(original["priorities"]):
+            for _ in range(4):
+                state = snapshot()
+                if state["priorities"][rank] == desired:
+                    break
+                difference = (modes.index(desired) - modes.index(state["priorities"][rank])) % 4
+                edit_step(19 + rank, 1 if difference <= 2 else -1)
+            if snapshot()["priorities"][rank] != desired:
+                raise AssertionError("Automatic priority restoration failed")
+        for path in created:
+            delete_test_recording(device, path, report)
+        select_tile(original_tile)
+    return "thresholds, silence, unique priority and warm-up arming verified; settings/navigation restored"
+
+
 def language_snapshot(device, report):
     device.write(b"i")
     lines = read_until(device, lambda line: line.startswith("Wi-Fi auto-off:"), report=report)
@@ -545,6 +659,7 @@ def main():
     parser.add_argument("--port", help="ESP serial port (default: auto-detect)")
     parser.add_argument("--record", action="store_true", help="Write and verify a brief WAV on the SD card")
     parser.add_argument("--language-test", action="store_true", help="Opt in to hu/en language NVS writes, restoring the original selection")
+    parser.add_argument("--auto-test", action="store_true", help="Opt in to restoring automatic settings/priority and brief warm-up arming checks")
     parser.add_argument("--play-radio", metavar="WAV_PATH", help="Opt in to DAC playback of an existing SD WAV, no PTT")
     parser.add_argument("--list-wav", action="store_true", help="List supported SD WAV paths over serial (read-only)")
     parser.add_argument("--display-only", action="store_true", help="Test every OLED tile and setting row")
@@ -553,6 +668,8 @@ def main():
     args = parser.parse_args()
     if args.language_test and (args.play_radio or args.list_wav or args.rtc or args.rtc_reboot or args.display_only):
         parser.error("--language-test must run separately from playback, RTC, and display-only checks")
+    if args.auto_test and (args.play_radio or args.list_wav or args.rtc or args.rtc_reboot or args.display_only):
+        parser.error("--auto-test must run with the ordinary device check")
     if (args.play_radio or args.list_wav) and (args.record or args.rtc or args.rtc_reboot or args.display_only or
                                                args.play_radio and args.list_wav):
         parser.error("--play-radio and --list-wav must run separately from other device checks")
@@ -617,6 +734,11 @@ def main():
                                                 lambda: test_language_selection(device, report))
                                 else:
                                     report.skip("OLED language selection", "requires ready OLED and firmware 0.1.74+")
+                            if args.auto_test:
+                                if oled_ok and firmware_at_least(firmware_version, (0, 1, 77)):
+                                    report.case("Automatic settings, priority and arming restoration", lambda: test_automatic_settings(device, report))
+                                else:
+                                    report.skip("Automatic settings test", "requires ready OLED and firmware 0.1.77+")
                     else:
                         if args.display_only:
                             report.skip("All OLED tiles and settings rows", "OLED status check failed")

@@ -46,7 +46,7 @@ class LanguageTests(unittest.TestCase):
         def write(command):
             if command == b"l":
                 field = "setting" if state["settings"] else "tile"
-                state[field] = (state[field] + 1) % (16 if state["settings"] else 12)
+                state[field] = (state[field] + 1) % (24 if state["settings"] else 12)
             elif command == b"b":
                 state["settings"] = False
             elif command == b"k":
@@ -82,12 +82,13 @@ class LanguageTests(unittest.TestCase):
             for key, value in catalog["oled"].items():
                 with self.subTest(code=code, key=key):
                     self.assertTrue(value.isascii())
-                    self.assertLessEqual(len(value), 25)
+                    rendered = re.sub(r"%[-+0 #]*\d*(?:\.\d+)?(?:ll|l|h|z)?[a-z]", "00", value)
+                    self.assertLessEqual(len(rendered), 25)
         self.assertEqual(catalogs["en"]["oled"]["Settings"], "Settings")
         self.assertEqual(catalogs["hu"]["oled"]["Time"], "Ido")
         display = (ROOT / "src/display.cpp").read_text(encoding="utf-8")
         self.assertIn("oled.drawUTF8(x, y, appText(text))", display)
-        self.assertIn("kSettingsCount = 16", display)
+        self.assertIn("kSettingsCount = 24", display)
         self.assertIn('case 14: drawText(9, y, "Language")', display)
         self.assertIn('appSetLanguage(appNextLanguage())', display)
         for name in PAGES:

@@ -51,6 +51,26 @@
         ><button id="wakeDisplay" type="button">Wake display</button>
         <p id="result" role="status" aria-live="polite">Loading...</p>
       </form>
+      <section class="auto-settings">
+        <h2>Automatic recording</h2>
+        <form id="autoSettingsForm">
+          <div class="auto-setting-grid">
+            <label>Radio RMS threshold (ADC)<input id="autoRadioThreshold" type="number" min="1" max="4095" step="1" required /></label>
+            <label>Radio silence time (s)<input id="autoRadioSilence" type="number" min="1" max="60" step="1" required /></label>
+            <label>Mic RMS threshold (PCM)<input id="autoMicThreshold" type="number" min="1" max="32768" step="1" required /></label>
+            <label>Mic silence time (s)<input id="autoMicSilence" type="number" min="1" max="60" step="1" required /></label>
+          </div>
+          <h3>Recording priority</h3>
+          <div class="auto-setting-grid">
+            <label>Priority 1<select id="recordPriority0"></select></label>
+            <label>Priority 2<select id="recordPriority1"></select></label>
+            <label>Priority 3<select id="recordPriority2"></select></label>
+            <label>Priority 4<select id="recordPriority3"></select></label>
+          </div>
+          <button id="saveAutoSettings" type="submit" disabled>Save</button>
+          <p id="autoSettingsResult" role="status">Loading...</p>
+        </form>
+      </section>
       <section class="clock-settings">
         <h2>Date and time</h2>
         <p id="clockStatus" role="status">Loading clock status...</p>
@@ -98,6 +118,7 @@
       <p><a href="/test">Hardware test page</a></p>
     </main>
     <footer>ESP32-S3 / Radio Recorder</footer>
+    <script src="/automatic.js"></script>
     <script src="/settings.js"></script>
   </body>
 </html>

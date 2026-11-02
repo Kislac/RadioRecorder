@@ -1,5 +1,6 @@
 #include "file_manager.h"
 #include "zip_format.h"
+#include "automatic_record.h"
 #include "app_control.h"
 #include "playback.h"
 #include "recorder.h"
@@ -404,6 +405,10 @@ bool fileManagerList(const String &directoryPath, const String &sort, bool desce
   if (!directory || !directory.isDirectory()) { directory.close(); page.error = "Directory not found"; return false; }
   uint32_t hash = 0, lastYield = millis(); File entry;
   while ((entry = directory.openNextFile())) {
+    pollAutomaticRecording();
+    if (recorderState() != CaptureState::idle) {
+      entry.close(); directory.close(); page.items.clear(); page.error = "SD unavailable or recording in progress"; return false;
+    }
     ManagedFileInfo item; String name = baseName(entry); item.name = name.c_str(); item.directory = entry.isDirectory();
     item.bytes = item.directory ? 0 : entry.size(); item.modified = modifiedTime(entry); entry.close();
     if (name.startsWith(".rr-")) continue;

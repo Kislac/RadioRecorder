@@ -3,6 +3,8 @@
 #include "live_audio.h"
 #include "recorder.h"
 #include "app_control.h"
+#include "automatic_record.h"
+#include "file_manager.h"
 #include "web_server.h"
 #include "controls.h"
 #include "display.h"
@@ -17,6 +19,8 @@
 void printSetupStatus() {
   Serial.printf("Firmware: v%s\n", appFirmwareVersion().c_str());
   Serial.printf("Language: %s\n", appLanguage());
+  Serial.printf("Recording mode: %s\n", recordingModeCode(automaticCurrentMode()));
+  Serial.printf("Recording elapsed: %llu ms\n", static_cast<unsigned long long>(recorderElapsedMs()));
   Serial.printf("Build time: %s\n", appFirmwareBuildDateTime().c_str());
   Serial.println("Watchdog: active (10 s, both cores)");
   Serial.printf("3.4 kHz low-pass: %s (f = toggle)\n", recorderLowpass() ? "on" : "off");
@@ -74,6 +78,7 @@ static constexpr uint32_t kWatchdogConfirmMs = 5000;
 
 static bool watchdogTestIdle() {
   return recorderState() == CaptureState::idle && playbackGetState() == PlaybackState::idle &&
+      !automaticAnyArmed() && !fileManagerBusy() &&
          liveAudioClient() < 0 && !recorderMicSignalStatus().enabled &&
          !recorderMicSignalStatus().active && !radioProgrammingBusy() &&
          !pttTestActive();
@@ -137,6 +142,7 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
     return;
   }
 
+  if (command == 'a') { Serial.printf("AUTO_STATE %s\n", automaticRecordingJson().c_str()); return; }
   if (command == 'x') {
     deleteFilenameLength = 0;
     deleteFilenameOverflow = false;
@@ -158,7 +164,7 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
     return;
   }
   if (command == 'L') {
-    if (!appSdReady() || recorderState() != CaptureState::idle || playbackGetState() != PlaybackState::idle) {
+    if (!appSdReady() || recorderState() != CaptureState::idle || playbackGetState() != PlaybackState::idle || automaticAnyArmed() || fileManagerBusy()) {
       Serial.println("WAV_LIST refused: SD unavailable or device busy");
     } else {
       uint16_t remaining = 128;
@@ -206,7 +212,7 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
   if (command == 'y') {
     if (wifiManagerModeName() != "AP" || wifiManagerHasCredentials() ||
         recorderState() != CaptureState::idle || playbackGetState() != PlaybackState::idle ||
-        radioProgrammingBusy() || pttTestActive()) {
+        radioProgrammingBusy() || pttTestActive() || automaticAnyArmed() || fileManagerBusy()) {
       Serial.println("RTC_RESTART refused: offline AP and idle device required");
     } else {
       Serial.println("RTC_RESTART accepted");
@@ -233,6 +239,7 @@ void setup() {
   }
   Serial.println("Watchdog: ready (10 s)");
   if (!appInitSettings()) Serial.println("Settings: NVS read failed; using defaults");
+  if (!initAutomaticRecording()) Serial.println("Automatic recording initialization failed");
   initControls();
   bool sdReady = SD_MMC.setPins(39, 38, 40) && SD_MMC.begin("/sdcard", true, false) && SD_MMC.cardType() != CARD_NONE;
   appSetSdReady(sdReady);
@@ -266,6 +273,7 @@ void loop() {
     if (!radioSerialReceiving()) break;
   }
   pollDisplay(steps, button);
+  pollAutomaticRecording();
   if (frameRequested) printDisplayFrame();
   pollWeb();
   playbackPollSettings();

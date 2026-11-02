@@ -52,6 +52,10 @@ main {
   padding-bottom: 40px;
   border-bottom: 1px solid var(--line);
 }
+.automatic-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
+.automatic-grid p { overflow-wrap:anywhere; }
+.automatic-grid h3 { font:normal 21px Georgia,serif; margin:0 0 12px; }
+@media(max-width:600px) { .automatic-grid { grid-template-columns:1fr; } }
 h1 {
   font:
     normal 36px Georgia,

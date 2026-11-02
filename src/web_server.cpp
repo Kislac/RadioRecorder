@@ -14,6 +14,7 @@
 #include "app_control.h"
 #include "language.h"
 #include "file_manager.h"
+#include "automatic_record.h"
 #include "display.h"
 #include "wifi_manager.h"
 #include "ptt_test.h"
@@ -132,6 +133,9 @@ void sendStatus() {
   json += ",\"wifi\":" + wifiManagerStatusJson();
   json += ",\"demoSeconds\":" + String(appDemoTimeSeconds());
   json += ",\"clock\":" + appClockJson();
+  json += ",\"recordElapsedMs\":" + String(recorderElapsedMs());
+  json += ",\"recordingMode\":\"" + String(recordingModeCode(automaticCurrentMode())) + "\"";
+  json += ",\"automatic\":" + automaticRecordingJson();
   json += ",\"audioGpio\":" + String(kAudioGpio);
   json += ",\"lowpass\":" + String(recorderLowpass() ? "true" : "false");
   json += ",\"meterReady\":" + String(recorderAdcReady() && recorderTaskReady() ? "true" : "false");
@@ -174,6 +178,40 @@ void sendClock() {
   wifiManagerNotifyActivity();
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/json", appClockJson());
+}
+
+void sendAutomaticRecording() {
+  wifiManagerNotifyActivity(); server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", automaticRecordingJson());
+}
+
+void setAutomaticRecordingSettings() {
+  String body = server.arg("plain");
+  if (body.length() > 2048 || body.indexOf("\\u0000") >= 0) { server.send(400, "text/plain", "Invalid automatic settings"); return; }
+  cJSON *json = cJSON_Parse(body.c_str());
+  AutoRecordConfig config[2]; bool valid = cJSON_IsObject(json);
+  for (uint8_t source = 0; source < 2 && valid; ++source) {
+    cJSON *profile = cJSON_GetObjectItemCaseSensitive(json, source ? "microphone" : "radio");
+    cJSON *threshold = cJSON_GetObjectItemCaseSensitive(profile, "threshold");
+    cJSON *silence = cJSON_GetObjectItemCaseSensitive(profile, "silenceSeconds");
+    valid = cJSON_IsNumber(threshold) && cJSON_IsNumber(silence) && threshold->valuedouble >= 1 &&
+      threshold->valuedouble <= (source ? 32768 : 4095) && floor(threshold->valuedouble) == threshold->valuedouble &&
+      silence->valuedouble >= 1 && silence->valuedouble <= 60 && floor(silence->valuedouble) == silence->valuedouble;
+    if (valid) { config[source].threshold = threshold->valueint; config[source].silenceSeconds = silence->valueint; }
+  }
+  std::array<RecordingMode, 4> order;
+  cJSON *priorities = cJSON_GetObjectItemCaseSensitive(json, "priorities");
+  valid = valid && cJSON_IsArray(priorities) && cJSON_GetArraySize(priorities) == 4;
+  for (uint8_t index = 0; index < 4 && valid; ++index) {
+    cJSON *value = cJSON_GetArrayItem(priorities, index); order[index] = RecordingMode::none;
+    if (cJSON_IsString(value)) for (uint8_t mode = 0; mode < 4; ++mode) {
+      if (strcmp(value->valuestring, recordingModeCode(static_cast<RecordingMode>(mode))) == 0) order[index] = static_cast<RecordingMode>(mode);
+    }
+  }
+  valid = valid && validRecordingPriorities(order); cJSON_Delete(json);
+  if (!valid) { server.send(400, "text/plain", "Invalid automatic settings or priorities"); return; }
+  if (!automaticSaveSettings(config[0], config[1], order)) { server.send(500, "text/plain", "Could not save automatic settings to NVS"); return; }
+  displayWake(); sendAutomaticRecording();
 }
 
 void setLanguage() {
@@ -449,7 +487,7 @@ void downloadSdFolder() {
   wifiManagerNotifyActivity();
   String folder = server.arg("path");
   if (!safeSdPath(folder) || folder == "/") { server.send(400, "text/plain", "Invalid folder"); return; }
-  if (!appSdReady() || recorderState() != CaptureState::idle || fileManagerBusy()) {
+  if (!appSdReady() || recorderState() != CaptureState::idle || fileManagerBusy() || automaticAnyArmed()) {
     server.send(409, "text/plain", "SD or recorder busy"); return;
   }
   File directory = SD_MMC.open(folder, FILE_READ);
@@ -588,7 +626,7 @@ const char *audioMime(const String &name) {
 void sendFile() {
   wifiManagerNotifyActivity();
   String path = server.hasArg("path") ? server.arg("path") : String("/") + server.arg("name");
-  if (!appSdReady() || recorderState() != CaptureState::idle || fileManagerBusy()) {
+  if (!appSdReady() || recorderState() != CaptureState::idle || fileManagerBusy() || automaticAnyArmed()) {
     server.send(409, "text/plain", "Recording in progress or SD unavailable");
     return;
   }
@@ -956,6 +994,16 @@ void initWeb() {
   });
   server.on("/api/recordings", HTTP_GET, sendRecordings);
   server.on("/api/files", HTTP_GET, sendFiles);
+  server.on("/api/auto-record", HTTP_GET, sendAutomaticRecording);
+  server.on("/api/auto-record/settings", HTTP_POST, setAutomaticRecordingSettings);
+  server.on("/api/auto-record/arm", HTTP_POST, []() {
+    String source = server.arg("source"), enabled = server.arg("enabled");
+    if ((source != "radio" && source != "microphone") || (enabled != "0" && enabled != "1")) {
+      server.send(400, "text/plain", "Invalid automatic source or state"); return;
+    }
+    if (!automaticSetArmed(source == "microphone", enabled == "1")) { server.send(409, "text/plain", "Cannot arm automatic recording"); return; }
+    displayWake(); sendAutomaticRecording();
+  });
   server.on("/api/files/mkdir", HTTP_POST, fileOperation);
   server.on("/api/files/rename", HTTP_POST, fileOperation);
   server.on("/api/files/jobs", HTTP_POST, fileOperation);
@@ -1004,13 +1052,19 @@ void initWeb() {
   server.on("/file", HTTP_GET, sendFile);
   server.on("/api/start", HTTP_POST, []() {
     wifiManagerNotifyActivity();
-    if (appStartRecording()) server.send(200, "text/plain", recorderName());
-    else server.send(409, "text/plain", recorderError()[0] ? recorderError() : "SD, ADC or recorder unavailable");
+    if (appStartRecording()) {
+      bool started = automaticCurrentMode() == RecordingMode::manualRadio;
+      server.send(started ? 200 : 202, "text/plain", started ? recorderName() : "Recording request queued");
+    } else server.send(409, "text/plain", automaticCurrentMode() != RecordingMode::none ? "Higher priority recording active" :
+                       recorderError()[0] ? recorderError() : "SD, ADC or recorder unavailable");
   });
   server.on("/api/mic/start", HTTP_POST, []() {
     wifiManagerNotifyActivity();
-    if (appStartMicRecording()) server.send(200, "text/plain", recorderName());
-    else server.send(409, "text/plain", "SD, I2S microphone or recorder unavailable, or audio busy");
+    if (appStartMicRecording()) {
+      bool started = automaticCurrentMode() == RecordingMode::manualMic;
+      server.send(started ? 200 : 202, "text/plain", started ? recorderName() : "Recording request queued");
+    } else server.send(409, "text/plain", automaticCurrentMode() != RecordingMode::none ? "Higher priority recording active" :
+                       "SD, I2S microphone or recorder unavailable, or audio busy");
   });
   server.on("/api/stop", HTTP_POST, []() {
     wifiManagerNotifyActivity();

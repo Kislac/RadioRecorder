@@ -15,6 +15,7 @@
     <main>
       <h1>Recording</h1>
       <p class="state" id="state">Connecting...</p>
+      <p id="recordElapsed" class="note">Time: 00:00:00</p>
       <button id="toggle" disabled>Start recording</button>
       <button id="micToggle" disabled>Start microphone recording</button>
       <p class="note" id="message"></p>
@@ -25,6 +26,17 @@
         Verified low-level test sources only. Do not connect the radio yet.
       </p>
     </main>
+    <section class="automatic-recording">
+      <h2>Automatic recording</h2>
+      <div class="automatic-grid">
+        <div><h3>Radio automatic</h3><label><input id="autoRadioArmed" type="checkbox" />Active</label>
+          <p id="autoRadioConfig"></p><p id="autoRadioStatus" role="status"></p><p id="autoRadioTime"></p>
+          <p id="autoRadioFile" data-i18n-ignore></p></div>
+        <div><h3>Microphone automatic</h3><label><input id="autoMicArmed" type="checkbox" />Active</label>
+          <p id="autoMicConfig"></p><p id="autoMicStatus" role="status"></p><p id="autoMicTime"></p>
+          <p id="autoMicFile" data-i18n-ignore></p></div>
+      </div>
+    </section>
     <section>
       <div class="signalbar">
         <h2 id="signalHeading">ADC signal</h2>
@@ -115,6 +127,7 @@
       </div>
     </section>
     <footer>ESP32-S3 / microSD</footer>
+    <script src="/automatic.js"></script>
     <script src="/index.js"></script>
   </body>
 </html>

@@ -293,7 +293,7 @@ int main() {
         def write(command):
             if command == b"l":
                 field = "setting" if state["settings"] else "tile"
-                state[field] = (state[field] + 1) % (16 if state["settings"] else 12)
+                state[field] = (state[field] + 1) % (24 if state["settings"] else 12)
             elif command == b"k":
                 self.assertIn(state["tile"], (4, SETTINGS_TILE))
                 state["settings"] = state["tile"] == SETTINGS_TILE

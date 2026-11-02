@@ -9,6 +9,7 @@
 #include "app_control.h"
 #include "language.h"
 #include "file_manager.h"
+#include "automatic_record.h"
 #include "playback.h"
 #include "recorder.h"
 #include "web_server.h"
@@ -24,7 +25,7 @@ namespace {
 constexpr int kSdaGpio = 4;
 constexpr int kSclGpio = 5;
 constexpr uint8_t kTileCount = 12;
-constexpr uint8_t kSettingsCount = 16;
+constexpr uint8_t kSettingsCount = 24;
 constexpr uint8_t kBrowseRows = 5;
 constexpr uint8_t kSettingsRows = 5;
 constexpr uint8_t kFileTile = 4;
@@ -79,6 +80,8 @@ struct BrowseRow {
 BrowseRow browseRows[kBrowseRows];
 tm clockEdit = {};
 uint8_t zoneEdit = 0;
+AutoRecordConfig automaticEdit[2];
+std::array<RecordingMode, 4> priorityEdit;
 char message[26] = {};
 
 void drawText(int16_t x, int16_t y, const char *text) {
@@ -157,9 +160,31 @@ void drawSignal() {
 
 void drawRecordingName(const char *path) {
   String name(path);
-  if (name.length() <= 24) { oled.drawStr(0, 46, name.c_str()); return; }
-  oled.drawStr(0, 44, name.substring(0, 24).c_str());
-  oled.drawStr(0, 53, name.substring(24, 48).c_str());
+  if (name.length() <= 24) { oled.drawStr(0, 47, name.c_str()); return; }
+  oled.drawStr(0, 47, name.substring(0, 24).c_str());
+  oled.drawStr(0, 55, name.substring(24, 48).c_str());
+}
+
+void drawRecordingTime(uint8_t y, uint64_t elapsed) {
+  uint64_t seconds = elapsed / 1000;
+  char text[26];
+  snprintf(text, sizeof(text), appText("Time: %02llu:%02llu:%02llu"), static_cast<unsigned long long>(seconds / 3600),
+           static_cast<unsigned long long>((seconds / 60) % 60), static_cast<unsigned long long>(seconds % 60));
+  drawText(0, y, text);
+}
+
+String shortBrowseName(const String &name);
+
+void drawAutomatic(bool microphone) {
+  auto status = automaticStatus(microphone);
+  drawText(0, 31, status.armed ? "Auto: ON" : "Auto: OFF");
+  char settings[26]; snprintf(settings, sizeof(settings), appText("RMS:%u Quiet:%us"), status.config.threshold, status.config.silenceSeconds);
+  drawText(0, 39, settings);
+  drawText(0, 47, status.recording ? "Recording: YES" : !status.error.isEmpty() ? "Recording: ERROR" :
+           !status.blocked.isEmpty() && status.armed ? "Waiting: busy" : "Recording: NO");
+  if (status.recording) drawRecordingTime(55, status.elapsedMs);
+  else if (!status.lastFile.isEmpty()) oled.drawStr(0, 55, shortBrowseName(status.lastFile.substring(status.lastFile.lastIndexOf('/') + 1)).c_str());
+  else drawRecordingTime(55, 0);
 }
 
 void drawBuildDate() {
@@ -453,6 +478,20 @@ void drawSettings() {
         break;
       }
       case 14: drawText(9, y, "Language"); drawSettingValue(y, appLanguageName()); break;
+      case 15: case 16: case 17: case 18: {
+        bool microphone = index >= 17;
+        bool threshold = index == 15 || index == 17;
+        auto config = editing && setting == index ? automaticEdit[microphone ? 1 : 0] : automaticStatus(microphone).config;
+        drawText(9, y, index == 15 ? "Radio RMS" : index == 16 ? "Radio quiet" : index == 17 ? "Mic RMS" : "Mic quiet");
+        char value[12]; snprintf(value, sizeof(value), threshold ? "%u" : "%us", threshold ? config.threshold : config.silenceSeconds);
+        drawSettingValue(y, value); break;
+      }
+      case 19: case 20: case 21: case 22: {
+        char label[16]; snprintf(label, sizeof(label), "Priority %u", index - 18);
+        drawText(9, y, label);
+        auto order = editing && setting >= 19 && setting <= 22 ? priorityEdit : automaticPriorities();
+        drawSettingValue(y, recordingModeLabel(order[index - 19])); break;
+      }
       default: drawText(9, y, "Back"); break;
     }
   }
@@ -472,10 +511,11 @@ void drawBody(bool fullUpdate = true) {
     drawSettings();
   } else if (tile == 0) {
     CaptureState state = recorderState();
-    bool adcRecording = state != CaptureState::idle && recorderSource() == CaptureSource::adc;
-    drawText(0, 34, state == CaptureState::idle ? "ADC: press = start" :
-                 !adcRecording ? "MIC recording active" : recorderStopping() ? "Finishing..." :
+    bool adcRecording = state != CaptureState::idle && automaticCurrentMode() == RecordingMode::manualRadio;
+    drawText(0, 31, state == CaptureState::idle ? "ADC: press = start" :
+           !adcRecording ? "Press: request manual" : recorderStopping() ? "Finishing..." :
                  state == CaptureState::starting ? "Starting..." : "ADC REC: press = stop");
+    drawRecordingTime(39, adcRecording || (state == CaptureState::idle && recorderSource() == CaptureSource::adc && !recorderAutomaticFile()) ? recorderElapsedMs() : 0);
     if (adcRecording) drawRecordingName(recorderName());
   } else if (tile == kFileTile) {
     drawBrowse();
@@ -498,18 +538,19 @@ void drawBody(bool fullUpdate = true) {
     drawText(0, 37, "Press = settings");
   } else if (tile == 1) {
     CaptureState state = recorderState();
-    bool micRecording = state != CaptureState::idle && recorderSource() == CaptureSource::microphone;
-    drawText(0, 35, !recorderMicReady() ? "I2S unavailable" :
+    bool micRecording = state != CaptureState::idle && automaticCurrentMode() == RecordingMode::manualMic;
+    drawText(0, 31, !recorderMicReady() ? "I2S unavailable" :
                  micRecording ? (recorderStopping() ? "Finishing..." : "MIC REC: press = stop") :
-                 state != CaptureState::idle ? "Other recording active" : "Press = record MIC");
+           state != CaptureState::idle ? "Press: request manual" : "Press = record MIC");
+    drawRecordingTime(39, micRecording || (state == CaptureState::idle && recorderSource() == CaptureSource::microphone && !recorderAutomaticFile()) ? recorderElapsedMs() : 0);
     if (micRecording) drawRecordingName(recorderName());
   } else if (tile == kPttTile) {
     drawText(0, 36, "PTT test / GPIO10");
     drawText(0, 48, pttTestActive() ? "ACTIVE - press: OFF" : "Press = ON");
   } else if (tile == 2) {
-    drawText(0, 38, "Auto radio: pending");
+    drawAutomatic(false);
   } else if (tile == 3) {
-    drawText(0, 38, "Auto mic: pending");
+    drawAutomatic(true);
   } else {
     drawText(0, 38, "Unavailable");
   }
@@ -532,7 +573,9 @@ void drawBody(bool fullUpdate = true) {
 void onPress() {
   if (inSettings) {
     if (editing) {
-      if (setting == 12) {
+      if (setting >= 15 && setting <= 22) {
+        if (!automaticSaveSettings(automaticEdit[0], automaticEdit[1], priorityEdit)) setMessage("NVS save failed");
+      } else if (setting == 12) {
         if (!appClockSetTimezone(zoneEdit)) setMessage("Timezone save failed");
       } else if (setting >= 7 && setting <= 11) {
         char value[64];
@@ -543,7 +586,7 @@ void onPress() {
       editing = false;
       return;
     }
-    if (setting == 15) { inSettings = false; return; }
+    if (setting == 23) { inSettings = false; return; }
     if (setting == 14) {
       if (!appSetLanguage(appNextLanguage())) setMessage("NVS save failed");
       return;
@@ -558,11 +601,15 @@ void onPress() {
       if (!appClockLocal(clockEdit)) { clockEdit.tm_year = 126; clockEdit.tm_mday = 1; }
     }
     if (setting == 12) zoneEdit = appClockTimezone();
+    if (setting >= 15 && setting <= 22) {
+      automaticEdit[0] = automaticStatus(false).config; automaticEdit[1] = automaticStatus(true).config;
+      priorityEdit = automaticPriorities();
+    }
     editing = true;
   } else if (tile == 0) {
-    if (recorderState() == CaptureState::idle) {
+    if (automaticCurrentMode() != RecordingMode::manualRadio || recorderState() == CaptureState::idle) {
       if (!appStartRecording()) setMessage("Cannot start recording");
-    } else if (recorderSource() == CaptureSource::adc && !recorderStopping()) appStopRecording();
+    } else if (!recorderStopping()) appStopRecording();
   } else if (tile == kFileTile) {
     if (browsingFiles) pressBrowse();
     else if (playbackGetState() != PlaybackState::idle) playbackStop();
@@ -573,9 +620,12 @@ void onPress() {
       refreshBrowseRows();
     }
   } else if (tile == 1) {
-    if (recorderState() == CaptureState::idle) {
+    if (automaticCurrentMode() != RecordingMode::manualMic || recorderState() == CaptureState::idle) {
       if (!appStartMicRecording()) setMessage("Cannot start MIC");
-    } else if (recorderSource() == CaptureSource::microphone && !recorderStopping()) appStopRecording();
+    } else if (!recorderStopping()) appStopRecording();
+  } else if (tile == 2 || tile == 3) {
+    bool microphone = tile == 3;
+    if (!automaticSetArmed(microphone, !automaticStatus(microphone).armed)) setMessage("Cannot arm automatic");
   } else if (isSignalTile(tile)) {
     if (!selectedSignal().enabled) setMessage("Signal unavailable");
     else graphMode = !graphMode;
@@ -708,7 +758,17 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
         refreshBrowseRows();
       }
     } else if (inSettings) {
-      if (editing && setting == 2) {
+      if (editing && setting >= 15 && setting <= 18) {
+        bool microphone = setting >= 17;
+        auto &config = automaticEdit[microphone ? 1 : 0];
+        if (setting == 15 || setting == 17) config.threshold = constrain(static_cast<int32_t>(config.threshold) + steps * 10, 1L, microphone ? 32768L : 4095L);
+        else config.silenceSeconds = constrain(static_cast<int32_t>(config.silenceSeconds) + steps, 1L, 60L);
+      } else if (editing && setting >= 19 && setting <= 22) {
+        uint8_t rank = setting - 19;
+        RecordingMode replacement = static_cast<RecordingMode>((static_cast<int>(priorityEdit[rank]) + steps % 4 + 4) % 4);
+        for (uint8_t index = 0; index < 4; ++index) if (priorityEdit[index] == replacement) { priorityEdit[index] = priorityEdit[rank]; break; }
+        priorityEdit[rank] = replacement;
+      } else if (editing && setting == 2) {
         int32_t volume = playbackStatus().volume + steps * 5;
         playbackSetVolume(constrain(volume, 0L, 100L));
       } else if (editing && setting == 13) {
@@ -760,7 +820,7 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   if (redraw) {
     lastSecond = second;
     drawBody();
-  } else if (!inSettings && (tile == 0 || tile == 1 || isSignalTile(tile) ||
+  } else if (!inSettings && (tile == 0 || tile == 1 || tile == 2 || tile == 3 || isSignalTile(tile) ||
                               tile == kPttTile || tile == kWifiTile || tile == kTimeTile) && now - lastBodyAt >= 500) {
     bool secondChanged = second != lastSecond;
     lastSecond = second;

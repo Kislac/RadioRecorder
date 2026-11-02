@@ -22,7 +22,7 @@ const liveToggle = document.querySelector("#liveToggle"),
   liveStatus = document.querySelector("#liveStatus"),
   liveVolume = document.querySelector("#liveVolume"),
   liveTest = document.querySelector("#liveTest");
-let currentState = "";
+let currentState = "", currentRecordingMode = "none", recordingRequestError = "";
 let meterRunning = false,
   meterGeneration = 0,
   meterTimer = null,
@@ -477,6 +477,9 @@ async function refresh() {
     clockSource = data.clock?.source || "unset";
     demoSyncedAt = performance.now();
     renderDemoClock();
+    if (window.renderAutomaticRecording) window.renderAutomaticRecording(data.automatic);
+    const elapsed = Math.floor((data.recordElapsedMs || 0) / 1000);
+    document.querySelector("#recordElapsed").textContent = "Time: " + [Math.floor(elapsed / 3600), Math.floor(elapsed / 60) % 60, elapsed % 60].map(value => String(value).padStart(2,"0")).join(":");
     lowpassToggle.checked = data.lowpass;
     signalHeading.textContent = "GPIO" + data.audioGpio + " signal";
     signalChart.setAttribute(
@@ -492,19 +495,18 @@ async function refresh() {
           ? "Starting recording..."
           : data.recordSource === "microphone" ? "Microphone recording in progress" : "ADC recording in progress"
         : "Ready to record";
-    toggle.textContent = busy && data.recordSource === "adc" ? "Stop recording" : "Start recording";
-    micToggle.textContent = busy && data.recordSource === "microphone" ? "Stop microphone recording" : "Start microphone recording";
+    const ownsRadio = data.recordingMode === "manualRadio", ownsMic = data.recordingMode === "manualMic";
+    toggle.textContent = busy && ownsRadio ? "Stop recording" : "Start recording";
+    micToggle.textContent = busy && ownsMic ? "Stop microphone recording" : "Start microphone recording";
     toggle.classList.toggle("recording", busy && data.recordSource === "adc");
     micToggle.classList.toggle("recording", busy && data.recordSource === "microphone");
     toggle.disabled =
       (!data.ready && !busy) ||
-      (busy && data.recordSource !== "adc") ||
       data.state === "starting" ||
       (busy && data.stopping) ||
       playing || (!busy && data.fileBusy);
     micToggle.disabled =
       (!data.micReady && !busy) ||
-      (busy && data.recordSource !== "microphone") ||
       data.state === "starting" ||
       (busy && data.stopping) ||
       playing || (!busy && (!!liveSocket || data.fileBusy));
@@ -522,33 +524,37 @@ async function refresh() {
     signalToggle.disabled = (!data.meterReady || micMeterRunning) && !meterRunning;
     micSignalToggle.disabled = (!data.micReady || meterRunning || !!liveSocket) && !micMeterRunning;
     liveToggle.disabled = (!data.liveReady || playing) && !liveSocket;
-    message.textContent = data.error || "";
+    liveTest.disabled = !!data.automatic?.microphone?.armed;
+    message.textContent = data.error || recordingRequestError;
     currentState = data.state;
+    currentRecordingMode = data.recordingMode || "none";
   } catch {
     stateEl.textContent = "Connection lost";
     toggle.disabled = true;
   }
 }
 toggle.addEventListener("click", async () => {
+  recordingRequestError = "";
   toggle.disabled = true;
   try {
     const response = await fetch(
-      currentState === "idle" ? "/api/start" : "/api/stop",
+      currentState !== "idle" && currentRecordingMode === "manualRadio" ? "/api/stop" : "/api/start",
       { method: "POST" },
     );
-    if (!response.ok) message.textContent = await response.text();
+    if (!response.ok) recordingRequestError = await response.text();
   } catch {
-    message.textContent = "Request failed.";
+    recordingRequestError = "Request failed.";
   }
   await refresh();
 });
 micToggle.addEventListener("click", async () => {
+  recordingRequestError = "";
   micToggle.disabled = true;
   try {
-    const response = await fetch(currentState === "idle" ? "/api/mic/start" : "/api/stop", { method: "POST" });
-    if (!response.ok) message.textContent = await response.text();
+    const response = await fetch(currentState !== "idle" && currentRecordingMode === "manualMic" ? "/api/stop" : "/api/mic/start", { method: "POST" });
+    if (!response.ok) recordingRequestError = await response.text();
   } catch {
-    message.textContent = "Microphone request failed.";
+    recordingRequestError = "Microphone request failed.";
   }
   await refresh();
 });
