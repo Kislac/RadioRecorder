@@ -62,6 +62,13 @@ class AutoRecordRulesTests(unittest.TestCase):
                     label = catalog["oled"]["Priority " + str(rank)]
                     self.assertLessEqual(9 + len(label) * 5 + 2, 127 - max(map(len, values)) * 5)
             self.assertLessEqual(len(catalog["oled"]["RMS:%u Quiet:%us"] % (32768, 60)) * 5, 128)
+            self.assertLessEqual(max(len(catalog["oled"][key]) for key in ("Auto: ON", "Auto: OFF")) * 5 + 2,
+                                 128 - len("RMS:32768") * 5)
+        display = (ROOT / "src/display.cpp").read_text(encoding="utf-8")
+        automatic = display.split("void drawAutomatic(bool microphone)", 1)[1].split("void drawBuildDate", 1)[0]
+        self.assertIn('"RMS:%u", status.rms', automatic)
+        self.assertIn('drawText(128 - oled.getStrWidth(rms), 31, rms)', automatic)
+        self.assertIn('"RMS:--"', automatic)
 
     def test_recorder_preserves_prebuffer_during_priority_handoff(self):
         source = (ROOT / "src/recorder.cpp").read_text(encoding="utf-8")
@@ -314,6 +321,20 @@ int main(){
  assert(!automaticStatus(false).armed);assert(automaticStatus(false).error=="Audio input did not produce samples");
  clockMs=17000;assert(automaticSetArmed(true,true));automaticObserve(true,0);clockMs=19501;pollAutomaticRecording();
  assert(!automaticStatus(true).armed);assert(automaticStatus(true).error=="Audio signal timed out");
+ for (bool microphone : {false,true}) {
+     clockMs+=1000;assert(automaticSetArmed(microphone,true));
+     clockMs+=2000;automaticObserve(microphone,300);clockMs+=100;automaticObserve(microphone,300);pollAutomaticRecording();
+     assert(automaticCurrentMode()==(microphone?RecordingMode::autoMic:RecordingMode::autoRadio));
+     for(int window=0;window<100;++window){clockMs+=100;automaticObserve(microphone,0);pollAutomaticRecording();}
+     assert(stopped);finish();
+     assert(automaticStatus(microphone).armed);assert(automaticStatus(microphone).error.empty());
+     assert(automaticStatus(microphone).lastFile==(microphone?"MicAut.wav":"RadioAut.wav"));
+     int previousStarts=starts;
+     clockMs+=100;automaticObserve(microphone,0);pollAutomaticRecording();assert(automaticStatus(microphone).armed);
+     clockMs+=2000;automaticObserve(microphone,300);clockMs+=100;automaticObserve(microphone,300);pollAutomaticRecording();
+     assert(starts==previousStarts+1);
+     automaticSetArmed(microphone,false);finish();
+ }
 }
 '''
         environment = dict(os.environ)

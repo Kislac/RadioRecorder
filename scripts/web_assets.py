@@ -11,8 +11,17 @@ WEB_ROOT = ROOT / "web"
 PAGES = {"index": "kPage", "files": "kFilesPage", "settings": "kSettingsPage", "test": "kTestPage", "radio": "kRadioPage", "dac_test": "kDacTestPage"}
 
 
+def unique_language_object(pairs):
+    values = {}
+    for key, value in pairs:
+        if key in values:
+            raise ValueError("Duplicate language catalog key: " + key)
+        values[key] = value
+    return values
+
+
 def load_languages():
-    languages = {path.stem: json.loads(path.read_text(encoding="utf-8"))
+    languages = {path.stem: json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_language_object)
                  for path in sorted((ROOT / "locales").glob("*.json"))}
     if not {"hu", "en"} <= languages.keys():
         raise ValueError("Hungarian and English language catalogs are required")

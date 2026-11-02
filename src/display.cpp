@@ -178,6 +178,10 @@ String shortBrowseName(const String &name);
 void drawAutomatic(bool microphone) {
   auto status = automaticStatus(microphone);
   drawText(0, 31, status.armed ? "Auto: ON" : "Auto: OFF");
+  char rms[12];
+  if (status.armed && status.error.isEmpty() && status.blocked.isEmpty()) snprintf(rms, sizeof(rms), "RMS:%u", status.rms);
+  else snprintf(rms, sizeof(rms), "RMS:--");
+  drawText(128 - oled.getStrWidth(rms), 31, rms);
   char settings[26]; snprintf(settings, sizeof(settings), appText("RMS:%u Quiet:%us"), status.config.threshold, status.config.silenceSeconds);
   drawText(0, 39, settings);
   drawText(0, 47, status.recording ? "Recording: YES" : !status.error.isEmpty() ? "Recording: ERROR" :

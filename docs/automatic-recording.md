@@ -40,7 +40,9 @@ The manual tiles and web buttons act on their own manual mode: press again stops
 
 ## Display and safety
 
-Each auto tile uses four lines: Active ON/OFF, threshold/silence settings, recording/wait/error state, and current PCM duration. When idle after a completed file the last filename occupies the final line. Web home additionally shows live RMS, blocking/error details, last-file path and duration. Manual tiles also display PCM duration.
+Each auto tile uses four lines: Active ON/OFF with right-aligned live RMS, threshold/silence settings, recording/wait/error state, and current PCM duration. RMS displays `--` when inactive, blocked or in error rather than presenting a retained value as a live measurement. When idle after a completed file the last filename occupies the final line. Web home additionally shows blocking/error details, last-file path and duration. Manual tiles also display PCM duration.
+
+Firmware 0.1.78 resets the acquisition timeout baseline after a finalized automatic WAV. A long valid recording therefore stays armed while fresh monitoring samples resume; genuine missing/stale input still produces an error and disarms that source.
 
 Playback/file jobs suspend automatic acquisition requests without changing arming; monitoring settles again when resources return. Browser live audio cannot start while either automatic mode is armed. Blocking direct-file/legacy ZIP downloads are refused while armed; disarm first or use the managed ZIP job, which suspends monitoring. ADC raw probes, watchdog reset and RTC reboot guards also refuse while armed. Recording start/stop sound cues are suppressed for automatic recordings and whenever automatic monitoring is armed to prevent acoustic self-triggering.
 

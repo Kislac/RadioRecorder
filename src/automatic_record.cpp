@@ -168,6 +168,7 @@ void pollAutomaticRecording() {
       uint8_t source = isMicrophone(current) ? 1 : 0;
       if (recorderFinalized()) { lastFiles[source] = recorderName(); lastTimes[source] = recorderElapsedMs(); }
       detectors[source].aboveCount = 0; detectors[source].hasSample = false;
+      detectors[source].sampledAt = now;
       if (recorderError()[0]) { errors[source] = recorderError(); detectors[source].arm(false, now); }
     } else manualRequested[static_cast<uint8_t>(current)] = false;
     current = RecordingMode::none;
@@ -176,13 +177,13 @@ void pollAutomaticRecording() {
   for (uint8_t source = 0; source < 2; ++source) {
     RecordingMode mode = source ? RecordingMode::autoMic : RecordingMode::autoRadio;
     bool active = current == mode && capture != CaptureState::idle;
-    if (resources && detectors[source].armed && (detectors[source].hasSample ? now - detectors[source].sampledAt > 2000 : now - detectors[source].armedAt > 5000)) {
+    if (resources && detectors[source].armed && now - detectors[source].sampledAt > (detectors[source].hasSample ? 2000ULL : 5000ULL)) {
       errors[source] = detectors[source].hasSample ? "Audio signal timed out" : "Audio input did not produce samples";
       detectors[source].arm(false, now);
     }
     requested[static_cast<uint8_t>(mode)] = resources && detectors[source].armed &&
       (active ? !detectors[source].silent(now, configs[source]) : detectors[source].ready(now));
-    if (!resources) { detectors[source].hasSample = false; detectors[source].aboveCount = 0; detectors[source].armedAt = now; }
+    if (!resources) { detectors[source].hasSample = false; detectors[source].aboveCount = 0; detectors[source].armedAt = now; detectors[source].sampledAt = now; }
   }
   anyArmed.store(detectors[0].armed || detectors[1].armed);
   monitorRadio.store(resources && detectors[0].armed); monitorMic.store(resources && detectors[1].armed);

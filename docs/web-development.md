@@ -26,6 +26,8 @@ A `/radio` Radio Programming oldal is elérhető: megerősítés után kétmáso
 
 ## Többnyelvűség
 
+A katalógusbetöltő a JSON-objektumokon belüli ismétlődő kulcsokat is elutasítja, azonos értéknél is; így nem veszhet el fordítás csendes felülírással.
+
 Az OLED és mind a hat weboldal közös, NVS-ben mentett nyelvet használ; alapértelmezés magyar (`hu`), választható angol (`en`). Az OLED **Beállítások → Nyelv** során rövid nyomás a következő nyelvre vált; a webes `/settings` oldalon legördülő választó van. Az OLED azonnal frissül, a nyitott weboldalak legfeljebb öt másodpercen belül követik a másik felületen történt váltást. Újraindítás után a mentett nyelv marad. A felhasználói fájl-/mappa-/hálózatneveket és a protokoll mezőit nem fordítjuk.
 
 A [locales/hu.json](../locales/hu.json) és [locales/en.json](../locales/en.json) fájlok `name`, `oled` és `web` részeket tartalmaznak. Minden programforrásbeli felirat és katalóguskulcs angol; az angol katalógusban a kulcs és az érték azonos, a magyar szövegek kizárólag a magyar katalógus értékei. Például `Settings` → `Beallitasok` az OLED-en, illetve `Settings` → `Beállítások` a weben. A build nem angol forráskulcsnál hibázik. A magyar alapértelmezés és a mentett nyelvválasztás változatlan. A webes `{name}` helyőrzők és az OLED `%s`/`%u` formázási jelölői változatlanul szükségesek. Az OLED szövegek ASCII-t használnak a jelenlegi betűkészlethez, legfeljebb 25 karakterrel; a 6 képpontos főcímek legfeljebb 21 karakteresek legyenek. A webes fordítások UTF-8-asak.

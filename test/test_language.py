@@ -15,6 +15,23 @@ from scripts.web_assets import ROOT, PAGES, generate_languages, load_languages, 
 
 
 class LanguageTests(unittest.TestCase):
+    def test_duplicate_catalog_keys_are_rejected_even_with_equal_values(self):
+        catalogs = load_languages()
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "locales").mkdir()
+            for code, catalog in catalogs.items():
+                (root / "locales" / (code + ".json")).write_text(json.dumps(catalog), encoding="utf-8")
+            for code in ("en", "hu"):
+                with self.subTest(language=code):
+                    path = root / "locales" / (code + ".json")
+                    original = json.dumps(catalogs[code])
+                    value = json.dumps(catalogs[code]["web"]["Settings"])
+                    path.write_text(original.replace('"web": {', '"web": {"Settings": ' + value + ',', 1), encoding="utf-8")
+                    with patch("scripts.web_assets.ROOT", root), self.assertRaisesRegex(ValueError, "Duplicate language catalog key: Settings"):
+                        load_languages()
+                    path.write_text(original, encoding="utf-8")
+
     def test_new_catalog_is_discovered_and_invalid_catalogs_are_rejected(self):
         catalogs = load_languages()
         with TemporaryDirectory() as folder:
