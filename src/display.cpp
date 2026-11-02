@@ -179,7 +179,8 @@ void drawAutomatic(bool microphone) {
   auto status = automaticStatus(microphone);
   drawText(0, 31, status.armed ? "Auto: ON" : "Auto: OFF");
   char rms[12];
-  if (status.armed && status.error.isEmpty() && status.blocked.isEmpty()) snprintf(rms, sizeof(rms), "RMS:%u", status.rms);
+  bool measuring = microphone ? recorderMicSignalStatus().active : recorderSignalStatus().active;
+  if (measuring && status.blocked.isEmpty()) snprintf(rms, sizeof(rms), "RMS:%u", status.rms);
   else snprintf(rms, sizeof(rms), "RMS:--");
   drawText(128 - oled.getStrWidth(rms), 31, rms);
   char settings[26]; snprintf(settings, sizeof(settings), appText("RMS:%u Quiet:%us"), status.config.threshold, status.config.silenceSeconds);
@@ -502,6 +503,7 @@ void drawSettings() {
 }
 
 void drawBody(bool fullUpdate = true) {
+  automaticSetPreviewSource(!screenSleeping && !inSettings && (tile == 2 || tile == 3) ? static_cast<int8_t>(tile - 2) : -1);
   oled.clearBuffer();
   drawStatus();
   oled.setFont(u8g2_font_6x10_tf);
@@ -682,6 +684,7 @@ bool displayReady() { return ready; }
 
 void displaySleep() {
   if (!ready) return;
+  automaticSetPreviewSource(-1);
   if (isSignalTile(tile)) stopDisplaySignal();
   oled.setPowerSave(1);
   screenSleeping = true;

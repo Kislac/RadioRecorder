@@ -442,7 +442,7 @@ void monitorIdle() {
   SignalWindow window;
   AudioLowpass lowpass;
   float dcLevel = 2048.0f;
-  while (!automaticAnyArmed() && (signalRequested() || liveAudioClient() >= 0) && captureState.load() == CaptureState::idle) {
+  while (!automaticAnyArmed() && !automaticMonitorRadio() && !automaticMonitorMic() && (signalRequested() || liveAudioClient() >= 0) && captureState.load() == CaptureState::idle) {
     watchdogResetCurrentTask();
     if (adcOverflow.load(std::memory_order_relaxed)) {
       signalFault.store(2);
@@ -495,7 +495,7 @@ void monitorMicIdle() {
   }
   micSignalActive.store(true);
   SignalWindow window;
-  while (!automaticAnyArmed() && micSignalRequested() && captureState.load() == CaptureState::idle) {
+  while (!automaticAnyArmed() && !automaticMonitorRadio() && !automaticMonitorMic() && micSignalRequested() && captureState.load() == CaptureState::idle) {
     watchdogResetCurrentTask();
     size_t pcmLength = 0;
     esp_err_t result = readMicFrame(window, pcmLength);
@@ -535,6 +535,7 @@ void automaticSensor(bool microphone, bool enabled, bool &active) {
     if (microphone) result = i2s_channel_enable(micHandle);
     else { adcOverflow.store(false); adc_continuous_flush_pool(adcHandle); result = adc_continuous_start(adcHandle); }
     if (result != ESP_OK) { automaticInputFault(microphone, "Cannot start audio monitoring"); return; }
+    automaticInputStarted(microphone);
     active = true;
   } else {
     if (microphone) i2s_channel_disable(micHandle); else adc_continuous_stop(adcHandle);
@@ -612,6 +613,7 @@ void recordLoop(void *) {
       snprintf(lastError, sizeof(lastError), microphone ? "Cannot start microphone" : "Cannot start ADC");
     } else {
       started = true;
+      automaticInputStarted(microphone);
       if (!microphone) signalActive.store(true);
       recordedBytes.store(dataBytes);
       recordingStartedAt.store(millis());

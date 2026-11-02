@@ -25,6 +25,8 @@ bool automaticAnyArmed();
 bool automaticMonitorRadio();
 bool automaticMonitorMic();
 void automaticPauseMonitoring();
+void automaticSetPreviewSource(int8_t source);
+void automaticInputStarted(bool microphone);
 void automaticObserve(bool microphone, uint16_t rms);
 void automaticInputFault(bool microphone, const char *error);
 AutomaticRecordStatus automaticStatus(bool microphone);

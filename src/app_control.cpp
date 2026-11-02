@@ -15,7 +15,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.78";
+static constexpr char kFirmwareVersion[] = "0.1.79";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -353,7 +353,7 @@ bool appStopRecording() { return automaticStopCurrent(); }
 bool appCanStartPlayback() {
   if (fileManagerBusy() || recorderState() != CaptureState::idle || playbackGetState() != PlaybackState::idle ||
       liveAudioClient() >= 0 || recorderMicSignalStatus().enabled) return false;
-  if (automaticAnyArmed()) {
+  if (automaticAnyArmed() || automaticMonitorMic()) {
     automaticPauseMonitoring();
     uint32_t started = millis();
     while (recorderMicSignalStatus().active && millis() - started < 300) delay(1);

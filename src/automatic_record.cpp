@@ -19,6 +19,7 @@ std::array<RecordingMode, 4> priorities = {RecordingMode::manualMic, RecordingMo
 std::array<bool, 2> manualRequested = {};
 RecordingMode current = RecordingMode::none;
 std::atomic<bool> monitorRadio{false}, monitorMic{false}, anyArmed{false};
+std::atomic<int8_t> previewSource{-1};
 bool settingsReady = false;
 
 struct StoredSettings {
@@ -99,6 +100,18 @@ bool automaticMonitorRadio() { return monitorRadio.load(); }
 bool automaticMonitorMic() { return monitorMic.load(); }
 void automaticPauseMonitoring() { monitorRadio.store(false); monitorMic.store(false); recorderNotify(); }
 
+void automaticSetPreviewSource(int8_t source) {
+  if (source < -1 || source > 1) source = -1;
+  if (previewSource.exchange(source) != source) recorderNotify();
+}
+
+void automaticInputStarted(bool microphone) {
+  if (!controlMutex) return;
+  lock(); auto &detector = detectors[microphone ? 1 : 0];
+  detector.arm(detector.armed, nowMs()); detector.rms = 0;
+  unlock();
+}
+
 bool automaticSetArmed(bool microphone, bool enabled) {
   if (!controlMutex) return false;
   uint8_t source = microphone ? 1 : 0;
@@ -167,8 +180,7 @@ void pollAutomaticRecording() {
     if (isAutomatic(current)) {
       uint8_t source = isMicrophone(current) ? 1 : 0;
       if (recorderFinalized()) { lastFiles[source] = recorderName(); lastTimes[source] = recorderElapsedMs(); }
-      detectors[source].aboveCount = 0; detectors[source].hasSample = false;
-      detectors[source].sampledAt = now;
+      detectors[source].arm(detectors[source].armed, now);
       if (recorderError()[0]) { errors[source] = recorderError(); detectors[source].arm(false, now); }
     } else manualRequested[static_cast<uint8_t>(current)] = false;
     current = RecordingMode::none;
@@ -186,7 +198,11 @@ void pollAutomaticRecording() {
     if (!resources) { detectors[source].hasSample = false; detectors[source].aboveCount = 0; detectors[source].armedAt = now; detectors[source].sampledAt = now; }
   }
   anyArmed.store(detectors[0].armed || detectors[1].armed);
-  monitorRadio.store(resources && detectors[0].armed); monitorMic.store(resources && detectors[1].armed);
+  bool radioNeeded = resources && (detectors[0].armed || previewSource.load() == 0);
+  bool micNeeded = resources && (detectors[1].armed || previewSource.load() == 1);
+  bool monitoringChanged = monitorRadio.exchange(radioNeeded) != radioNeeded;
+  monitoringChanged = (monitorMic.exchange(micNeeded) != micNeeded) || monitoringChanged;
+  if (monitoringChanged) recorderNotify();
   RecordingMode desired = chooseRecordingMode(priorities, requested), previous = current;
   if (capture != CaptureState::idle && desired != current && current != RecordingMode::none) {
     if (!isAutomatic(current)) manualRequested[static_cast<uint8_t>(current)] = false;

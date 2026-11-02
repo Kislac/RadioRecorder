@@ -64,7 +64,7 @@ class PreviewAutomaticRecording:
         self.last_elapsed = elapsed
         if mode in ("autoRadio", "autoMic"):
             source = self.sources["microphone" if mode == "autoMic" else "radio"]
-            source.update(lastFile=path, lastElapsedMs=elapsed, above=0)
+            source.update(lastFile=path, lastElapsedMs=elapsed, above=0, armedAt=now, lastSound=now)
         self.mode = "none"
 
     def manual(self, source):

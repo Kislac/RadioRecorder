@@ -69,6 +69,10 @@ class AutoRecordRulesTests(unittest.TestCase):
         self.assertIn('"RMS:%u", status.rms', automatic)
         self.assertIn('drawText(128 - oled.getStrWidth(rms), 31, rms)', automatic)
         self.assertIn('"RMS:--"', automatic)
+        self.assertIn('recorderMicSignalStatus().active : recorderSignalStatus().active', automatic)
+        self.assertIn('automaticSetPreviewSource(!screenSleeping && !inSettings && (tile == 2 || tile == 3)', display)
+        sleep = display.split("void displaySleep()", 1)[1].split("void displayWake()", 1)[0]
+        self.assertIn("automaticSetPreviewSource(-1)", sleep)
 
     def test_recorder_preserves_prebuffer_during_priority_handoff(self):
         source = (ROOT / "src/recorder.cpp").read_text(encoding="utf-8")
@@ -79,8 +83,9 @@ class AutoRecordRulesTests(unittest.TestCase):
         capture = source.split("void recordLoop", 1)[1]
         self.assertLess(capture.index(".write(file, dataBytes)"), capture.index("i2s_channel_enable(micHandle)"))
         self.assertIn("valid = started && writeWavHeader", capture)
-        self.assertIn("while (!automaticAnyArmed() && (signalRequested()", source)
-        self.assertIn("while (!automaticAnyArmed() && micSignalRequested()", source)
+        self.assertIn("while (!automaticAnyArmed() && !automaticMonitorRadio() && !automaticMonitorMic() && (signalRequested()", source)
+        self.assertIn("while (!automaticAnyArmed() && !automaticMonitorRadio() && !automaticMonitorMic() && micSignalRequested()", source)
+        self.assertIn("automaticInputStarted(microphone);", source)
         manager = (ROOT / "src/file_manager.cpp").read_text(encoding="utf-8")
         listing = manager.split("bool fileManagerList(", 1)[1].split("bool fileManagerListOffset", 1)[0]
         self.assertIn("pollAutomaticRecording();", listing)
@@ -303,9 +308,9 @@ int main(){
  assert(!automaticRequestManual(CaptureSource::adc));assert(starts==1);
  finish();assert(starts==2);assert(automaticCurrentMode()==RecordingMode::manualMic);assert(automaticStatus(false).lastFile=="RadioAut.wav");
  assert(!automaticRequestManual(CaptureSource::adc));assert(automaticStopCurrent());finish();assert(automaticCurrentMode()==RecordingMode::none);
- clockMs=3500;automaticObserve(false,100);clockMs=3600;automaticObserve(false,100);pollAutomaticRecording();assert(starts==3);
- clockMs=6500;automaticObserve(false,0);pollAutomaticRecording();assert(!stopped);
- clockMs=6600;automaticObserve(false,0);pollAutomaticRecording();assert(stopped);finish();assert(automaticStatus(false).lastElapsedMs==3500);
+ clockMs=4100;automaticObserve(false,100);clockMs=4200;automaticObserve(false,100);pollAutomaticRecording();assert(starts==3);
+ clockMs=7100;automaticObserve(false,0);pollAutomaticRecording();assert(!stopped);
+ clockMs=7200;automaticObserve(false,0);pollAutomaticRecording();assert(stopped);finish();assert(automaticStatus(false).lastElapsedMs==3500);
  automaticSetArmed(false,false);
  AutoRecordConfig radio;radio.threshold=155;radio.silenceSeconds=5;AutoRecordConfig mic;mic.threshold=220;mic.silenceSeconds=2;
  std::array<RecordingMode,4> order={RecordingMode::autoMic,RecordingMode::autoRadio,RecordingMode::manualRadio,RecordingMode::manualMic};
@@ -330,11 +335,22 @@ int main(){
      assert(automaticStatus(microphone).armed);assert(automaticStatus(microphone).error.empty());
      assert(automaticStatus(microphone).lastFile==(microphone?"MicAut.wav":"RadioAut.wav"));
      int previousStarts=starts;
-     clockMs+=100;automaticObserve(microphone,0);pollAutomaticRecording();assert(automaticStatus(microphone).armed);
+    automaticInputStarted(microphone);
+    for(int window=0;window<10;++window){clockMs+=100;automaticObserve(microphone,1500);pollAutomaticRecording();}
+    assert(starts==previousStarts);assert(automaticStatus(microphone).armed);
      clockMs+=2000;automaticObserve(microphone,300);clockMs+=100;automaticObserve(microphone,300);pollAutomaticRecording();
      assert(starts==previousStarts+1);
      automaticSetArmed(microphone,false);finish();
  }
+ int previewStarts=starts;
+ automaticSetPreviewSource(0);pollAutomaticRecording();assert(automaticMonitorRadio());assert(!automaticMonitorMic());assert(!automaticAnyArmed());
+ automaticInputStarted(false);clockMs+=2100;automaticObserve(false,1500);clockMs+=100;automaticObserve(false,1500);pollAutomaticRecording();
+ assert(starts==previewStarts);assert(automaticStatus(false).rms==1500);assert(!automaticStatus(false).armed);
+ automaticSetPreviewSource(1);pollAutomaticRecording();assert(!automaticMonitorRadio());assert(automaticMonitorMic());
+ automaticSetPreviewSource(-1);pollAutomaticRecording();assert(!automaticMonitorRadio());assert(!automaticMonitorMic());
+ automaticSetPreviewSource(1);pollAutomaticRecording();automaticSetArmed(true,true);
+ automaticSetPreviewSource(-1);pollAutomaticRecording();assert(automaticMonitorMic());assert(automaticStatus(true).armed);
+ automaticSetArmed(true,false);pollAutomaticRecording();assert(!automaticMonitorMic());
 }
 '''
         environment = dict(os.environ)
