@@ -1,5 +1,13 @@
 # Webes fejlesztés ESP nélkül
 
+## Mobilos arculati koncepciók
+
+A [terepi terminál](web-concepts/field.html), a [Clear Sky-hangulatú állomás](web-concepts/sky.html) és a [jelmonitor](web-concepts/signal.html) külön megnyitható, telefonon is összehasonlítható statikus látványtervek. A koncepciók között a felső fülekkel válthatsz; mobilon az alsó navigáció a mintanézet részeihez ugrik. Az adatok illusztrációk, a rögzítőgombok szándékosan nem működnek; egyik oldal sem csatlakozik az ESP-hez és nem tartozik a firmware-be ágyazott oldalak közé. Az opcionális webfontok offline módban tartalék betűkészletre esnek vissza.
+
+A következő körben a kiválasztott vizuális irányt kell a tényleges állapotokra (készenlét, rögzítés, SD-/kapcsolathiba), a fájlkezelésre és a beállításokra átvezetni; addig az aktuális webes kezelőfelület változatlan.
+
+Második kör: a Terepi terminál szövegére és felépítésére épülő [Határállomás](web-concepts/outpost.html) a hangszintet emeli ki, a [Kék archívum](web-concepts/archive.html) a Clear Sky-jelvényt hangsúlyozza, a [Jelőr](web-concepts/watch.html) pedig grafikonra és műszeres színekre épít. A `pics/` alatti helyi képek a koncepciók részei; a meglévő három lap változatlan. Az itt látható hullámok és RMS/peak értékek nem élő adatok. Az éles verzióban az egyszerű hangszintoszlopok a meglévő forrásonkénti RMS/csúcs-mérésből frissíthetők; a pontos hullámforma külön PCM-mintafolyamot és annak terhelési felülvizsgálatát igényelné. A logók forrását és felhasználhatóságát éles beágyazás előtt ellenőrizni kell.
+
 ## Helyi előnézet
 
 VS Code: **Terminal > Run Task > RadioRecorder: Web Preview (offline)**. A `--scenario` értékével válassz állapotot:

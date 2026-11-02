@@ -1,6 +1,7 @@
 import http.client
 import io
 import json
+from html.parser import HTMLParser
 from pathlib import Path
 import runpy
 import shutil
@@ -18,6 +19,46 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_static_design_concepts_are_mobile_and_device_inert(self):
+        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
+        css = (concepts / "concepts.css").read_text(encoding="utf-8")
+        self.assertIn("@media (max-width: 700px)", css)
+        self.assertIn(".bottom-nav", css)
+        for name in ("field", "sky", "signal"):
+            with self.subTest(name=name):
+                page = (concepts / (name + ".html")).read_text(encoding="utf-8")
+                HTMLParser(convert_charrefs=True).feed(page)
+                self.assertIn('name="viewport"', page)
+                self.assertIn('class="bottom-nav"', page)
+                self.assertIn('class="record-button" disabled', page)
+                self.assertIn('href="concepts.css"', page)
+                for destination in ("field.html", "sky.html", "signal.html"):
+                    self.assertIn('href="' + destination + '"', page)
+                self.assertNotIn("/api/", page)
+                self.assertNotIn("<script", page)
+
+    def test_second_round_concepts_keep_originals_and_use_local_logos(self):
+        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
+        css = (concepts / "round-two.css").read_text(encoding="utf-8")
+        self.assertIn("@import url('concepts.css')", css)
+        self.assertIn(".watch-panel .scope", css)
+        for name in ("outpost", "archive", "watch"):
+            with self.subTest(name=name):
+                page = (concepts / (name + ".html")).read_text(encoding="utf-8")
+                self.assertIn('name="viewport"', page)
+                self.assertIn('href="round-two.css"', page)
+                self.assertIn('class="bottom-nav"', page)
+                self.assertIn('class="record-button" type="button" disabled', page)
+                self.assertIn('MINTA · NEM ÉLŐ ADAT', page)
+                self.assertIn('href="field.html"', page)
+                for destination in ("outpost.html", "archive.html", "watch.html"):
+                    self.assertIn('href="' + destination + '"', page)
+                for image in ("images.png", "clearsky_icon.png"):
+                    if 'pics/' + image in page:
+                        self.assertTrue((concepts / "pics" / image).is_file())
+                self.assertNotIn("/api/", page)
+                self.assertNotIn("<script", page)
+
     def test_settings_runtime_advances_and_handles_rollover(self):
         self.assertIn('id="runtime"', render_page("settings"))
         node = shutil.which("node")

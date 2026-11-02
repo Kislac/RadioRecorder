@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>01 Terepi terminál | RadioRecorder koncepció</title>
+  <link rel="stylesheet" href="concepts.css">
+</head>
+<body class="field">
+  <div class="shell">
+    <header class="topbar"><div class="brand"><span class="brand-mark">R / R</span><span>RADIORECORDER<small>TEREPI TERMINÁL · 01</small></span></div><span class="connection"><i></i> ESP KAPCSOLAT</span></header>
+    <nav class="concept-switch" aria-label="Koncepciók"><a aria-current="page" href="field.html">01 Terepi</a><a href="sky.html">02 Clear Sky</a><a href="signal.html">03 Jelmonitor</a></nav>
+    <main>
+      <div class="eyebrow">ÁLLOMÁS / 001 <span>2026.11.02 · 14:32</span></div>
+      <div class="intro"><div><p class="overline">KÉZI RÖGZÍTÉS</p><h1>Adásnapló</h1><p class="sub">A kapcsolat él. A rögzítő készenlétben áll.</p></div><span class="stamp">KÉSZENLÉT<br>● SD ELÉRHETŐ</span></div>
+      <section id="record" class="primary"><div class="section-head"><span>01 / RÖGZÍTÉS</span><span class="live-dot">● NINCS AKTÍV FELVÉTEL</span></div>
+        <div class="source-grid"><label class="source"><input type="radio" name="source" checked><strong>RÁDIÓ</strong><small>ADC · GPIO1</small></label><label class="source"><input type="radio" name="source"><strong>MIKROFON</strong><small>I²S · INMP441</small></label></div>
+        <div class="action-line"><button type="button" class="record-button" disabled><span class="record-icon"></span> FELVÉTEL INDÍTÁSA</button><span class="action-note">Egyidejűleg egy forrás rögzíthető.</span></div>
+      </section>
+      <div class="columns"><section id="auto" class="module"><div class="section-head"><span>02 / AUTOMATA</span><span>KI</span></div><h2>Figyelő üzemmód</h2><p>Rádió és mikrofon automatikus rögzítése külön küszöbökkel.</p><div class="readout"><span>RÁDIÓ <b>INAKTÍV</b></span><span>MIKROFON <b>INAKTÍV</b></span></div></section>
+        <section id="files" class="module"><div class="section-head"><span>03 / ARCHÍVUM</span><span>microSD</span></div><h2>Legutóbbi felvételek</h2><div class="file-row"><span>▤</span><div>RadioMan261102_142814.wav<small>Ma · 14:28 · 02:36</small></div><span>↗</span></div><div class="file-row"><span>▤</span><div>MicMan261102_100304.wav<small>Ma · 10:03 · 00:48</small></div><span>↗</span></div></section></div>
+      <section id="system" class="status-strip"><span>JEL / 01 <b>RMS 0142</b></span><span>WI-FI <b>AP AKTÍV</b></span><span>TÁRHELY <b>6,2 GB SZABAD</b></span></section>
+    </main>
+    <nav class="bottom-nav" aria-label="Oldalrészek"><a href="#record" aria-current="page"><span>◉</span>Rögzítés</a><a href="#auto"><span>◎</span>Automata</a><a href="#files"><span>▤</span>Fájlok</a><a href="#system"><span>⚙</span>Rendszer</a></nav>
+    <footer>STATIKUS KONCEPCIÓ · NINCS KÉSZÜLÉK-KAPCSOLAT, A GOMBOK NEM INDÍTANAK FELVÉTELT</footer>
+  </div>
+</body>
+</html>
