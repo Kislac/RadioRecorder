@@ -13,12 +13,28 @@ import unittest
 import zipfile
 from unittest.mock import patch
 from urllib.parse import urlencode
+from xml.etree import ElementTree
 
 from scripts.preview_web import PreviewDevice, PreviewServer
 from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header, render_page
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_instrument_logo_has_one_label_and_no_record_circle(self):
+        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
+        logo = ElementTree.parse(concepts / "radio-logo-instrument.svg").getroot()
+        svg = "{http://www.w3.org/2000/svg}"
+        self.assertEqual(["".join(label.itertext()) for label in logo.findall(f".//{svg}text")], ["RADIORECORDER"])
+        wordmark = logo.find(f".//{svg}textPath")
+        self.assertIsNotNone(wordmark)
+        self.assertEqual(wordmark.get("href"), "#wordmarkArc")
+        self.assertEqual(wordmark.get("startOffset"), "50%")
+        self.assertEqual(logo.find(f".//{svg}path[@id='wordmarkArc']").get("d"), "M130 141 A171 171 0 0 1 382 141")
+        self.assertTrue(any("M192 164a87 87" in path.get("d", "") for path in logo.findall(f".//{svg}path")))
+        self.assertFalse(any(circle.get("cy") == "286" for circle in logo.findall(f".//{svg}circle")))
+        page = (concepts / "radio-logo-concepts.html").read_text(encoding="utf-8")
+        self.assertIn('src="radio-logo-instrument.svg"', page)
+
     def test_static_design_concepts_are_mobile_and_device_inert(self):
         concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "variants"
         css = (concepts / "concepts.css").read_text(encoding="utf-8")
@@ -133,7 +149,13 @@ class WebAssetTests(unittest.TestCase):
     def test_station_demo_has_its_own_home_without_variant_navigation(self):
         demo = Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "demo"
         home = (demo / "station-home.html").read_text(encoding="utf-8")
-        self.assertIn("<h1>Adásnapló</h1>", home)
+        self.assertIn("<h1>Rögzítés</h1>", home)
+        self.assertIn('name="recordMode" value="manual" checked', home)
+        self.assertIn('name="recordMode" value="auto"', home)
+        self.assertIn('id="historyGraph"', home)
+        self.assertIn('id="spectrum"', home)
+        self.assertIn('id="recordButton" type="button"', home)
+        self.assertIn('MINTA<br>● OFFLINE', home)
         self.assertNotIn('class="concept-switch"', home)
         self.assertIn('href="station.css"', home)
         self.assertIn('href="station-home.html" aria-current="page"', home)
@@ -141,6 +163,24 @@ class WebAssetTests(unittest.TestCase):
             page = (demo / (name + ".html")).read_text(encoding="utf-8")
             self.assertIn('href="station-home.html"', page)
             self.assertNotIn('href="../variants/watch-sta.html"', page)
+        for name in ("station-home", "station-files", "station-auto", "station-settings", "station-radio", "station-hardware", "station-dac"):
+            page = (demo / (name + ".html")).read_text(encoding="utf-8")
+            self.assertIn('>Rögzítés</a>', page)
+            self.assertIn('>Automata beállítások</a>', page)
+            self.assertNotIn('>Adásnapló</a>', page)
+        auto = (demo / "station-auto.html").read_text(encoding="utf-8")
+        self.assertIn('<h1>Automata beállítások</h1>', auto)
+        self.assertIn('Szabály engedélyezve', auto)
+        self.assertIn('href="station-home.html">Rögzítés megnyitása</a>', auto)
+
+    def test_station_demo_uses_radiorecorder_badge_on_every_page(self):
+        root = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
+        self.assertTrue((root / "radio-logo-instrument.svg").is_file())
+        for name in ("station-home", "station-files", "station-auto", "station-settings", "station-radio", "station-hardware", "station-dac"):
+            with self.subTest(page=name):
+                page = (root / "demo" / (name + ".html")).read_text(encoding="utf-8")
+                self.assertIn('<img class="brand-emblem" src="../radio-logo-instrument.svg" alt="">', page)
+                self.assertNotIn('src="../pics/images.png"', page)
 
     def test_concept_links_and_assets_resolve_after_folder_split(self):
         root = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"

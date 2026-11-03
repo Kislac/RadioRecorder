@@ -2,6 +2,86 @@
 
 const page = document.body.dataset.page;
 const status = (selector, message) => { document.querySelector(selector).textContent = message; };
+const defaultAutoRules = { radio: { enabled: true, threshold: 140, silence: 3 }, mic: { enabled: true, threshold: 700, silence: 5 }, priority: 'radio' };
+const readAutoRules = () => {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('demoAutoRules') || 'null');
+    return { radio: { ...defaultAutoRules.radio, ...saved?.radio }, mic: { ...defaultAutoRules.mic, ...saved?.mic }, priority: saved?.priority || 'radio' };
+  } catch { return defaultAutoRules; }
+};
+
+if (page === 'home') {
+  const modeInputs = [...document.querySelectorAll('input[name="recordMode"]')];
+  const sourceInputs = [...document.querySelectorAll('input[name="source"]')];
+  const button = document.querySelector('#recordButton');
+  const trace = document.querySelector('#historyTrace');
+  const spectrum = document.querySelector('#spectrum');
+  const frequencies = ['125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
+  const bars = frequencies.map(frequency => {
+    const band = document.createElement('div'); band.className = 'spectrum-band';
+    const bar = document.createElement('span'); bar.className = 'spectrum-bar';
+    const label = document.createElement('small'); label.textContent = frequency;
+    band.append(bar, label); spectrum.append(band);
+    return bar;
+  });
+  let active = false;
+  let recording = false;
+  let quietSince = 0;
+  let timer;
+  let frame = 0;
+  let history = [];
+  const selectedMode = () => modeInputs.find(input => input.checked).value;
+  const selectedSource = () => sourceInputs.find(input => input.checked).value;
+  const refresh = () => {
+    const source = selectedSource();
+    const automatic = selectedMode() === 'auto';
+    const rule = readAutoRules()[source];
+    const label = source === 'radio' ? 'Rádió' : 'Mikrofon';
+    status('#signalSource', label.toUpperCase() + ' / JELMONITOR');
+    status('#autoConfig', label + ': ' + (rule.enabled ? 'küszöb ' + rule.threshold + ', csendidő ' + rule.silence + ' mp.' : 'az automatikus szabály ki van kapcsolva.'));
+    button.disabled = !active && automatic && !rule.enabled;
+    status('#recordAction', active ? 'Leállítás' : automatic ? 'Automatikus figyelés indítása' : 'Kézi felvétel indítása');
+    status('#modeInfo', automatic ? (rule.enabled ? 'Mintajel alapján, ' + label.toLowerCase() + ' bemeneten.' : 'Kapcsold be a szabályt az Automata beállítások oldalon.') : 'Egyidejűleg egy forrás rögzíthető.');
+  };
+  const tick = () => {
+    frame += 1;
+    const source = selectedSource();
+    const level = Math.min(1, .12 + .55 * Math.abs(Math.sin(frame * .19 + (source === 'mic' ? 1.4 : 0))) + .2 * Math.abs(Math.sin(frame * .53)));
+    const rms = Math.round(level * (source === 'radio' ? 270 : 1300));
+    const peak = Math.round(rms * 1.35);
+    history.push(level);
+    if (history.length > 64) history.shift();
+    trace.setAttribute('d', history.map((value, index) => (index ? 'L' : 'M') + (index * 720 / 63).toFixed(1) + ' ' + (104 - value * 92).toFixed(1)).join(' '));
+    bars.forEach((bar, index) => { bar.style.height = Math.min(95, Math.round(12 + level * (55 + 25 * Math.sin(index * 1.3 + frame * .17)) + 14 * Math.abs(Math.sin(frame * .31 + index)))) + '%'; });
+    status('#signalLevel', 'RMS ' + rms + ' · PEAK ' + peak);
+    status('#spectrumTime', String(Math.floor(frame / 4 / 60)).padStart(2, '0') + ':' + String(Math.floor(frame / 4) % 60).padStart(2, '0'));
+    if (selectedMode() === 'auto') {
+      const rule = readAutoRules()[source];
+      if (rms >= rule.threshold) { quietSince = 0; recording = true; }
+      else if (recording) {
+        if (!quietSince) quietSince = Date.now();
+        if (Date.now() - quietSince >= rule.silence * 1000) recording = false;
+      }
+    }
+    status('#recordState', recording ? '● MINTAFELVÉTEL' : '● FIGYELÉS');
+    status('#recordStatus', recording ? 'Szimulált ' + (selectedMode() === 'auto' ? 'automatikus' : 'kézi') + ' felvétel · nincs SD-írás.' : 'Figyelés aktív · jel a beállított küszöb alatt.');
+  };
+  button.addEventListener('click', () => {
+    if (active) {
+      clearInterval(timer); active = false; recording = false; button.classList.remove('is-active');
+      [...modeInputs, ...sourceInputs].forEach(input => { input.disabled = false; });
+      status('#recordState', '● KÉSZENLÉT');
+      status('#recordStatus', 'Mintaművelet leállítva · nincs mentett felvétel.');
+      refresh();
+      return;
+    }
+    active = true; recording = selectedMode() === 'manual'; quietSince = 0; frame = 0; history = [];
+    [...modeInputs, ...sourceInputs].forEach(input => { input.disabled = true; });
+    button.classList.add('is-active'); refresh(); tick(); timer = setInterval(tick, 250);
+  });
+  [...modeInputs, ...sourceInputs].forEach(input => input.addEventListener('change', refresh));
+  refresh();
+}
 
 if (page === 'files') {
   const entries = [
@@ -48,13 +128,28 @@ if (page === 'files') {
 if (page === 'auto') {
   const radio = document.querySelector('#armRadio');
   const mic = document.querySelector('#armMic');
+  const rules = readAutoRules();
+  radio.checked = rules.radio.enabled;
+  mic.checked = rules.mic.enabled;
+  for (const [source, prefix] of [['radio', 'radio'], ['mic', 'mic']]) {
+    document.querySelector('#' + prefix + 'Threshold').value = rules[source].threshold;
+    document.querySelector('#' + prefix + 'Silence').value = rules[source].silence;
+  }
+  document.querySelector('#autoPriority').value = rules.priority;
   const update = () => {
-    document.querySelector('#autoSummary').textContent = radio.checked || mic.checked ? '● MINTA ÉLESÍTVE' : '● MINDKETT KI';
-    status('#autoStatus', 'Helyi minta: rádió ' + (radio.checked ? 'bekapcsolva' : 'kikapcsolva') + ', mikrofon ' + (mic.checked ? 'bekapcsolva' : 'kikapcsolva') + '. Nem indul felvétel.');
+    const values = ['radioThreshold', 'radioSilence', 'micThreshold', 'micSilence'].map(id => document.querySelector('#' + id));
+    if (values.some(input => !input.checkValidity())) { status('#autoStatus', 'A küszöb és a csendidő csak a megadott tartományban menthető.'); return; }
+    rules.radio = { enabled: radio.checked, threshold: Number(values[0].value), silence: Number(values[1].value) };
+    rules.mic = { enabled: mic.checked, threshold: Number(values[2].value), silence: Number(values[3].value) };
+    rules.priority = document.querySelector('#autoPriority').value;
+    let saved = true;
+    try { sessionStorage.setItem('demoAutoRules', JSON.stringify(rules)); } catch { saved = false; }
+    document.querySelector('#autoSummary').textContent = radio.checked || mic.checked ? '● SZABÁLYOK AKTÍVAK' : '● MINDKETT KI';
+    document.querySelector('#priorityValue').textContent = rules.priority === 'radio' ? 'RÁDIÓ → MIKROFON' : 'MIKROFON → RÁDIÓ';
+    status('#autoStatus', saved ? 'Mintaszabályok mentve erre a böngészőlapra. A figyelést a Rögzítés oldalon indíthatod.' : 'A böngésző nem engedi a mintaszabályok tárolását.');
   };
-  radio.addEventListener('change', update);
-  mic.addEventListener('change', update);
-  document.querySelector('#autoPriority').addEventListener('change', event => { document.querySelector('#priorityValue').textContent = event.target.value === 'radio' ? 'RÁDIÓ → MIKROFON' : 'MIKROFON → RÁDIÓ'; });
+  [radio, mic, ...document.querySelectorAll('#radioThreshold, #radioSilence, #micThreshold, #micSilence, #autoPriority')].forEach(input => input.addEventListener('change', update));
+  update();
 }
 
 if (page === 'settings') {

@@ -3,26 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Adásnapló | Jelőr koncepció</title>
+  <title>Rögzítés | Jelőr koncepció</title>
   <link rel="stylesheet" href="station.css">
 </head>
-<body class="watch watch-sta station">
+<body class="watch watch-sta station" data-page="home">
   <div class="shell">
-    <header class="topbar"><div class="brand"><img class="brand-emblem" src="../pics/images.png" alt="Clear Sky jelvény"><span>RADIORECORDER<small>CLEAR SKY / HÁLÓZATI ŐRSZEM</small></span></div><span class="connection"><i></i> MINTANÉZET</span></header>
-    <nav class="station-nav" aria-label="Aloldalak"><a href="station-home.html" aria-current="page">Adásnapló</a><a href="station-files.html">Fájlok</a><a href="station-auto.html">Automata</a><a href="station-settings.html">Beállítások</a><a href="station-radio.html">Rádió</a><a href="station-hardware.html">Hardverteszt</a><a href="station-dac.html">DAC-próba</a></nav>
+    <header class="topbar"><div class="brand"><img class="brand-emblem" src="../radio-logo-instrument.svg" alt=""><span>RADIORECORDER<small>CLEAR SKY / HÁLÓZATI ŐRSZEM</small></span></div><span class="connection"><i></i> MINTANÉZET</span></header>
+    <nav class="station-nav" aria-label="Aloldalak"><a href="station-home.html" aria-current="page">Rögzítés</a><a href="station-files.html">Fájlok</a><a href="station-auto.html">Automata beállítások</a><a href="station-settings.html">Beállítások</a><a href="station-radio.html">Rádió</a><a href="station-hardware.html">Hardverteszt</a><a href="station-dac.html">DAC-próba</a></nav>
     <main>
       <div class="eyebrow">ÁLLOMÁS / 001 <span>2026.11.02 · 14:32</span></div>
-      <div class="intro"><div><p class="overline">KÉZI RÖGZÍTÉS / CLEAR SKY</p><h1>Adásnapló</h1><p class="sub">A kapcsolat él. A rögzítő készenlétben áll.</p></div><span class="stamp">KÉSZENLÉT<br>● SD ELÉRHETŐ</span></div>
-      <section id="record" class="primary"><div class="section-head"><span>01 / RÖGZÍTÉS</span><span class="live-dot">● NINCS AKTÍV FELVÉTEL</span></div>
-        <div class="watch-panel"><div class="watch-head"><span>JELMONITOR / RÁDIÓ</span><span>MINTA · NEM ÉLŐ ADAT</span></div><div class="scope" aria-label="Illusztráció: rádióbemenet hullámformája"><div class="scope-line"></div><span class="scope-label">RMS 0142<br>PEAK 0361</span></div><div class="meter" aria-label="Illusztráció: bemenő hangszint"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
-        <div class="source-grid"><label class="source"><input type="radio" name="source" checked><strong>RÁDIÓ</strong><small>ADC · GPIO1</small></label><label class="source"><input type="radio" name="source"><strong>MIKROFON</strong><small>I²S · INMP441</small></label></div>
-        <div class="action-line"><button class="record-button" type="button" disabled><span class="record-icon"></span> FELVÉTEL INDÍTÁSA</button><span class="action-note">Egyidejűleg egy forrás rögzíthető.</span></div>
+      <div class="intro"><div><p class="overline">RÁDIÓ / MIKROFON</p><h1>Rögzítés</h1><p class="sub">Egy helyen indítható a kézi rögzítés és az automatikus figyelés.</p></div><span class="stamp">MINTA<br>● OFFLINE</span></div>
+      <section id="record" class="primary"><div class="section-head"><span>01 / RÖGZÍTÉS</span><span class="live-dot" id="recordState">● KÉSZENLÉT</span></div>
+        <div class="record-controls"><fieldset class="mode-choice"><legend>MÓD</legend><label><input type="radio" name="recordMode" value="manual" checked><span>Kézi</span></label><label><input type="radio" name="recordMode" value="auto"><span>Automatikus</span></label></fieldset><fieldset class="source-choice"><legend>FORRÁS</legend><label class="source"><input type="radio" name="source" value="radio" checked><strong>RÁDIÓ</strong><small>ADC · GPIO1</small></label><label class="source"><input type="radio" name="source" value="mic"><strong>MIKROFON</strong><small>I²S · INMP441</small></label></fieldset></div>
+        <div class="action-line"><button class="record-button" id="recordButton" type="button"><span class="record-icon"></span><span id="recordAction">Kézi felvétel indítása</span></button><span class="action-note" id="modeInfo">Egyidejűleg egy forrás rögzíthető.</span></div>
+        <div class="watch-panel"><div class="watch-head"><span id="signalSource">RÁDIÓ / JELMONITOR</span><span>MINTAJEL · NEM ÉLŐ ADAT</span></div><div class="signal-heading"><span>HANGSZINT / IDŐ</span><span id="signalLevel">RMS -- · PEAK --</span></div><div class="scope" aria-label="Szimulált hangszint története"><svg id="historyGraph" viewBox="0 0 720 112" preserveAspectRatio="none" role="img" aria-label="Hangszint időben, szimulált adatok"><path id="historyTrace" d=""/></svg></div><div class="signal-heading"><span>PILLANATNYI SPEKTRUM / Hz</span><span id="spectrumTime">--:--</span></div><div class="spectrum" id="spectrum" role="img" aria-label="Szimulált pillanatnyi frekvenciasávok"></div></div>
+        <p id="recordStatus" class="muted" role="status">Készenlét · nincs aktív mintafelvétel.</p>
       </section>
-      <div class="columns"><section id="auto" class="module"><div class="section-head"><span>02 / AUTOMATA</span><span>KI</span></div><h2>Figyelő üzemmód</h2><p>Rádió és mikrofon automatikus rögzítése külön küszöbökkel.</p><div class="readout"><span>RÁDIÓ <b>INAKTÍV</b></span><span>MIKROFON <b>INAKTÍV</b></span></div></section><section id="files" class="module"><div class="section-head"><span>03 / ARCHÍVUM</span><span>microSD</span></div><h2>Legutóbbi felvételek</h2><div class="file-row"><span>▤</span><div>RadioMan261102_142814.wav<small>Ma · 14:28 · 02:36</small></div><span>↗</span></div><div class="file-row"><span>▤</span><div>MicMan261102_100304.wav<small>Ma · 10:03 · 00:48</small></div><span>↗</span></div></section></div>
+      <div class="columns"><section id="auto" class="module"><div class="section-head"><span>02 / AUTOMATA SZABÁLYOK</span><span>BEÁLLÍTÁSOK</span></div><h2>Figyelési küszöbök</h2><p id="autoConfig">A kiválasztott forrás automatikus szabályai.</p><a href="station-auto.html">Automata beállítások</a></section><section id="files" class="module"><div class="section-head"><span>03 / ARCHÍVUM</span><span>PÉLDÁK</span></div><h2>Mintafelvételek</h2><div class="file-row"><span>▤</span><div>RadioMan261102_142814.wav<small>Minta · 14:28 · 02:36</small></div><span>↗</span></div><div class="file-row"><span>▤</span><div>MicMan261102_100304.wav<small>Minta · 10:03 · 00:48</small></div><span>↗</span></div></section></div>
       <section id="system" class="status-strip system-readout"><div>RTC <b>SYNC</b></div><div class="network-readout"><div>NET <b>AP / 192.168.4.1</b></div><div>STA <b>Bázis-01 / 192.168.0.52</b></div></div><div>TÁRHELY <b>6,2 GB SZABAD</b></div></section>
     </main>
-    <nav class="bottom-nav" aria-label="Fő nézetek"><a href="station-home.html" aria-current="page"><span>◉</span>Rögzítés</a><a href="station-auto.html"><span>◎</span>Automata</a><a href="station-files.html"><span>▤</span>Fájlok</a><a href="station-settings.html"><span>⚙</span>Rendszer</a></nav>
+    <nav class="bottom-nav" aria-label="Fő nézetek"><a href="station-home.html" aria-current="page"><span>◉</span>Rögzítés</a><a href="station-auto.html"><span>◎</span>Auto beáll.</a><a href="station-files.html"><span>▤</span>Fájlok</a><a href="station-settings.html"><span>⚙</span>Rendszer</a></nav>
     <footer>HELYI KONCEPCIÓ · A JEL ÉS A HÁLÓZAT MINTA, NINCS KÉSZÜLÉK-KAPCSOLAT</footer>
-  </div>
+  </div><script src="station.js" defer></script>
 </body>
 </html>

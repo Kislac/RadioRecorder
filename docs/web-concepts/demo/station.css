@@ -55,6 +55,39 @@
 .station .bottom-nav a span { display: inline-block; }
 .station [role='status'] { min-height: 1.4em; }
 .station .bottom-nav a[aria-current] { color: var(--accent); }
+.record-controls { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 20px; }
+.record-controls fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.record-controls legend { margin-bottom: 10px; color: var(--muted); font: 600 11px 'IBM Plex Mono', monospace; }
+.mode-choice { display: flex; flex-wrap: wrap; align-content: start; gap: 0; }
+.mode-choice legend { width: 100%; }
+.mode-choice label { flex: 1; min-width: 105px; cursor: pointer; }
+.mode-choice input { position: absolute; opacity: 0; }
+.mode-choice label span { display: grid; place-items: center; min-height: 76px; padding: 10px; border: 1px solid var(--border); background: var(--source); font-weight: 700; }
+.mode-choice label + label span { border-left: 0; }
+.mode-choice input:checked + span { background: var(--selected); color: var(--accent); border-color: var(--accent); }
+.mode-choice input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -3px; }
+.mode-choice input:disabled + span { cursor: default; }
+.source-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.source-choice legend { grid-column: 1 / -1; }
+.source-choice .source { min-height: 76px; padding: 10px 12px; }
+.source-choice .source input:disabled { cursor: default; }
+.station #recordButton { min-width: 225px; height: 54px; font-size: 15px; letter-spacing: 0; cursor: pointer; }
+.station #recordButton:disabled { cursor: not-allowed; }
+.station #recordButton.is-active { background: #d09576; }
+.station #recordButton.is-active .record-icon { border-radius: 1px; }
+.station .action-line { margin-top: 20px; flex-wrap: wrap; }
+.station .watch-panel { margin-top: 24px; }
+.signal-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 16px; margin-top: 17px; color: var(--muted); font: 600 10px 'IBM Plex Mono', monospace; }
+.station .watch-panel .scope { margin-top: 7px; }
+#historyGraph { display: block; width: 100%; height: 100%; }
+#historyTrace { fill: none; stroke: #b7d6c3; stroke-width: 3; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.spectrum { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 7px; height: 103px; margin-top: 7px; padding: 9px 10px 4px; background: #0c2024; border: 1px solid var(--border); }
+.spectrum-band { display: flex; flex-direction: column; justify-content: end; align-items: center; min-width: 0; gap: 5px; }
+.spectrum-bar { display: block; width: min(100%, 24px); height: 4%; flex: none; background: #86c3b4; transition: height 200ms linear; }
+.spectrum-band:nth-child(3n) .spectrum-bar { background: var(--accent); }
+.spectrum-band small { height: 15px; color: var(--muted); font: 9px 'IBM Plex Mono', monospace; }
+#recordStatus { margin: 14px 0 0; }
+.station .primary a.command { display: inline-flex; align-items: center; margin-top: 14px; text-decoration: none; }
 
 @media (max-width: 700px) {
   .station-nav { padding-inline: 16px; gap: 18px; }
@@ -66,4 +99,8 @@
   .entry { gap: 8px; grid-template-columns: 21px minmax(0, 1fr) auto; }
   .entry-actions { flex-direction: column; }
   .entry-actions .command { padding: 0 8px; }
+  .record-controls { grid-template-columns: 1fr; gap: 15px; }
+  .mode-choice label span, .source-choice .source { min-height: 64px; }
+  .spectrum { gap: 4px; padding-inline: 5px; }
+  .spectrum-band small { font-size: 8px; }
 }

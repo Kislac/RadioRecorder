@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RadioRecorder | Logótervek</title>
+  <style>
+    :root { color-scheme: dark; --ink: #e4eee6; --muted: #a7bdb7; --line: #426568; --accent: #e1ba7b; --bg: #0e2226; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; color: var(--ink); background: repeating-linear-gradient(90deg, transparent 0 79px, #b6d6c008 80px), linear-gradient(160deg, #183b3e, var(--bg) 60%, #162a2e); font: 16px/1.5 'Bahnschrift', 'Franklin Gothic Medium', sans-serif; }
+    .wrap { max-width: 1160px; margin: auto; padding: 28px clamp(18px, 5vw, 56px) 68px; }
+    header { display: flex; justify-content: space-between; gap: 20px; align-items: baseline; border-bottom: 1px solid var(--line); padding-bottom: 17px; }
+    .id, .eyebrow, .tag, .download, .foot { font-family: 'IBM Plex Mono', Consolas, monospace; letter-spacing: 1px; }
+    .id { font-weight: 700; font-size: 15px; }
+    .tag, .eyebrow { color: var(--accent); font-size: 11px; text-transform: uppercase; }
+    .intro { padding: 38px 0 30px; }
+    h1 { margin: 6px 0 7px; font-size: clamp(32px, 4vw, 52px); line-height: 1.08; letter-spacing: 0; }
+    .intro p, .description { color: var(--muted); margin: 0; }
+    .variants { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-block: 1px solid var(--line); }
+    article { min-width: 0; padding: 28px clamp(16px, 3vw, 38px) 36px; }
+    article:first-child { border-right: 1px solid var(--line); }
+    .number { display: flex; justify-content: space-between; gap: 12px; color: var(--accent); font: 12px 'IBM Plex Mono', Consolas, monospace; }
+    .stage { display: grid; place-items: center; min-height: 340px; margin: 24px 0; background: radial-gradient(circle at center, #36626833, transparent 68%); }
+    .stage img { display: block; width: min(100%, 340px); aspect-ratio: 1; }
+    h2 { margin: 0 0 8px; font-size: 25px; line-height: 1.2; }
+    .description { max-width: 42ch; min-height: 3em; font-size: 14px; }
+    .bottom { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; margin-top: 24px; padding-top: 17px; border-top: 1px solid var(--line); }
+    .small { display: flex; align-items: center; gap: 14px; font: 12px 'IBM Plex Mono', Consolas, monospace; color: var(--muted); }
+    .small img { width: 48px; height: 48px; }
+    .download { color: #17292c; background: var(--accent); padding: 10px 15px; font-size: 12px; font-weight: 700; text-decoration: none; }
+    .download:hover, .download:focus-visible { background: #f0d2a3; }
+    .foot { margin-top: 20px; color: var(--muted); font-size: 11px; }
+    @media (max-width: 700px) { header { align-items: start; flex-direction: column; gap: 5px; } .intro { padding: 28px 0; } .variants { grid-template-columns: 1fr; } article { padding-inline: 8px; } article:first-child { border-right: 0; border-bottom: 1px solid var(--line); } .stage { min-height: 270px; margin: 12px 0 24px; } .stage img { width: min(100%, 290px); } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header><span class="id">RADIORECORDER / VIZUÁLIS TERVEK</span><span class="tag">JELVÉNYTANULMÁNY · 01 / 02</span></header>
+    <main>
+      <div class="intro"><span class="eyebrow">Rádiójel · rögzítés · terep</span><h1>Két jelvény. Egy frekvencia.</h1><p>Kerek logótervek a Clear Sky színvilágának hangulatában, saját rajzolattal.</p></div>
+      <div class="variants">
+        <article>
+          <div class="number"><span>01 / MŰSZER</span><span>VEKTOR · SVG</span></div>
+          <div class="stage"><img src="radio-logo-instrument.svg" alt="Kerek terepi műszer logó antennával, hullámformával és RadioRecorder felirattal"></div>
+          <h2>Terepi műszer</h2>
+          <p class="description">Finom skála, rendezett hullámforma, pontos jelölések. Egy működő mérőeszköz karaktere.</p>
+          <div class="bottom"><div class="small"><img src="radio-logo-instrument.svg" alt="" aria-hidden="true"><span>48 PX / IKONMÉRET</span></div><a class="download" href="radio-logo-instrument.svg" download="radio-logo-instrument.svg">SVG LETÖLTÉSE ↗</a></div>
+        </article>
+        <article>
+          <div class="number"><span>02 / FELSZERELÉS</span><span>VEKTOR · SVG</span></div>
+          <div class="stage"><img src="radio-logo-worn.svg" alt="Kerek, kopott zónabeli felszerelés logó töredezett peremmel és rádiófelvétel szimbólummal"></div>
+          <h2>Kopott zónabeli felszerelés</h2>
+          <p class="description">Karcos fém, töredezett perem és hangsúlyos rögzítésjelző. Egy sokat használt terepi eszköz jelvénye.</p>
+          <div class="bottom"><div class="small"><img src="radio-logo-worn.svg" alt="" aria-hidden="true"><span>48 PX / IKONMÉRET</span></div><a class="download" href="radio-logo-worn.svg" download="radio-logo-worn.svg">SVG LETÖLTÉSE ↗</a></div>
+        </article>
+      </div>
+    </main>
+    <div class="foot">ÖNÁLLÓ KONCEPCIÓK · NINCS KÉSZÜLÉK-KAPCSOLAT</div>
+  </div>
+</body>
+</html>

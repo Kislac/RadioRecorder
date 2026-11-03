@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">RadioRecorder - kopott zonabeli felszereles</title>
+  <desc id="desc">Kerek, kopott kek radiofelvetel-jelveny toredezett peremmel, radioantennaval, hanghullammal es borostyan felveteljelzovel.</desc>
+  <defs>
+    <linearGradient id="metal" x2=".8" y2="1">
+      <stop stop-color="#406f78"/>
+      <stop offset=".48" stop-color="#23474f"/>
+      <stop offset="1" stop-color="#102c33"/>
+    </linearGradient>
+    <clipPath id="disk"><circle cx="256" cy="256" r="225"/></clipPath>
+  </defs>
+  <circle cx="256" cy="256" r="249" fill="#091b21"/>
+  <circle cx="256" cy="256" r="238" fill="url(#metal)" stroke="#9ab4ab" stroke-width="4"/>
+  <circle cx="256" cy="256" r="224" fill="#122e36" stroke="#72999a" stroke-width="3" stroke-dasharray="258 10 92 6 79 15 200 7 125 11 124"/>
+  <g clip-path="url(#disk)">
+    <path d="M24 161 187 26M26 190 210 24M333 30 495 173M307 23 491 193M20 356l166 134M36 387l137 108M323 493 495 341M347 489 496 362" fill="none" stroke="#779891" stroke-opacity=".16" stroke-width="15"/>
+    <path d="M37 226h94m249 0h98M51 330h72m269 0h75" fill="none" stroke="#b6c8b7" stroke-opacity=".27" stroke-width="4"/>
+    <path d="M43 248h56m318 0h59M83 183h40m271 0h32M86 383h45m259 0h49" fill="none" stroke="#c6d6c5" stroke-opacity=".35" stroke-width="3"/>
+    <circle cx="256" cy="256" r="182" fill="none" stroke="#9eb4a8" stroke-opacity=".4" stroke-width="2" stroke-dasharray="14 4 25 7 9 2"/>
+    <path d="M147 128h218M147 397h218" stroke="#b6c7b5" stroke-opacity=".55" stroke-width="3"/>
+    <g fill="#d5ded0" font-family="'Bahnschrift', 'Arial Narrow', sans-serif" font-weight="800" text-anchor="middle">
+      <text x="256" y="116" font-size="29" letter-spacing="3">RADIORECORDER</text>
+      <text x="256" y="424" font-size="21" letter-spacing="4">FIELD RECORD / 02</text>
+    </g>
+    <g stroke="#a9c5b7" stroke-linecap="square" fill="none">
+      <path d="M253 190v112" stroke-width="12"/>
+      <path d="M233 206a29 29 0 0 1 46 0M210 186a60 60 0 0 1 92 0" stroke-width="9"/>
+      <path d="M130 314h51l18-29 17 51 20-40 20 18 18-21 17 43 23-63 19 41h48" stroke-width="10" stroke-linejoin="miter"/>
+    </g>
+    <circle cx="256" cy="302" r="32" fill="#102b32" stroke="#e1ab6f" stroke-width="6"/>
+    <circle cx="256" cy="302" r="19" fill="#e1ab6f"/>
+    <path d="M100 359h76m160 0h76" stroke="#e1ab6f" stroke-width="6"/>
+    <g fill="#c9d5c7" opacity=".55">
+      <path d="m63 143 37-3-18 7zm333 42 23-3-11 5zM100 310l25-3-14 5zm296 64 30-2-17 5zM149 72l21-2-10 5zm193 372 38-3-19 6z"/>
+      <circle cx="116" cy="253" r="3"/><circle cx="393" cy="263" r="3"/><circle cx="189" cy="373" r="2"/>
+    </g>
+  </g>
+  <path d="M56 207l3-12m16-59 8-7m364 80 7 14m-30 187-8 9M96 433l-9-9m264 55 15-6" stroke="#d7d9c5" stroke-width="5" stroke-linecap="round" opacity=".8"/>
+</svg>
