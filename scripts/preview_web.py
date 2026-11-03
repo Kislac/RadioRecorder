@@ -121,6 +121,7 @@ class PreviewDevice:
         self.playing = ""
         self.playback_target = "speaker"
         self.play_until = 0
+        self.play_paused_at = 0
         self.tone_bytes_total = 0
         self.ptt_until = 0
         self.ptt_latched = False
@@ -144,7 +145,7 @@ class PreviewDevice:
                 self.saved_epoch, self.saved_day = int(instant), day
         if self.mic_signal_enabled and now - self.mic_signal_polled_at > 4:
             self.mic_signal_enabled = False
-        if self.playing and now >= self.play_until:
+        if self.playing and not self.play_paused_at and now >= self.play_until:
             self.playing = ""
         if self.ptt_until and now >= self.ptt_until:
             self.ptt_until = 0
@@ -305,7 +306,8 @@ class PreviewDevice:
                 tone = self.playing.startswith("DAC tone")
                 pcm_total = self.tone_bytes_total if tone else len(self.files[self.playing]) - 44 if self.playing else 0
                 seconds = 10 if tone else 2
-                pcm_played = min(pcm_total, max(0, int((time.monotonic() - (self.play_until - seconds)) * pcm_total / seconds))) if self.playing else 0
+                playback_now = self.play_paused_at or time.monotonic()
+                pcm_played = min(pcm_total, max(0, int((playback_now - (self.play_until - seconds)) * pcm_total / seconds))) if self.playing else 0
                 return 200, {"version": "preview", "ready": self.sd_ready, "micReady": self.sd_ready,
                              "automatic": self.automatic.status(), "recordingMode": self.automatic.mode,
                              "recordElapsedMs": self.automatic.elapsed(), "fileBusy": self.file_manager.busy(),
@@ -319,6 +321,7 @@ class PreviewDevice:
                              "speakerVolume": self.volume, "speakerBoost": self.boost,
                              "radioVolume": self.radio_volume, "radioBoost": self.radio_boost,
                              "playbackBytesPlayed": pcm_played, "playbackBytesTotal": pcm_total,
+                             "playbackPaused": bool(self.play_paused_at),
                              "playback": "playing" if self.playing else "idle", "playbackPath": self.playing,
                              "playbackTarget": self.playback_target,
                              "playbackError": "", "hasRecordings": bool(self.files) and self.sd_ready,
@@ -340,6 +343,35 @@ class PreviewDevice:
                 rms = int(35 + 20 * math.sin(elapsed * 2)) if self.signal_enabled else 0
                 return 200, {"enabled": self.signal_enabled, "active": self.signal_enabled,
                              "sequence": int(elapsed * 10), "rms": rms, "peak": rms * 3, "bias": 2048, "fault": 0}
+            if path == "/api/spectrum":
+                source = params.get("source")
+                if source not in ("radio", "microphone"):
+                    return 400, "Invalid source"
+                if not ((self.recording and self.record_source == ("microphone" if source == "microphone" else "adc")) or
+                        (self.mic_signal_enabled if source == "microphone" else self.signal_enabled)):
+                    return 204, b""
+                return 200, b"".join(struct.pack("<h", round(6000 * math.sin(index * math.tau * 1000 / 22050)))
+                                     for index in range(512))
+            if path == "/api/play/waveform":
+                name = params.get("path", "")
+                if not safe_sd_path(name) or not name.lower().endswith(".wav"):
+                    return 400, "Invalid WAV path"
+                if self.recording or self.playing or self.file_manager.busy():
+                    return 409, "SD busy"
+                if name not in self.files:
+                    return 404, "WAV not found"
+                try:
+                    with wave.open(io.BytesIO(self.files[name])) as audio:
+                        if audio.getnchannels() != 1 or audio.getsampwidth() != 2 or audio.getframerate() != 22050:
+                            return 415, "Unsupported PCM WAV"
+                        samples = audio.readframes(audio.getnframes())
+                except wave.Error:
+                    return 415, "Unsupported PCM WAV"
+                peaks = [max((abs(struct.unpack_from("<h", samples, offset)[0]) for offset in
+                            range(index * (len(samples) // 128) & ~1,
+                                min(len(samples), (index * (len(samples) // 128) & ~1) + 2048), 2)), default=0)
+                         for index in range(128)]
+                return 200, {"bytes": len(samples), "peaks": peaks}
             if path == "/api/mic/signal":
                 if self.mic_signal_enabled:
                     self.mic_signal_polled_at = time.monotonic()
@@ -535,7 +567,25 @@ class PreviewDevice:
                     return 404, "WAV not found"
                 self.playback_target = target
                 self.playing, self.play_until = params["path"], time.monotonic() + 2
+                self.play_paused_at = 0
                 return 200, "Playing on simulated " + target
+            if path == "/api/play/pause":
+                if params.get("paused") not in ("0", "1"):
+                    return 400, "Invalid pause setting"
+                if not self.playing or self.playing.startswith("DAC tone"):
+                    return 409, "Playback unavailable"
+                if params["paused"] == "1" and not self.play_paused_at:
+                    self.play_paused_at = time.monotonic()
+                elif params["paused"] == "0" and self.play_paused_at:
+                    self.play_until += time.monotonic() - self.play_paused_at
+                    self.play_paused_at = 0
+                return 200, "Playback pause"
+            if path == "/api/play/seek":
+                offset = self.integer(params, "offset", 0, 0xffffffff)
+                if not self.playing or self.playing.startswith("DAC tone") or offset >= len(self.files[self.playing]) - 44:
+                    return 409, "Playback seek unavailable"
+                self.play_until = (self.play_paused_at or time.monotonic()) + (len(self.files[self.playing]) - 44 - offset) / 44100
+                return 200, "Playback seek"
             if path == "/api/dac-tone":
                 frequency, rate, bits, format_name, level = (params.get(key, "") for key in
                                                              ("frequency", "rate", "bits", "format", "level"))
@@ -552,6 +602,7 @@ class PreviewDevice:
                 return 202, "DAC tone started"
             if path == "/api/play/stop":
                 self.playing = ""
+                self.play_paused_at = 0
                 return 200, "Stopping speaker"
             if path == "/api/wifi/scan":
                 self.scan_started = time.monotonic()
@@ -654,7 +705,9 @@ class PreviewHandler(BaseHTTPRequestHandler):
                                        'attachment; filename="' + folder.rsplit("/", 1)[-1] + '.zip"'})
                         return
                     status, payload = self.server.device.api(method, url.path, params)
-                    if url.path == "/api/radio/image" and status == 200:
+                    if url.path == "/api/spectrum" and status == 200:
+                        self.reply(status, payload, "application/octet-stream")
+                    elif url.path == "/api/radio/image" and status == 200:
                         self.reply(status, payload, "application/octet-stream",
                                    {"Content-Disposition": 'attachment; filename="preview-only.bin"'})
                     else:

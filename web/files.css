@@ -6,9 +6,9 @@
   --paper: #f3f5f2;
 }
 .file-controls, .selection-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:18px 0; }
-.player-controls { display:block; }
-.player-controls summary { cursor:pointer; padding:14px 0; }
-.file-table audio { width:100%; max-width:260px; margin-top:8px; }
+.player-controls { padding:18px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.player-controls h2 { font-size:18px; margin:0 0 8px; }
+.volume-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
 .file-controls input { flex:1 1 180px; min-width:0; }
 .file-controls select, .file-controls input, dialog input { font:inherit; padding:8px; border:1px solid var(--line); }
 .file-controls label { display:flex; align-items:center; gap:6px; }
@@ -33,17 +33,38 @@
 .file-operation > div { display:flex; justify-content:space-between; align-items:center; gap:12px; }
 .file-operation progress { width:100%; height:16px; margin-top:12px; }
 .file-operation p { margin:8px 0; }
-dialog { border:1px solid var(--line); border-radius:6px; max-width:520px; width:calc(100% - 32px); padding:24px; color:var(--ink); background:var(--paper); }
+dialog { border:1px solid var(--border); border-radius:6px; max-width:520px; width:calc(100% - 32px); padding:24px; color:var(--text); background:var(--panel); }
 dialog::backdrop { background:#0006; }
 dialog h2 { margin-top:0; font:normal 24px Georgia,serif; }
 dialog label { display:grid; gap:8px; }
 dialog input { width:100%; min-width:0; }
+.playback-heading,.playback-actions { display:flex; align-items:center; gap:12px; }
+.playback-heading { justify-content:space-between; }
+.playback-heading h2 { min-width:0; overflow-wrap:anywhere; margin:0; }
+.playback-heading button { padding:4px 10px; font-size:23px; }
+#playbackDialog { width:min(660px,calc(100% - 24px)); max-width:660px; }
+#playbackDialog p { min-height:20px; overflow-wrap:anywhere; }
+.waveform-wrap { position:relative; height:130px; background:#0c2024; border:1px solid #41736e; }
+#playbackWaveform { display:block; width:100%; height:100%; }
+#playbackSeek { position:absolute; inset:0; width:100%; height:100%; margin:0; cursor:crosshair; opacity:0; }
+.waveform-wrap:focus-within { outline:2px solid #12604f; outline-offset:2px; }
+#playbackHead { position:absolute; pointer-events:none; top:0; bottom:0; left:var(--position,0%); width:2px; background:#f7d38a; }
+.playback-actions { margin-top:16px; }
+.playback-actions button { min-width:48px; min-height:44px; padding:6px; }
+#playbackTime { margin-left:auto; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#playbackVolume { margin-top:16px; border-top:1px solid var(--line); }
+#playbackVolume summary { padding:14px 0; cursor:pointer; }
+.dialog-volume { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 12px; align-items:center; }
+.dialog-volume label { grid-column:1/-1; }
+.dialog-volume select { grid-column:1/-1; width:100%; padding:8px; }
+#browserAudio { display:none; }
 .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
 #destinationFolders { display:grid; gap:6px; max-height:260px; overflow:auto; margin-top:12px; }
 #destinationFolders button { min-width:0; overflow-wrap:anywhere; text-align:left; }
 #destinationPath { overflow-wrap:anywhere; }
 .toolbar-actions { flex-wrap:wrap; }
 @media(max-width:600px) { .file-table .date-column { display:none; } .file-table th:nth-child(4) { width:62px; } .file-table th:last-child { width:80px; } .toolbar { flex-wrap:wrap; } }
+@media(max-width:600px) { .volume-grid { grid-template-columns:1fr 1fr; gap:8px; } .speaker-volume { min-width:0; } .speaker-volume label { overflow-wrap:anywhere; } }
 * {
   box-sizing: border-box;
 }
@@ -204,14 +225,10 @@ audio {
   font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
-.player-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 24px;
-}
+.player-controls { display:block; }
 .speaker-volume {
-  width: min(100%, 280px);
-  margin: 16px 0 20px;
+  width: 100%;
+  margin: 8px 0;
 }
 .speaker-volume label {
   display: block;

@@ -52,11 +52,35 @@ static char recordingName[64] = {};
 static char lastError[80] = {};
 static uint8_t dmaBuffer[kDmaBufferSize];
 static uint8_t pcmBuffer[kDmaBufferSize / 2];
+static uint8_t spectrumPcm[kSpectrumPcmBytes];
+static portMUX_TYPE spectrumLock = portMUX_INITIALIZER_UNLOCKED;
+static CaptureSource spectrumSource = CaptureSource::adc;
+static bool spectrumAvailable = false;
 static PcmHistory<kSampleRate> radioHistory, micHistory;
 static float automaticDcLevel = 2048.0f;
 
 bool recorderAdcReady() { return adcReady; }
 bool recorderMicReady() { return micReady; }
+
+static void publishSpectrum(CaptureSource source, const uint8_t *samples, size_t length) {
+  if (length < kSpectrumPcmBytes) return;
+  portENTER_CRITICAL(&spectrumLock);
+  memcpy(spectrumPcm, samples + length - kSpectrumPcmBytes, kSpectrumPcmBytes);
+  spectrumSource = source;
+  spectrumAvailable = true;
+  portEXIT_CRITICAL(&spectrumLock);
+}
+
+bool recorderSpectrumSnapshot(CaptureSource source, uint8_t *samples) {
+  bool active = captureState.load() == CaptureState::recording && captureSource.load() == source;
+  active = active || (source == CaptureSource::microphone ? micSignalActive.load() : signalActive.load());
+  if (!active) return false;
+  portENTER_CRITICAL(&spectrumLock);
+  bool available = spectrumAvailable && spectrumSource == source;
+  if (available) memcpy(samples, spectrumPcm, kSpectrumPcmBytes);
+  portEXIT_CRITICAL(&spectrumLock);
+  return available;
+}
 
 AdcProbeResult recorderReadAdcSamples(uint8_t gpio, uint16_t *samples) {
   if (automaticAnyArmed()) return AdcProbeResult::busy;
@@ -324,6 +348,7 @@ esp_err_t readMicFrame(SignalWindow &window, size_t &pcmLength, uint32_t timeout
     if (publishSignal) addMicSignalSample(window, pcm);
   }
   if (automaticMonitorMic()) micHistory.push(pcmBuffer, pcmLength);
+  publishSpectrum(CaptureSource::microphone, pcmBuffer, pcmLength);
   return ESP_OK;
 }
 
@@ -674,6 +699,7 @@ void recordLoop(void *) {
         }
         if (automaticMonitorRadio()) automaticDcLevel = dcLevel;
         queueLiveAudio(pcmBuffer, pcmLength);
+        publishSpectrum(CaptureSource::adc, pcmBuffer, pcmLength);
         if (dataBytes > kMaxWavBytes - pcmLength || file.write(pcmBuffer, pcmLength) != pcmLength) {
           snprintf(lastError, sizeof(lastError), "SD write failed or WAV size limit reached");
           break;

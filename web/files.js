@@ -20,8 +20,6 @@ const speakerVolume = document.querySelector("#speakerVolume"),
 const radioVolume = document.querySelector("#radioVolume"),
   radioVolumeValue = document.querySelector("#radioVolumeValue"),
   radioBoost = document.querySelector("#radioBoost"),
-  playbackProgressWrap = document.querySelector("#playbackProgressWrap"),
-  playbackProgress = document.querySelector("#playbackProgress"),
   playbackTime = document.querySelector("#playbackTime");
 let next = 0,
   loading = false,
@@ -34,7 +32,8 @@ let volumeQueued = null,
   radioBoostUpdating = false;
 let playbackRequestError = "";
 let lastPlaybackFinished = false,
-  wasPlaying = false;
+  wasPlaying = false,
+  lastPlaybackPaused = false;
 let demoBase = 0,
   demoSyncedAt = performance.now(),
   clockSource = "unset";
@@ -53,6 +52,185 @@ setInterval(renderDemoClock, 1000);
 const sound = (name) =>
   /\.(wav|mp3|m4a|mp4|ogg|oga|opus|flac|aac|webm)$/i.test(name);
 const link = (path) => "/files?dir=" + encodeURIComponent(path);
+const playbackDialog = document.querySelector("#playbackDialog"),
+  playbackTitle = document.querySelector("#playbackTitle"),
+  playbackWaveform = document.querySelector("#playbackWaveform"),
+  playbackSeek = document.querySelector("#playbackSeek"),
+  playbackHead = document.querySelector("#playbackHead"),
+  playbackPause = document.querySelector("#playbackPause"),
+  browserAudio = document.querySelector("#browserAudio"),
+  dialogVolume = document.querySelector("#dialogVolume"),
+  dialogGain = document.querySelector("#dialogGain");
+let playbackSession = null;
+function playbackClock(seconds) {
+  seconds = Math.max(0, Math.floor(seconds || 0));
+  return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
+}
+function updatePlayhead(fraction, duration) {
+  const progress = Math.max(0, Math.min(1, fraction || 0));
+  if (!playbackSeek.matches(":active")) playbackSeek.value = Math.round(progress * 1000);
+  playbackHead.style.setProperty("--position", progress * 100 + "%");
+  playbackTime.textContent = playbackClock(progress * duration) + " / " + playbackClock(duration);
+}
+function drawWaveform() {
+  const width = playbackWaveform.clientWidth, height = playbackWaveform.clientHeight;
+  if (!width) return;
+  const ratio = devicePixelRatio || 1, context = playbackWaveform.getContext("2d");
+  playbackWaveform.width = Math.round(width * ratio);
+  playbackWaveform.height = Math.round(height * ratio);
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  const peaks = playbackSession?.peaks || [];
+  context.fillStyle = "#86c3b4";
+  for (const [index, peak] of peaks.entries()) {
+    const amplitude = Math.max(1, peak / 32768 * (height - 18));
+    context.fillRect(index * width / peaks.length, (height - amplitude) / 2,
+      Math.max(1, width / peaks.length - 1), amplitude);
+  }
+  context.strokeStyle = "#41736e";
+  context.beginPath(); context.moveTo(0, height / 2); context.lineTo(width, height / 2); context.stroke();
+}
+async function loadWaveform(item, target, session) {
+  try {
+    if (/\.wav$/i.test(item.name)) {
+      const response = await fetch("/api/play/waveform?path=" + encodeURIComponent(item.path), { cache: "no-store" });
+      if (!response.ok) throw Error();
+      const data = await response.json();
+      session.peaks = data.peaks;
+      session.duration = data.bytes / 44100;
+    } else if (target === "browser" && item.bytes <= 12 * 1024 * 1024) {
+      const response = await fetch("/file?path=" + encodeURIComponent(item.path));
+      if (!response.ok) throw Error();
+      const context = new AudioContext();
+      try {
+        const audio = await context.decodeAudioData(await response.arrayBuffer());
+        session.duration = audio.duration;
+        const channel = audio.getChannelData(0);
+        session.peaks = Array.from({length:128}, (_, index) => {
+          let peak = 0;
+          const start = Math.floor(index * channel.length / 128);
+          const end = Math.floor((index + 1) * channel.length / 128);
+          for (let frame = start; frame < end; frame += Math.max(1, Math.floor((end - start) / 1024)))
+            peak = Math.max(peak, Math.abs(channel[frame]));
+          return peak * 32768;
+        });
+      } finally { await context.close(); }
+    } else throw Error();
+    if (playbackSession !== session) return;
+    document.querySelector("#waveformStatus").textContent = "";
+    drawWaveform();
+  } catch {
+    if (playbackSession === session) document.querySelector("#waveformStatus").textContent = "Waveform unavailable for this file.";
+  }
+}
+function configureDialogVolume(target) {
+  const volume = target === "radio" ? radioVolume : target === "speaker" ? speakerVolume : browserAudio;
+  const gain = target === "radio" ? radioBoost : speakerBoost;
+  document.querySelector('label[for="dialogVolume"]').textContent = target === "browser" ? "Browser volume" : target === "radio" ? "Radio DAC volume" : "ESP speaker volume";
+  dialogVolume.value = target === "browser" ? Math.round(volume.volume * 100) : volume.value;
+  document.querySelector("#dialogVolumeValue").textContent = dialogVolume.value + "%";
+  document.querySelector("#dialogGainLabel").hidden = target === "browser";
+  dialogGain.hidden = target === "browser";
+  if (target !== "browser") {
+    dialogGain.replaceChildren(...[...gain.options].map((option) => option.cloneNode(true)));
+    dialogGain.value = gain.value;
+  }
+}
+function openPlayback(item, target) {
+  if (playbackDialog.open || (target !== "browser" && wasPlaying)) return;
+  playbackSession = { path: item.path, target, peaks: [], duration: 0 };
+  playbackTitle.textContent = item.name;
+  speakerStatus.textContent = "Loading playback...";
+  document.querySelector("#waveformStatus").textContent = "";
+  playbackPause.disabled = false;
+  speakerStop.disabled = false;
+  playbackPause.textContent = "❚❚";
+  playbackPause.setAttribute("aria-label", "Pause");
+  playbackDialog.showModal();
+  updatePlayhead(0, 0);
+  drawWaveform();
+  configureDialogVolume(target);
+  const session = playbackSession;
+  if (target === "browser") {
+    browserAudio.src = "/file?path=" + encodeURIComponent(item.path);
+    browserAudio.play().catch(() => { if (playbackSession === session) speakerStatus.textContent = "Browser playback unavailable."; });
+    loadWaveform(item, target, session);
+  } else {
+    loadWaveform(item, target, session).then(async () => {
+      if (playbackSession === session) {
+        if (!await playOnEsp(item.path, target)) { playbackPause.disabled = true; speakerStop.disabled = true; }
+      }
+    });
+  }
+}
+dialogVolume.addEventListener("input", () => {
+  const value = Number(dialogVolume.value), target = playbackSession?.target;
+  document.querySelector("#dialogVolumeValue").textContent = value + "%";
+  if (target === "browser") browserAudio.volume = value / 100;
+  if (target === "speaker") setSpeakerVolume(value);
+  if (target === "radio") setRadioVolume(value);
+});
+dialogGain.addEventListener("change", () => {
+  const gain = playbackSession?.target === "radio" ? radioBoost : speakerBoost;
+  gain.value = dialogGain.value;
+  gain.dispatchEvent(new Event("change"));
+});
+browserAudio.addEventListener("timeupdate", () => {
+  if (playbackSession?.target === "browser" && Number.isFinite(browserAudio.duration))
+    updatePlayhead(browserAudio.currentTime / browserAudio.duration, browserAudio.duration);
+});
+browserAudio.addEventListener("ended", () => {
+  speakerStatus.textContent = "Playback finished";
+  playbackPause.disabled = true; speakerStop.disabled = true;
+});
+browserAudio.addEventListener("playing", () => { speakerStatus.textContent = "Browser playback"; });
+playbackSeek.addEventListener("change", async () => {
+  const session = playbackSession;
+  if (!session) return;
+  const fraction = Number(playbackSeek.value) / 1000;
+  if (session.target === "browser") {
+    if (Number.isFinite(browserAudio.duration)) browserAudio.currentTime = fraction * browserAudio.duration;
+  } else if (session.bytesTotal) {
+    const offset = Math.min(session.bytesTotal - 2, Math.floor(fraction * session.bytesTotal / 2) * 2);
+    const response = await fetch("/api/play/seek?offset=" + offset, { method: "POST" });
+    if (!response.ok) speakerStatus.textContent = "Could not seek playback.";
+  }
+});
+playbackSeek.addEventListener("input", () => {
+  const fraction = Number(playbackSeek.value) / 1000;
+  playbackHead.style.setProperty("--position", fraction * 100 + "%");
+  playbackTime.textContent = playbackClock(fraction * (playbackSession?.duration || 0)) + " / " + playbackClock(playbackSession?.duration);
+});
+playbackPause.addEventListener("click", async () => {
+  const target = playbackSession?.target;
+  if (!target) return;
+  if (target === "browser") {
+    if (browserAudio.paused) await browserAudio.play().catch(() => {});
+    else browserAudio.pause();
+  } else {
+    const response = await fetch("/api/play/pause?paused=" + (lastPlaybackPaused ? "0" : "1"), { method: "POST" });
+    if (!response.ok) { speakerStatus.textContent = "Could not pause playback."; return; }
+    await refreshSpeaker();
+  }
+  const paused = target === "browser" ? browserAudio.paused : lastPlaybackPaused;
+  playbackPause.textContent = paused ? "▶" : "❚❚";
+  playbackPause.setAttribute("aria-label", paused ? "Resume" : "Pause");
+});
+async function closePlayback() {
+  if (playbackSession?.target === "browser") { browserAudio.pause(); browserAudio.removeAttribute("src"); browserAudio.load(); }
+  else if (playbackSession && wasPlaying) {
+    try {
+      const response = await fetch("/api/play/stop", { method: "POST" });
+      if (!response.ok && response.status !== 409) throw Error();
+    } catch { speakerStatus.textContent = "Could not stop."; return; }
+  }
+  playbackSession = null;
+  playbackDialog.close();
+  refreshSpeaker();
+}
+document.querySelector("#playbackClose").addEventListener("click", closePlayback);
+playbackDialog.addEventListener("cancel", (event) => { event.preventDefault(); closePlayback(); });
+addEventListener("resize", () => { if (playbackDialog.open) drawWaveform(); });
 async function sendSpeakerVolume() {
   if (volumeSending) return;
   volumeSending = true;
@@ -155,12 +333,13 @@ async function refreshSpeaker() {
     if (wasPlaying && !playing && !data.playbackError) lastPlaybackFinished = true;
     if (playing) lastPlaybackFinished = false;
     wasPlaying = playing;
+    lastPlaybackPaused = !!data.playbackPaused;
     demoBase = data.demoSeconds;
     clockSource = data.clock?.source || "unset";
     demoSyncedAt = performance.now();
     renderDemoClock();
-    speakerStop.disabled = !playing;
-    speakerStatus.textContent = playing
+    speakerStop.disabled = !playing && playbackSession?.target !== "browser";
+    if (playbackSession?.target !== "browser") speakerStatus.textContent = playing
       ? (data.playbackTarget === "radio" ? "Radio DAC: " : "ESP speaker: ") +
         (data.playback === "starting" ? "Starting..." : data.playbackPath)
       : data.playbackError || playbackRequestError ||
@@ -168,14 +347,14 @@ async function refreshSpeaker() {
           data.radioReady === false ? "Radio DAC: unavailable" : "Playback: off");
     const bytesTotal = Number(data.playbackBytesTotal) || 0;
     const bytesPlayed = Math.min(bytesTotal, Number(data.playbackBytesPlayed) || 0);
-    playbackProgressWrap.hidden = !playing || !bytesTotal;
-    playbackProgress.max = Math.max(bytesTotal, 1);
-    playbackProgress.value = bytesPlayed;
-    const playbackClock = (bytes) => {
-      const seconds = Math.floor(bytes / (22050 * 2));
-      return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
-    };
-    playbackTime.textContent = playbackClock(bytesPlayed) + " / " + playbackClock(bytesTotal);
+    if (playbackSession && playbackSession.target !== "browser") {
+      playbackSession.bytesTotal = bytesTotal;
+      if (bytesTotal) playbackSession.duration = bytesTotal / 44100;
+      if (playing && bytesTotal) updatePlayhead(bytesPlayed / bytesTotal, playbackSession.duration);
+      playbackPause.disabled = !playing || data.playback === "starting";
+      playbackPause.textContent = lastPlaybackPaused ? "▶" : "❚❚";
+      playbackPause.setAttribute("aria-label", lastPlaybackPaused ? "Resume" : "Pause");
+    }
     if (!volumeSending) {
       speakerVolume.value = data.speakerVolume;
       speakerVolumeValue.textContent = data.speakerVolume + "%";
@@ -188,10 +367,14 @@ async function refreshSpeaker() {
       radioVolume.value = data.radioVolume;
       radioVolumeValue.textContent = data.radioVolume + "%";
     }
+    if (playbackSession?.target === "speaker" || playbackSession?.target === "radio")
+      if (!dialogVolume.matches(":active")) configureDialogVolume(playbackSession.target);
     speakerBoost.disabled = !data.speakerReady || boostUpdating;
     if (!boostUpdating) speakerBoost.value = String(data.speakerBoost);
     for (const button of listEl.querySelectorAll("[data-esp-play]"))
       button.disabled = playing || data.state !== "idle" || !data.speakerReady;
+    for (const button of listEl.querySelectorAll("[data-browser-play]"))
+      button.disabled = playing || !!playbackSession;
     for (const button of listEl.querySelectorAll("[data-radio-play]")) {
       button.disabled = playing || data.state !== "idle" || !data.radioReady;
       button.title = !data.radioReady
@@ -199,7 +382,7 @@ async function refreshSpeaker() {
         : "Play through the radio DAC";
     }
   } catch {
-    speakerStatus.textContent = playbackRequestError || "ESP playback status unavailable.";
+    if (playbackSession?.target !== "browser") speakerStatus.textContent = playbackRequestError || "ESP playback status unavailable.";
   }
 }
 async function playOnEsp(path, target = "speaker") {
@@ -211,13 +394,21 @@ async function playOnEsp(path, target = "speaker") {
     });
     if (!response.ok) throw Error(await response.text());
     await refreshSpeaker();
+    return true;
   } catch (error) {
     playbackRequestError = error.message || "Could not start ESP playback.";
     speakerStatus.textContent = playbackRequestError;
+    return false;
   }
 }
 speakerStop.addEventListener("click", async () => {
   speakerStop.disabled = true;
+  if (playbackSession?.target === "browser") {
+    browserAudio.pause(); browserAudio.currentTime = 0;
+    playbackPause.disabled = true;
+    speakerStatus.textContent = "Playback stopped";
+    return;
+  }
   try {
     const response = await fetch("/api/play/stop", { method: "POST" });
     if (!response.ok) throw Error(await response.text());
@@ -227,6 +418,7 @@ speakerStop.addEventListener("click", async () => {
   }
   await refreshSpeaker();
 });
+setInterval(() => { if (playbackDialog.open && playbackSession?.target !== "browser") refreshSpeaker(); }, 500);
 function breadcrumbs() {
   const crumbs = document.querySelector("#crumbs");
   let path = "";

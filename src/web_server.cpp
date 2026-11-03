@@ -153,6 +153,7 @@ void sendStatus() {
   json += ",\"radioBoost\":" + String(speaker.radioBoost);
   json += ",\"playbackBytesPlayed\":" + String(speaker.bytesPlayed);
   json += ",\"playbackBytesTotal\":" + String(speaker.bytesTotal);
+  json += ",\"playbackPaused\":" + String(speaker.paused ? "true" : "false");
   json += ",\"playback\":\"" + String(playback == PlaybackState::idle ? "idle" : playback == PlaybackState::starting ? "starting" : "playing") + "\"";
   json += ",\"playbackTarget\":\"" + String(speaker.target == PlaybackTarget::radio ? "radio" : "speaker") + "\"";
   json += ",\"playbackPath\":\"" + speaker.path + "\"";
@@ -736,6 +737,38 @@ void startSpeakerPlayback() {
   server.send(200, "text/plain", target == PlaybackTarget::radio ? "Playing on radio DAC" : "Playing on ESP speaker");
 }
 
+void sendPlaybackWaveform() {
+  wifiManagerNotifyActivity();
+  String path = server.arg("path"), lower = path;
+  lower.toLowerCase();
+  if (!safeSdPath(path) || path == "/" || !lower.endsWith(".wav")) { server.send(400, "text/plain", "Invalid WAV path"); return; }
+  if (!appSdReady() || recorderState() != CaptureState::idle || fileManagerBusy() || automaticAnyArmed() ||
+      playbackGetState() != PlaybackState::idle) { server.send(409, "text/plain", "SD busy"); return; }
+  File file = SD_MMC.open(path, FILE_READ);
+  if (!file || file.isDirectory()) { server.send(404, "text/plain", "WAV not found"); return; }
+  uint32_t length = 0;
+  if (!findPcmData(file, length)) { file.close(); server.send(415, "text/plain", "Unsupported PCM WAV"); return; }
+  uint32_t start = file.position();
+  String json = "{\"bytes\":" + String(length) + ",\"peaks\":[";
+  json.reserve(800);
+  uint8_t samples[2048];
+  for (uint32_t bucket = 0; bucket < 128; ++bucket) {
+    uint32_t position = start + (static_cast<uint64_t>(length) * bucket / 128 & ~1ULL);
+    if (!file.seek(position)) { file.close(); server.send(500, "text/plain", "WAV scan failed"); return; }
+    size_t count = file.read(samples, min(static_cast<uint32_t>(sizeof(samples)), start + length - position));
+    uint16_t peak = 0;
+    for (size_t index = 0; index + 1 < count; index += 2)
+      peak = max(peak, static_cast<uint16_t>(abs(static_cast<int32_t>(static_cast<int16_t>(wav16(samples + index))))));
+    if (bucket) json += ',';
+    json += String(peak);
+    if ((bucket & 7) == 7) { watchdogResetCurrentTask(); delay(1); }
+  }
+  file.close();
+  json += "]}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", json);
+}
+
 void initWeb() {
   server.on("/radio", HTTP_GET, []() {
     wifiManagerNotifyActivity();
@@ -889,6 +922,21 @@ void initWeb() {
   });
   server.on("/api/status", HTTP_GET, sendStatus);
   server.on("/api/play", HTTP_POST, startSpeakerPlayback);
+  server.on("/api/play/waveform", HTTP_GET, sendPlaybackWaveform);
+  server.on("/api/play/pause", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    String paused = server.arg("paused");
+    if (paused != "0" && paused != "1") { server.send(400, "text/plain", "Invalid pause setting"); return; }
+    server.send(playbackPause(paused == "1") ? 200 : 409, "text/plain", "Playback pause");
+  });
+  server.on("/api/play/seek", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    String text = server.arg("offset");
+    if (text.isEmpty() || text.length() > 10) { server.send(400, "text/plain", "Invalid offset"); return; }
+    for (char digit : text) if (!isDigit(digit)) { server.send(400, "text/plain", "Invalid offset"); return; }
+    uint64_t offset = strtoull(text.c_str(), nullptr, 10);
+    server.send(offset <= UINT32_MAX && playbackSeek(static_cast<uint32_t>(offset)) ? 200 : 409, "text/plain", "Playback seek");
+  });
   server.on("/api/dac-tone", HTTP_POST, []() {
     wifiManagerNotifyActivity();
     String frequency = server.arg("frequency");
@@ -1018,6 +1066,19 @@ void initWeb() {
   server.on("/api/files/delete", HTTP_POST, deleteSdEntry);
   server.on("/api/files/download", HTTP_GET, downloadSdFolder);
   server.on("/api/signal", HTTP_GET, sendSignal);
+  server.on("/api/spectrum", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    const String source = server.arg("source");
+    if (source != "radio" && source != "microphone") { server.send(400, "text/plain", "Invalid source"); return; }
+    uint8_t samples[kSpectrumPcmBytes];
+    if (!recorderSpectrumSnapshot(source == "microphone" ? CaptureSource::microphone : CaptureSource::adc, samples)) {
+      server.send(204); return;
+    }
+    server.sendHeader("Cache-Control", "no-store");
+    server.setContentLength(sizeof(samples));
+    server.send(200, "application/octet-stream", "");
+    server.sendContent(reinterpret_cast<const char *>(samples), sizeof(samples));
+  });
   server.on("/api/adc/raw", HTTP_GET, []() {
     wifiManagerNotifyActivity();
     String pin = server.arg("gpio");

@@ -30,6 +30,8 @@ static std::atomic<uint8_t> radioVolume{5};
 static std::atomic<uint8_t> radioBoost{1};
 static std::atomic<uint32_t> playbackBytesPlayed{0};
 static std::atomic<uint32_t> playbackBytesTotal{0};
+static std::atomic<bool> playbackPaused{false};
+static std::atomic<uint32_t> playbackSeekOffset{UINT32_MAX};
 static constexpr char kSpeakerSettingsNamespace[] = "radio-recorder";
 static constexpr char kSpeakerVolumeKey[] = "spkVol";
 static constexpr char kSpeakerBoostKey[] = "spkBoost";
@@ -108,6 +110,7 @@ PlaybackStatus playbackStatus() {
       cuePlaying.load() ? PlaybackTarget::speaker : playbackTarget, speakerVolume.load(), speakerBoost.load(),
       radioVolume.load(), radioBoost.load(), cuePlaying.load() ? 0 : playbackBytesPlayed.load(),
       cuePlaying.load() ? 0 : playbackBytesTotal.load(),
+      playbackPaused.load() && state == PlaybackState::playing,
       state == PlaybackState::idle ? "" : cuePlaying.load() ? "Firmware cue" : playbackPath, playbackError};
 }
 
@@ -118,6 +121,8 @@ void playbackStart(const String &path, PlaybackTarget target) {
   playbackError[0] = '\0';
   playbackBytesPlayed.store(0);
   playbackBytesTotal.store(0);
+  playbackPaused.store(false);
+  playbackSeekOffset.store(UINT32_MAX);
   playbackStopRequested.store(false);
   playbackState.store(PlaybackState::starting);
   xTaskNotifyGive(playbackTask);
@@ -154,6 +159,19 @@ void playbackPlayCue(PlaybackCue cue) {
 bool playbackStop() {
   if (playbackState.load() == PlaybackState::idle) return false;
   playbackStopRequested.store(true);
+  return true;
+}
+
+bool playbackPause(bool paused) {
+  if (playbackState.load() != PlaybackState::playing || cuePlaying.load() || toneRequested.load()) return false;
+  playbackPaused.store(paused);
+  return true;
+}
+
+bool playbackSeek(uint32_t offset) {
+  uint32_t total = playbackBytesTotal.load();
+  if (playbackState.load() != PlaybackState::playing || !total || offset >= total || cuePlaying.load()) return false;
+  playbackSeekOffset.store(offset & ~1U);
   return true;
 }
 
@@ -347,6 +365,7 @@ static void speakerLoop(void *) {
                  esp_err_to_name(enableResult));
       } else {
         playbackState.store(PlaybackState::playing);
+        uint32_t dataOffset = file.position();
         uint8_t input[512];
         int16_t output[512];
         int16_t radioOutput[1024];
@@ -355,6 +374,13 @@ static void speakerLoop(void *) {
         bool radioFirstBlockReported = false;
         while (remaining && !playbackStopRequested.load()) {
           if (playbackWatchdog) watchdogResetCurrentTask();
+          uint32_t seek = playbackSeekOffset.exchange(UINT32_MAX);
+          if (seek != UINT32_MAX) {
+            if (!file.seek(dataOffset + seek)) { snprintf(playbackError, sizeof(playbackError), "WAV seek failed"); break; }
+            remaining = playbackBytesTotal.load() - seek;
+            playbackBytesPlayed.store(seek);
+          }
+          if (playbackPaused.load()) { vTaskDelay(pdMS_TO_TICKS(20)); continue; }
           size_t count = file.read(input, min(static_cast<uint32_t>(sizeof(input)), remaining));
           if (!count || (count & 1)) {
             snprintf(playbackError, sizeof(playbackError), "WAV read failed");
@@ -421,6 +447,8 @@ static void speakerLoop(void *) {
     }
     if (radio && !speakerReady) stopDacOutput(outputHandle, enabled);
     if (file) file.close();
+    playbackPaused.store(false);
+    playbackSeekOffset.store(UINT32_MAX);
     playbackState.store(PlaybackState::idle);
     watchdogUnsubscribeCurrentTask(playbackWatchdog);
   }

@@ -25,6 +25,7 @@ struct PlaybackStatus {
   uint8_t radioBoost;
   uint32_t bytesPlayed;
   uint32_t bytesTotal;
+  bool paused;
   String path;
   String error;
 };
@@ -36,6 +37,8 @@ void playbackStart(const String &path, PlaybackTarget target = PlaybackTarget::s
 bool playbackStartTone(const DacToneSettings &settings);
 void playbackPlayCue(PlaybackCue cue);
 bool playbackStop();
+bool playbackPause(bool paused);
+bool playbackSeek(uint32_t offset);
 void playbackSetVolume(uint8_t volume);
 void playbackSetRadioVolume(uint8_t volume);
 void playbackSetRadioBoost(uint8_t boost);

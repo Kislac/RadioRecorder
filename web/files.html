@@ -26,15 +26,7 @@
           <input id="uploadFiles" type="file" multiple hidden />
         </div>
       </div>
-      <div class="toolbar">
-        <span id="speakerStatus">Playback: off</span
-        ><button id="speakerStop" disabled>Stop playback</button>
-      </div>
-      <div id="playbackProgressWrap" class="playback-progress" hidden>
-        <progress id="playbackProgress" max="1" value="0" aria-label="Playback progress"></progress>
-        <output id="playbackTime">0:00 / 0:00</output>
-      </div>
-      <details class="player-controls"><summary>Playback controls</summary>
+      <section class="player-controls"><h2>Volume</h2><div class="volume-grid">
       <div class="speaker-volume">
         <label for="speakerVolume">ESP speaker volume</label
         ><input
@@ -87,7 +79,7 @@
           <option value="16">16×</option>
         </select>
       </div>
-      </details>
+      </div></section>
       <div class="file-controls">
         <input id="fileSearch" type="search" placeholder="Search this folder" aria-label="Search this folder" />
         <label>Sort <select id="fileSort"><option value="date">Date</option><option value="name">Name</option><option value="size">Size</option></select></label>
@@ -126,6 +118,14 @@
           <p id="dialogError" role="status"></p>
           <div class="dialog-actions"><button id="dialogCancel" type="button">Cancel</button><button id="dialogSubmit" type="submit">Apply</button></div>
         </form>
+      </dialog>
+      <dialog id="playbackDialog" aria-labelledby="playbackTitle">
+        <div class="playback-heading"><h2 id="playbackTitle" data-i18n-ignore>Playback</h2><button id="playbackClose" type="button" aria-label="Close" title="Close">&times;</button></div>
+        <p id="speakerStatus" role="status">Playback: off</p>
+        <div class="waveform-wrap"><canvas id="playbackWaveform" role="img" aria-label="Recording loudness over time"></canvas><input id="playbackSeek" type="range" min="0" max="1000" value="0" aria-label="Seek in recording" /><span id="playbackHead" aria-hidden="true"></span></div><p id="waveformStatus" role="status"></p>
+        <div class="playback-actions"><button id="playbackPause" type="button" aria-label="Pause" title="Pause">&#10074;&#10074;</button><button id="speakerStop" type="button" disabled aria-label="Stop playback" title="Stop playback">&#9632;</button><output id="playbackTime">0:00 / 0:00</output></div>
+        <details id="playbackVolume"><summary>Volume</summary><div class="dialog-volume"><label for="dialogVolume">Volume</label><input id="dialogVolume" type="range" min="0" max="100" value="25" /><output id="dialogVolumeValue" for="dialogVolume">25%</output><label id="dialogGainLabel" for="dialogGain">Playback gain</label><select id="dialogGain"></select></div></details>
+        <audio id="browserAudio" preload="metadata"></audio>
       </dialog>
       <iframe id="downloadFrame" title="ZIP download" hidden></iframe>
     </main>

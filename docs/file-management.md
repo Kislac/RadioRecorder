@@ -12,7 +12,7 @@ Sorting happens on the ESP before pagination. Web pages contain at most 20 items
 
 Select individual rows or all loaded rows for copy, move, or delete. Rename and new-folder dialogs validate names. A destination-folder picker supports copy/move; for a single item its destination name is editable, including copies within the same folder. File and folder copies/moves are supported. Existing destinations are never overwritten.
 
-Upload accepts one or more browser files. Download remains available for files, while folders have ZIP download. WAV files retain browser, speaker, and radio DAC playback; PTT is not activated. Arbitrarily renamed/moved WAVs are discoverable without recording-name prefixes. Playback controls are expandable above the list.
+Upload accepts one or more browser files. Download remains available for files, while folders have ZIP download. WAV files retain browser, speaker, and radio DAC playback; PTT is not activated. Arbitrarily renamed/moved WAVs are discoverable without recording-name prefixes. All three actions open one playback dialog with a full-length loudness envelope, a seekable playhead, pause/resume, and output-specific expandable volume/gain controls. The page-level speaker and radio volume controls remain visible side by side. The waveform API samples up to 2 KiB at each of 128 evenly spaced positions (at most 256 KiB read), so short peaks between samples may be missed; it accepts mono 16-bit 22 050 Hz PCM WAV while browser-only formats use browser decoding up to 12 MiB. Speaker/radio playback supports seeking only after playback has started, not during DAC tone or firmware cues.
 
 The operation panel shows preparation, file/byte counts, progress, verification, average rate, estimated remaining time and cancellation. Preparation has no guessed percentage. Verification is indeterminate. Batch cancellation stops the current operation and remaining queue; already completed earlier items remain completed.
 
@@ -37,6 +37,8 @@ All modifying requests below use JSON. Job responses are HTTP 202; mkdir/rename 
 | Endpoint | Request |
 | --- | --- |
 | `GET /api/files` | `dir`, `sort=date/name/size`, `order=asc/desc`, optional `filter`, `after`, `revision` |
+| `GET /api/play/waveform` | `path` to supported PCM WAV; returns `bytes` and 128 sampled peak levels (read-only, idle SD only) |
+| `POST /api/play/pause`, `/api/play/seek` | `paused=0/1`, or even PCM byte `offset` below `playbackBytesTotal`; active file playback only |
 | `POST /api/files/mkdir` | `{"path":"/New folder"}` |
 | `POST /api/files/rename` | `{"source":"/old.wav","destination":"/new.wav"}` |
 | `POST /api/files/jobs` | `action=copy/move/delete/zip/upload`, `source`, `destination`; delete requires `confirm:true`; upload requires `bytes` |

@@ -51,18 +51,20 @@ function render(item) {
     const download = document.createElement("a"); download.href = "/file?path=" + encodeURIComponent(item.path) + "&download=1";
     download.textContent = "Download"; download.download = item.name; options.append(download);
     download.addEventListener("click", event => { if (operationActive) { event.preventDefault(); message.textContent = "File operation busy"; } });
-    if (sound(item.name)) options.append(actionButton("Play in browser", () => {
-      const existing = name.querySelector("audio");
-      if (existing) { existing.pause(); existing.remove(); return; }
-      const audio = document.createElement("audio"); audio.controls = true; audio.src = "/file?path=" + encodeURIComponent(item.path);
-      name.append(audio); audio.play().catch(() => {});
-    }));
+    if (sound(item.name)) {
+      const browserButton = actionButton("Play in browser", () => openPlayback(item, "browser"));
+      browserButton.dataset.browserPlay = "";
+      options.append(browserButton);
+    }
   }
   options.append(actionButton("Rename", () => openDialog("rename", [item])),
     actionButton("Copy", () => openDialog("copy", [item])), actionButton("Move", () => openDialog("move", [item])),
     actionButton("Delete", () => deleteItems([item])));
   if (!item.directory && /\.wav$/i.test(item.name)) {
-    options.append(actionButton("Play on Speaker", () => playOnEsp(item.path)), actionButton("Play on Radio", () => playOnEsp(item.path, "radio")));
+    const speaker = actionButton("Play on Speaker", () => openPlayback(item, "speaker"));
+    const radio = actionButton("Play on Radio", () => openPlayback(item, "radio"));
+    speaker.dataset.espPlay = ""; radio.dataset.radioPlay = "";
+    options.append(speaker, radio);
   }
   menu.addEventListener("toggle", () => {
     if (!menu.open) return;

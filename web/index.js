@@ -41,8 +41,10 @@ for (const input of [...modeInputs, ...sourceInputs]) input.addEventListener("ch
   document.querySelector("#monitorState").textContent = "NO LIVE DATA";
   if (lastStatus) {
     renderRecordAction(lastStatus);
-    showCurrentLevel(selectedSource());
   }
+  if (selectedSource() === "radio") drawSignal();
+  else drawSignal(micSignalChart, micSignalHistory, 32768);
+  resetSpectrum();
 });
 recordAction.addEventListener("click", async () => {
   if (recordAction.disabled) return;
@@ -90,16 +92,60 @@ function renderDemoClock() {
 setInterval(renderDemoClock, 1000);
 const signalHistory = [];
 const micSignalHistory = [];
-function showCurrentLevel(source, rms = 0, peak = null) {
-  if (source !== selectedSource()) return;
-  const maximum = source === "radio" ? 4095 : 32768;
-  document.querySelector("#levelRms").style.height = Math.min(56, Math.max(0, rms / maximum * 56)) + "px";
-  document.querySelector("#levelPeak").style.height = peak == null ? "0px" : Math.min(56, Math.max(0, peak / maximum * 56)) + "px";
-  document.querySelector("#levelPeak").parentElement.querySelector("small").textContent = peak == null ? "Peak n/a" : "Peak";
+const spectrumBands = [...document.querySelectorAll(".home-spectrum-bands span")];
+const spectrumFrequencies = [125, 250, 500, 1000, 2000, 4000, 8000, 10000];
+let spectrumPending = false;
+function resetSpectrum() {
+  for (const band of spectrumBands) {
+    band.style.removeProperty("--level");
+    band.style.removeProperty("--bar-color");
+  }
+  document.querySelector("#spectrumState").textContent = "NO PCM DATA";
 }
+function drawSpectrum(buffer) {
+  if (buffer.byteLength !== 1024) return resetSpectrum();
+  const view = new DataView(buffer);
+  const samples = 512;
+  const levels = spectrumFrequencies.map((frequency) => {
+    let real = 0, imaginary = 0;
+    for (let index = 0; index < samples; index++) {
+      const window = 0.5 - 0.5 * Math.cos(2 * Math.PI * index / (samples - 1));
+      const phase = 2 * Math.PI * frequency * index / 22050;
+      const value = view.getInt16(index * 2, true) * window;
+      real += value * Math.cos(phase);
+      imaginary += value * Math.sin(phase);
+    }
+    return Math.hypot(real, imaginary);
+  });
+  const strongest = Math.max(...levels);
+  for (const [index, band] of spectrumBands.entries()) {
+    const relative = strongest > 1 ? 20 * Math.log10(Math.max(1, levels[index]) / strongest) : -60;
+    band.style.setProperty("--level", Math.max(2, Math.round(80 * (relative + 60) / 60)) + "px");
+    band.style.setProperty("--bar-color", "#86c3b4");
+  }
+  document.querySelector("#spectrumState").textContent = "LIVE PCM";
+}
+async function pollSpectrum() {
+  if (spectrumPending || !lastStatus) return;
+  const source = selectedSource();
+  if (lastStatus.state === "idle" && !(source === "radio" ? meterRunning : micMeterRunning)) {
+    resetSpectrum();
+    return;
+  }
+  spectrumPending = true;
+  try {
+    const response = await fetch("/api/spectrum?source=" + source, { cache: "no-store" });
+    if (source !== selectedSource()) return;
+    if (response.status === 204) resetSpectrum();
+    else if (response.ok) drawSpectrum(await response.arrayBuffer());
+    else resetSpectrum();
+  } catch { resetSpectrum(); }
+  finally { spectrumPending = false; }
+}
+setInterval(pollSpectrum, 400);
 function drawSignal(chart = signalChart, history = signalHistory, ceiling = 4096) {
   const width = chart.clientWidth,
-    height = 200,
+    height = 160,
     ratio = devicePixelRatio || 1,
     context = chart.getContext("2d");
   chart.width = Math.round(width * ratio);
@@ -138,6 +184,11 @@ function drawSignal(chart = signalChart, history = signalHistory, ceiling = 4096
       left - 7,
       ordinate + 4,
     );
+  }
+  context.textAlign = "center";
+  context.fillStyle = "#acc9c2";
+  for (let seconds = 0; seconds <= 30; seconds += 10) {
+    context.fillText((seconds - 30) + "s", left + (right - left) * seconds / 30, height - 7);
   }
   for (const [key, color] of [
     ["rms", "#86c3b4"],
@@ -185,7 +236,6 @@ async function pollSignal(generation) {
     ) {
       lastSignalSequence = data.sequence;
       signalHistory.push({ rms: data.rms, peak: data.peak });
-      showCurrentLevel("radio", data.rms, data.peak);
       if (signalHistory.length > 120) signalHistory.shift();
       drawSignal();
     }
@@ -259,7 +309,6 @@ async function pollMicSignal(generation) {
     if (data.active && data.sequence > 0 && data.sequence !== lastMicSequence) {
       lastMicSequence = data.sequence;
       micSignalHistory.push({ rms: data.rms, peak: data.peak });
-      showCurrentLevel("microphone", data.rms, data.peak);
       if (micSignalHistory.length > 120) micSignalHistory.shift();
       drawSignal(micSignalChart, micSignalHistory, 32768);
     }
@@ -413,9 +462,8 @@ async function refresh() {
         plot.hidden = false;
         drawSignal(chart, history, source === "radio" ? 4096 : 32768);
         (source === "radio" ? signalValues : micSignalValues).textContent = "RMS: " + sample.rms + " | Peak: unavailable";
-        showCurrentLevel(source, sample.rms);
       }
-    } else if (!monitoring) showCurrentLevel(source);
+    }
   } catch {
     stateEl.textContent = "Connection lost";
     recordAction.disabled = true;
@@ -437,6 +485,7 @@ lowpassToggle.addEventListener("change", async () => {
   await refresh();
   lowpassToggle.disabled = false;
 });
+drawSignal();
 refresh();
 setInterval(refresh, 1500);
 fetch("/api/signal", { cache: "no-store" })

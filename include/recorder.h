@@ -51,3 +51,5 @@ SignalStatus recorderSignalStatus();
 void recorderSetSignal(bool enabled);
 SignalStatus recorderMicSignalStatus();
 bool recorderSetMicSignal(bool enabled);
+constexpr size_t kSpectrumPcmBytes = 1024;
+bool recorderSpectrumSnapshot(CaptureSource source, uint8_t *samples);
