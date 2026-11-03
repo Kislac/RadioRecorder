@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 from scripts.oled_viewer import find_device
 from scripts.test_device import delete_test_recording
-from scripts.test_support import TestRun, firmware_at_least
+from scripts.test_support import TestRun, firmware_at_least, validate_performance_snapshot
 
 
 def wifi_profile(ssid):
@@ -91,6 +91,11 @@ def test_api(base_url, args, report):
     settings = json.loads(request(base_url, "/api/settings"))
     assert 0 <= settings["screenOffMinutes"] <= 999
     assert 0 <= settings["wifiAutoOffMinutes"] <= 999
+    if firmware_at_least(status["version"], (0, 1, 90)):
+        performance = json.loads(request(base_url, "/api/performance"))
+        report.detail("HTTP /api/performance " + json.dumps(performance, sort_keys=True))
+        assert settings["performanceEnabled"] is performance["enabled"]
+        report.detail("Performance: " + validate_performance_snapshot(performance))
     assert settings["wifi"]["mode"] in ("OFF", "AP", "CONNECTING", "STA", "AP+STA")
     assert 0 <= settings["wifiAutoOffMinutes"] <= 999
     assert settings["wifi"]["mode"] in ("OFF", "AP", "CONNECTING", "STA", "AP+STA")
@@ -110,6 +115,25 @@ def test_api(base_url, args, report):
     report.detail("HTTP /api/signal " + json.dumps(signal, sort_keys=True))
     report.detail("HTTP pages: /={} bytes, /files={} bytes, /settings={} bytes".format(*page_lengths))
     return status
+
+
+def test_performance_switch(base_url, report):
+    original = json.loads(request(base_url, "/api/performance"))["enabled"]
+    target = not original
+    try:
+        changed = json.loads(request(base_url, "/api/performance?enabled=" + str(int(target)), "POST"))
+        assert changed["enabled"] is target
+        assert json.loads(request(base_url, "/api/settings"))["performanceEnabled"] is target
+        validate_performance_snapshot(changed)
+    finally:
+        restored = json.loads(request(base_url, "/api/performance?enabled=" + str(int(original)), "POST"))
+        assert restored["enabled"] is original
+        report.detail("Performance diagnostics restored to " + str(original))
+    return "NVS setting toggled and original state restored"
+
+
+def recording_metadata_found(files, path):
+    return any(file.get("path") == path and file.get("bytes", 0) >= 44 for file in files)
 
 
 def test_record_and_delete(base_url, status, report):
@@ -159,7 +183,7 @@ def test_record_and_delete(base_url, status, report):
         if idle:
             try:
                 files = json.loads(request(base_url, "/api/recordings"))["files"]
-                if not any(file["name"] == name and file["bytes"] >= 44 for file in files):
+                if not recording_metadata_found(files, name):
                     raise AssertionError("New recording not found in file list: " + name)
                 report.detail("HTTP verified WAV metadata for " + name)
             except Exception as error:
@@ -281,6 +305,11 @@ def main():
                 report.case("File manager read/write operations and exact cleanup", lambda: test_file_operations(base_url, report))
             else:
                 report.skip("File manager read/write operations", "requires reachable ready API and firmware 0.1.76+")
+        if args.record:
+            if passed and firmware_at_least(str(status.get("version", "")), (0, 1, 90)):
+                report.case("Performance setting NVS write and restore", lambda: test_performance_switch(base_url, report))
+            else:
+                report.skip("Performance setting NVS write and restore", "requires reachable firmware 0.1.90+")
     finally:
         successful = report.summary()
     return 0 if successful else 1

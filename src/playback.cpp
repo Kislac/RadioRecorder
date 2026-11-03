@@ -47,6 +47,7 @@ static uint8_t savedRadioBoost = 1;
 static uint32_t speakerSettingsChangedAt = 0;
 static bool speakerSettingsDirty = false;
 static TaskHandle_t playbackTask = nullptr;
+uint32_t playbackStackFreeMinimum() { return playbackTask ? uxTaskGetStackHighWaterMark(playbackTask) : 0; }
 static char playbackPath[221] = {};
 static char playbackError[80] = {};
 static bool speakerReady = false;

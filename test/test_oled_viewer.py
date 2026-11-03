@@ -19,7 +19,8 @@ import xml.etree.ElementTree as ET
 from scripts.oled_viewer import (FRAME_BYTES, KEY_COMMANDS, SCREENSHOT_DIR, bind_controls, body_pixels,
                                  find_device, parse_frame, pixel, read_frame, save_frame_png)
 from scripts.test_device import (DISPLAY_TILES, SETTINGS_TILE, delete_test_recording, menu_state, rtc_live_check, rtc_snapshot,
-                                 test_display_all, test_signal, valid_signal, validate_display_frames, verify_rtc_progress)
+                                 rtc_test_eligible, read_until, test_display_all, test_signal, valid_signal, validate_display_frames,
+                                 verify_rtc_progress)
 from scripts.test_support import TestRun, firmware_at_least
 from scripts.test_watchdog import trigger_and_verify_reset
 from scripts.run_tests import run_suite
@@ -122,6 +123,9 @@ class FrameTests(unittest.TestCase):
         before = {"rtc": 1793270000, "system": 1793270000, "source": "R", "offline": True}
         after = {"rtc": 1793270003, "system": 1793270003, "source": "R", "offline": True}
         self.assertIn("3s", verify_rtc_progress(before, after, 3.2, reboot=True))
+        self.assertTrue(rtc_test_eligible(before))
+        self.assertFalse(rtc_test_eligible({**before, "offline": False}))
+        self.assertFalse(rtc_test_eligible({**before, "source": "N"}))
         for invalid in ({**after, "offline": False}, {**after, "source": "N"},
                         {**after, "rtc": before["rtc"]}, {**after, "system": after["rtc"] + 20}):
             with self.subTest(invalid=invalid), self.assertRaises(AssertionError):
@@ -494,7 +498,9 @@ int main() {
         filename = "/2026-10-28/RadioMan261028_232530.wav"
         device = FakeDevice(b"Delete test WAV: send exact recording path\n",
                             b"Test WAV deleted: /2026-10-28/RadioMan261028_232530.wav\n")
-        self.assertEqual(delete_test_recording(device, filename), "removed " + filename)
+        with patch("scripts.test_device.read_until", wraps=read_until) as reader:
+            self.assertEqual(delete_test_recording(device, filename), "removed " + filename)
+        self.assertEqual(reader.call_args.kwargs["timeout"], 8)
         self.assertEqual(device.commands, [b"x", filename.encode() + b"\n"])
 
     def test_test_recording_delete_rejects_unexpected_path(self):

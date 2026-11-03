@@ -52,4 +52,7 @@ void recorderSetSignal(bool enabled);
 SignalStatus recorderMicSignalStatus();
 bool recorderSetMicSignal(bool enabled);
 constexpr size_t kSpectrumPcmBytes = 1024;
+
+uint32_t recorderStackFreeMinimum();
+uint32_t recorderAdcOverflowCount();
 bool recorderSpectrumSnapshot(CaptureSource source, uint8_t *samples);

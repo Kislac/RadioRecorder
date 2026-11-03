@@ -111,6 +111,7 @@ class PreviewDevice:
         self.radio_boost = 1
         self.boost = 1
         self.screen_minutes = 5
+        self.performance_enabled = True
         self.record_cues = {mode: {"start": 1 if mode.startswith("auto") else 2,
                        "stop": 1 if mode.startswith("auto") else 2}
                     for mode in ("manualMic", "manualRadio", "autoRadio", "autoMic")}
@@ -332,7 +333,21 @@ class PreviewDevice:
                              "error": "" if self.sd_ready else "SD unavailable", "wifi": dict(self.wifi)}
             if path == "/api/settings":
                 return 200, {"screenOffMinutes": self.screen_minutes, "wifiAutoOffMinutes": self.wifi_minutes,
-                             "wifi": dict(self.wifi), "language": self.language}
+                             "wifi": dict(self.wifi), "language": self.language,
+                             "performanceEnabled": self.performance_enabled}
+            if path == "/api/performance":
+                if not self.performance_enabled:
+                    return 200, {"enabled": False}
+                return 200, {"enabled": True, "preview": True,
+                             "uptimeMs": int((time.monotonic() - self.started_at) * 1000),
+                             "loopMaxGapUs": 10000, "loopGapsOver100ms": 0, "taskCount": 5,
+                             "loopStackFreeMinimum": 4096, "recorderStackFreeMinimum": 4096,
+                             "speakerStackFreeMinimum": 4096, "lastFileWorkerStackFreeMinimum": 0,
+                             "adcOverflows": 0, "liveAudioDroppedFrames": 0,
+                             "internalFree": 120000, "internalMinimumFree": 100000,
+                             "internalLargestBlock": 80000, "psramFree": 4000000,
+                             "psramMinimumFree": 3800000, "psramLargestBlock": 3000000,
+                             "nvsTotalEntries": 500, "nvsUsedEntries": 30, "nvsFreeEntries": 440}
             if path == "/api/record-cues":
                 return 200, {mode: dict(events) for mode, events in self.record_cues.items()}
             if path == "/api/time":
@@ -555,6 +570,11 @@ class PreviewDevice:
                 self.screen_minutes, self.wifi_minutes = screen, wifi
                 self.wifi["autoOffMinutes"] = wifi
                 return 200, {"screenOffMinutes": screen, "wifiAutoOffMinutes": wifi}
+            if path == "/api/performance":
+                if params.get("enabled") not in ("0", "1"):
+                    return 400, "Invalid enabled value"
+                self.performance_enabled = params["enabled"] == "1"
+                return self.api("GET", path, {})
             if path == "/api/record-cues":
                 if set(params) != set(self.record_cues) or any(
                     not isinstance(params[mode], dict) or set(params[mode]) != {"start", "stop"} or

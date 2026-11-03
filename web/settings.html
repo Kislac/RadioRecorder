@@ -52,6 +52,13 @@
         ><button id="wakeDisplay" type="button">Wake display</button>
         <p id="result" role="status" aria-live="polite">Loading...</p>
       </form>
+      <section class="performance-settings">
+        <h2>Performance</h2>
+        <label><input id="performanceEnabled" type="checkbox" disabled />Enable diagnostics</label>
+        <button id="refreshPerformance" type="button" disabled>Refresh</button>
+        <p id="performanceStatus" role="status"></p>
+        <pre id="performanceSnapshot"></pre>
+      </section>
       <section class="auto-settings">
         <h2>Automatic recording</h2>
         <form id="autoSettingsForm">

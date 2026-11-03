@@ -15,6 +15,7 @@ bool fileManagerList(const String &directory, const String &sort, bool descendin
                      const String &after, uint8_t limit, const String &revision, ManagedFilePage &page, bool wavOnly = false);
 bool fileManagerListOffset(const String &directory, uint32_t offset, uint8_t limit, ManagedFilePage &page);
 bool fileManagerBusy();
+uint32_t fileManagerLastStackFreeMinimum();
 bool fileManagerMkdir(const String &path, String &error);
 bool fileManagerRename(const String &source, const String &destination, String &error);
 bool fileManagerDeleteFile(const String &path, String &error);

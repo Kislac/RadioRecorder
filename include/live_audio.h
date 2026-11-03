@@ -16,6 +16,7 @@ bool connectLiveAudio(int client);
 bool disconnectLiveAudio(int client);
 void resetLiveAudio();
 void faultLiveAudio();
+uint32_t liveAudioDroppedFrames();
 bool takeLiveAudioFault();
 bool popLiveAudio(AudioFrame &frame);
 void queueLiveAudio(const uint8_t *samples, size_t length);

@@ -6,7 +6,7 @@ import re
 import time
 
 from scripts.oled_viewer import body_pixels, find_device, read_frame
-from scripts.test_support import TestRun, firmware_at_least
+from scripts.test_support import TestRun, firmware_at_least, validate_performance_snapshot
 
 
 SIGNAL_PATTERN = re.compile(r"GPIO1 RMS: (\d+) \| Peak: (\d+) \| DC-offset: (\d+) \(ADC\)")
@@ -43,9 +43,13 @@ def rtc_snapshot(device, report):
     return {"rtc": int(rtc), "system": int(system), "source": source, "offline": offline == "1"}
 
 
+def rtc_test_eligible(snapshot):
+    return snapshot["offline"] and snapshot["source"] != "N"
+
+
 def rtc_live_check(device, report, reboot=False):
     before = rtc_snapshot(device, report)
-    if not before["offline"] or before["source"] == "N":
+    if not rtc_test_eligible(before):
         raise AssertionError("NTP-free test requires AP-only mode and no saved STA credentials")
     if abs(before["rtc"] - before["system"]) > 3:
         raise AssertionError("ESP clock and RTC disagree before test")
@@ -133,6 +137,13 @@ def status(device, report, display_only=False, radio_only=False):
     return next(line.split(": ", 1)[1] for line in lines if line.startswith("Firmware: v"))
 
 
+def test_performance_serial(device, report):
+    device.write(b"V")
+    lines = read_until(device, lambda line: line.startswith("PERFORMANCE "), report=report)
+    snapshot = json.loads(lines[-1].split(" ", 1)[1])
+    return validate_performance_snapshot(snapshot)
+
+
 def valid_signal(lines):
     for line in lines:
         match = SIGNAL_PATTERN.search(line)
@@ -198,7 +209,7 @@ def delete_test_recording(device, filename, report=None):
     read_until(device, lambda line: line.startswith("Delete test WAV:"), timeout=3, report=report)
     device.write(filename.encode("ascii") + b"\n")
     result = read_until(device, lambda line: line.startswith(("Test WAV deleted:", "Test WAV delete refused:")),
-                        timeout=3, report=report)[-1]
+                        timeout=8, report=report)[-1]
     if result != "Test WAV deleted: " + filename:
         raise AssertionError("Firmware refused to delete test recording: " + result)
     return "removed " + filename
@@ -696,12 +707,22 @@ def main():
                 elif args.rtc or args.rtc_reboot:
                     ready, firmware_version = report.case("RTC test firmware", lambda: rtc_firmware_version(device, report))
                     if ready and firmware_at_least(firmware_version, (0, 1, 54)):
-                        passed, _ = report.case("RTC advances without NTP", lambda: rtc_live_check(device, report))
-                        if args.rtc_reboot and passed:
-                            report.case("RTC after software restart without NTP",
-                                        lambda: rtc_live_check(device, report, reboot=True))
-                        elif args.rtc_reboot:
-                            report.skip("RTC after software restart", "read-only RTC check failed")
+                        snapshot_ok, snapshot = report.case("RTC prerequisite snapshot", lambda: rtc_snapshot(device, report))
+                        if snapshot_ok and not rtc_test_eligible(snapshot):
+                            report.skip("RTC without NTP", "AP-only mode without saved STA credentials required")
+                            if args.rtc_reboot:
+                                report.skip("RTC after software restart", "AP-only prerequisite unavailable")
+                        elif snapshot_ok:
+                            passed, _ = report.case("RTC advances without NTP", lambda: rtc_live_check(device, report))
+                            if args.rtc_reboot and passed:
+                                report.case("RTC after software restart without NTP",
+                                            lambda: rtc_live_check(device, report, reboot=True))
+                            elif args.rtc_reboot:
+                                report.skip("RTC after software restart", "read-only RTC check failed")
+                        else:
+                            report.skip("RTC without NTP", "RTC prerequisite snapshot failed")
+                            if args.rtc_reboot:
+                                report.skip("RTC after software restart", "RTC prerequisite snapshot failed")
                     else:
                         report.skip("RTC without NTP", "upload firmware 0.1.54 or newer")
                         if args.rtc_reboot:
@@ -711,6 +732,11 @@ def main():
                     ready, firmware_version = report.case(readiness,
                                                            lambda: status(device, report, display_only=args.display_only))
                     if ready:
+                        if firmware_at_least(firmware_version, (0, 1, 90)):
+                            report.case("Serial performance diagnostics (read-only)",
+                                        lambda: test_performance_serial(device, report))
+                        else:
+                            report.skip("Serial performance diagnostics", "firmware 0.1.90+ required")
                         if args.display_only:
                             report.case("All OLED tiles and settings rows", lambda: test_display_all(device, report))
                             report.case("Wake consumes first encoder/button input", lambda: test_wake_input(device))

@@ -59,3 +59,30 @@ class TestRun:
 def firmware_at_least(version, minimum):
     match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:\.|$)", version)
     return bool(match) and tuple(map(int, match.groups())) >= minimum
+
+
+def validate_performance_snapshot(snapshot):
+    if not isinstance(snapshot, dict) or type(snapshot.get("enabled")) is not bool:
+        raise AssertionError("Performance enabled state missing")
+    if not snapshot["enabled"]:
+        if snapshot != {"enabled": False}:
+            raise AssertionError("Disabled diagnostics must not collect metrics")
+        return "disabled (persistent setting)"
+    keys = ("uptimeMs", "loopMaxGapUs", "loopGapsOver100ms", "taskCount",
+            "loopStackFreeMinimum", "recorderStackFreeMinimum", "speakerStackFreeMinimum",
+            "lastFileWorkerStackFreeMinimum", "adcOverflows", "liveAudioDroppedFrames",
+            "internalFree", "internalMinimumFree", "internalLargestBlock",
+            "psramFree", "psramMinimumFree", "psramLargestBlock",
+            "nvsTotalEntries", "nvsUsedEntries", "nvsFreeEntries")
+    for key in keys:
+        if type(snapshot.get(key)) is not int or snapshot[key] < 0:
+            raise AssertionError("Invalid performance metric: " + key)
+    for pool in ("internal", "psram"):
+        if snapshot[pool + "LargestBlock"] > snapshot[pool + "Free"]:
+            raise AssertionError("Largest block exceeds free " + pool + " heap")
+    if snapshot["nvsUsedEntries"] + snapshot["nvsFreeEntries"] > snapshot["nvsTotalEntries"]:
+        raise AssertionError("Invalid NVS entry accounting")
+    if snapshot["taskCount"] < 3 or not snapshot["loopStackFreeMinimum"]:
+        raise AssertionError("Missing running task metrics")
+    return "{} tasks; {} NVS entries free; {} B internal heap free".format(
+        snapshot["taskCount"], snapshot["nvsFreeEntries"], snapshot["internalFree"])

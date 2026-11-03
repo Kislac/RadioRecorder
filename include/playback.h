@@ -1,6 +1,7 @@
 #pragma once
-
 #include <Arduino.h>
+
+uint32_t playbackStackFreeMinimum();
 
 enum class PlaybackState { idle, starting, playing };
 enum class PlaybackTarget { speaker, radio };

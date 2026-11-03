@@ -6,11 +6,13 @@
 #include "recorder.h"
 #include "watchdog.h"
 #include "wifi_manager.h"
+#include "performance.h"
 #include <SD_MMC.h>
 #include <WiFi.h>
 #include <cJSON.h>
 #include <esp_heap_caps.h>
 #include <esp_random.h>
+#include <atomic>
 #include <sys/stat.h>
 #include <utime.h>
 
@@ -22,6 +24,7 @@ uint32_t pendingStarted = 0;
 SemaphoreHandle_t jobMutex = nullptr;
 uint32_t nextJob = 0;
 uint8_t transferBuffer[4096];
+std::atomic<uint32_t> lastWorkerStackFree{0};
 
 struct FileJob {
   uint32_t id = 0;
@@ -376,6 +379,7 @@ void executeJob() {
 
 void runJob(void *) {
   executeJob();
+  if (performanceEnabled()) lastWorkerStackFree.store(uxTaskGetStackHighWaterMark(nullptr));
   vTaskDelete(nullptr);
 }
 }
@@ -545,3 +549,5 @@ void pollFileManager() {
   if (!valid) { pendingClient.print("HTTP/1.1 409 Conflict\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"); pendingClient.stop(); }
   pendingClient = WiFiClient(); pendingHeaders = "";
 }
+
+uint32_t fileManagerLastStackFreeMinimum() { return lastWorkerStackFree.load(); }

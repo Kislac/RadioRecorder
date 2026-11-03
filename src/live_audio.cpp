@@ -1,10 +1,14 @@
 #include "live_audio.h"
 
 #include <atomic>
+#include "performance.h"
 
 static QueueHandle_t liveFrames = nullptr;
 static std::atomic<int> liveClient{-1};
 static std::atomic<bool> liveCaptureFault{false};
+static std::atomic<uint32_t> droppedFrames{0};
+
+uint32_t liveAudioDroppedFrames() { return droppedFrames.load(); }
 
 void initLiveAudio() {
   liveFrames = xQueueCreate(8, sizeof(AudioFrame));
@@ -55,6 +59,7 @@ void queueLiveAudio(const uint8_t *samples, size_t length) {
     AudioFrame frame = {};
     frame.length = min(kLiveFrameBytes, length - offset);
     memcpy(frame.samples, samples + offset, frame.length);
-    xQueueSend(liveFrames, &frame, 0);
+    if (xQueueSend(liveFrames, &frame, 0) != pdTRUE && performanceEnabled())
+      droppedFrames.fetch_add(1, std::memory_order_relaxed);
   }
 }

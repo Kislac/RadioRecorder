@@ -14,6 +14,7 @@
 #include "radio_programming.h"
 #include "radio_serial.h"
 #include "wav.h"
+#include "performance.h"
 #include <SD_MMC.h>
 
 void printSetupStatus() {
@@ -143,6 +144,7 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
   }
 
   if (command == 'a') { Serial.printf("AUTO_STATE %s\n", automaticRecordingJson().c_str()); return; }
+  if (command == 'V') { Serial.printf("PERFORMANCE %s\n", performanceJson().c_str()); return; }
   if (command == 'x') {
     deleteFilenameLength = 0;
     deleteFilenameOverflow = false;
@@ -239,6 +241,7 @@ void setup() {
   }
   Serial.println("Watchdog: ready (10 s)");
   if (!appInitSettings()) Serial.println("Settings: NVS read failed; using defaults");
+  if (!performanceInit()) Serial.println("Performance settings: NVS read failed; using default");
   if (!initAutomaticRecording()) Serial.println("Automatic recording initialization failed");
   initControls();
   bool sdReady = SD_MMC.setPins(39, 38, 40) && SD_MMC.begin("/sdcard", true, false) && SD_MMC.cardType() != CARD_NONE;
@@ -279,6 +282,7 @@ void loop() {
   playbackPollSettings();
   wifiManagerPoll();
   appClockPoll();
+  performanceLoopTick();
   feedSystemWatchdog();
   delay(10);
 }

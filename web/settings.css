@@ -8,6 +8,11 @@
 .auto-setting-grid label { display:grid; gap:8px; }
 .auto-setting-grid input, .auto-setting-grid select { font:inherit; width:100%; min-width:0; padding:8px; }
 .auto-settings { margin-top:32px; border-top:1px solid var(--line); padding-top:24px; }
+.performance-settings { margin-top:32px; border-top:1px solid var(--line); padding-top:24px; }
+.performance-settings label { display:inline-flex; align-items:center; gap:8px; }
+.performance-settings input { width:18px; height:18px; }
+.performance-settings button { margin-left:16px; }
+.performance-settings pre { max-width:100%; overflow-x:auto; padding:12px; background:#fff; border:1px solid var(--line); font-size:12px; }
 .cue-settings { margin-top:32px; border-top:1px solid var(--line); padding-top:24px; }
 .cue-grid { display:grid; grid-template-columns:minmax(0,1.3fr) repeat(2,minmax(0,1fr)); gap:12px; align-items:center; }
 .cue-grid > span { font-weight:700; }

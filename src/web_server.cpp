@@ -21,6 +21,7 @@
 #include "watchdog.h"
 #include "radio_programming.h"
 #include "radio_patch.h"
+#include "performance.h"
 
 static WebServer server(80);
 static WebSocketsServer audioSocket(81);
@@ -170,6 +171,7 @@ void sendSettings() {
   server.sendHeader("Cache-Control", "no-store");
   String json = "{\"screenOffMinutes\":" + String(appScreenOffMinutes());
   json += ",\"language\":\"" + String(appLanguage()) + "\"";
+  json += ",\"performanceEnabled\":" + String(performanceEnabled() ? "true" : "false");
   json += ",\"wifiAutoOffMinutes\":" + String(wifiManagerAutoOffMinutes());
   json += ",\"wifi\":" + wifiManagerStatusJson() + "}";
   server.send(200, "application/json", json);
@@ -900,6 +902,19 @@ void initWeb() {
   });
   server.on("/api/settings", HTTP_GET, sendSettings);
   server.on("/api/settings", HTTP_POST, saveSettings);
+  server.on("/api/performance", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", performanceJson());
+  });
+  server.on("/api/performance", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    String value = server.arg("enabled");
+    if (value != "0" && value != "1") { server.send(400, "text/plain", "Invalid enabled value"); return; }
+    if (!performanceSetEnabled(value == "1")) { server.send(500, "text/plain", "Cannot save performance setting to NVS"); return; }
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", performanceJson());
+  });
   server.on("/api/record-cues", HTTP_GET, sendRecordCues);
   server.on("/api/record-cues", HTTP_POST, saveRecordCues);
   server.on("/api/time", HTTP_GET, sendClock);

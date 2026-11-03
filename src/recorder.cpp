@@ -12,6 +12,7 @@
 #include "watchdog.h"
 #include "automatic_record.h"
 #include "pcm_history.h"
+#include "performance.h"
 
 static constexpr size_t kDmaBufferSize = 4096;
 static constexpr uint32_t kMaxWavBytes = 0xffffffffU - 44;
@@ -21,6 +22,7 @@ static adc_channel_t audioChannel;
 static TaskHandle_t recorderTask = nullptr;
 static std::atomic<bool> stopRequested{false};
 static std::atomic<bool> adcOverflow{false};
+static std::atomic<uint32_t> adcOverflowCount{0};
 static std::atomic<bool> adcProbeActive{false};
 static std::atomic<bool> signalEnabled{false};
 static std::atomic<bool> serialMeterEnabled{false};
@@ -145,6 +147,8 @@ AdcProbeResult recorderReadAdcSamples(uint8_t gpio, uint16_t *samples) {
 }
 
 bool recorderTaskReady() { return recorderTask != nullptr; }
+uint32_t recorderStackFreeMinimum() { return recorderTask ? uxTaskGetStackHighWaterMark(recorderTask) : 0; }
+uint32_t recorderAdcOverflowCount() { return adcOverflowCount.load(); }
 uint64_t recorderElapsedMs() { return static_cast<uint64_t>(recordedBytes.load()) * 1000ULL / (kSampleRate * 2ULL); }
 bool recorderAutomaticFile() { return automaticFile.load(); }
 bool recorderFinalized() { return finalizedFile.load(); }
@@ -299,6 +303,7 @@ int16_t encodePcm(float centered, AudioLowpass &lowpass) {
 
 bool adcPoolOverflow(adc_continuous_handle_t, const adc_continuous_evt_data_t *, void *) {
   adcOverflow.store(true, std::memory_order_relaxed);
+  if (performanceEnabled()) adcOverflowCount.fetch_add(1, std::memory_order_relaxed);
   return false;
 }
 
