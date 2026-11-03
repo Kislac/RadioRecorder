@@ -57,6 +57,21 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('src="data:image/svg+xml;base64,', render_page("index"))
         self.assertEqual((Path(__file__).resolve().parents[1] / "web" / "logo.svg").read_bytes(), (Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "radio-logo-instrument.svg").read_bytes())
 
+    def test_recording_home_has_live_archive_and_system_readout(self):
+        page = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+        script = (WEB_ROOT / "index.js").read_text(encoding="utf-8")
+        for heading in ("01 / RECORDING", "02 / AUTOMATIC RULES", "03 / ARCHIVE"):
+            self.assertIn(heading, page)
+        self.assertLess(page.index("01 / RECORDING"), page.index("02 / AUTOMATIC RULES"))
+        self.assertLess(page.index("02 / AUTOMATIC RULES"), page.index("03 / ARCHIVE"))
+        for element_id in ("recentRecordings", "homeRtc", "homeNetwork", "homeStorage"):
+            self.assertIn(f'id="{element_id}"', page)
+        self.assertIn('fetch("/api/recordings?offset=0"', script)
+        self.assertIn('fetch("/api/files?dir=%2F"', script)
+        self.assertIn('data.state === "idle" && data.ready && !data.fileBusy', script)
+        self.assertIn('recordings.files.slice(0, 3)', script)
+        self.assertIn('label.textContent = file.name', script)
+
     def test_real_pages_share_station_navigation_and_automatic_settings_view(self):
         for name in PAGES:
             with self.subTest(page=name):
@@ -336,8 +351,8 @@ assert.equal(output.textContent, 'Unavailable');
 
     def test_home_header_contains_device_date_and_time(self):
         page = render_page("index")
-        header = page.split("<header>", 1)[1].split("</header>", 1)[0]
-        self.assertIn('id="demoClock"', header)
+        intro = page.split('class="home-eyebrow"', 1)[1].split('</div>', 1)[0]
+        self.assertIn('id="demoClock"', intro)
         self.assertEqual(page.count('id="demoClock"'), 1)
         script = (WEB_ROOT / "index.js").read_text(encoding="utf-8")
         self.assertIn('Date.parse(data.clock.local + "Z")', script)
@@ -446,12 +461,25 @@ assert.equal(element.textContent, 'TIME UNSET');
         self.assertIn('server.arg("revision")', server)
         self.assertIn('new IntersectionObserver(', script)
         self.assertIn('entries[0].isIntersecting', script)
-        self.assertIn('if (!loading && more.getBoundingClientRect()', script)
+        self.assertIn('if (!loading && more.getBoundingClientRect().top <= innerHeight + 240) load()', script)
         home = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
         home_script = (WEB_ROOT / "index.js").read_text(encoding="utf-8")
         self.assertNotIn('id="files"', home)
-        self.assertNotIn('/api/recordings', home_script)
+        self.assertIn('fetch("/api/recordings?offset=0"', home_script)
         self.assertIn('destinationName', script)
+
+    def test_file_actions_use_one_viewport_bound_menu(self):
+        script = (WEB_ROOT / "file_actions.js").read_text(encoding="utf-8")
+        styles = (WEB_ROOT / "files.css").read_text(encoding="utf-8")
+        for label in ("Download as ZIP", "Download", "Play in browser", "Play on Speaker", "Play on Radio"):
+            self.assertIn(label, script)
+        self.assertIn('summary.textContent = "☰"', script)
+        self.assertIn('options.append(download)', script)
+        self.assertIn('options.append(actionButton("Download as ZIP"', script)
+        self.assertIn('addEventListener("scroll"', script)
+        self.assertIn('document.addEventListener("pointerdown"', script)
+        self.assertIn('bottomNav.getBoundingClientRect().top', script)
+        self.assertIn('position:fixed; z-index:6', styles)
 
     def test_dated_recording_and_file_api_firmware_contract(self):
         root = WEB_ROOT.parent

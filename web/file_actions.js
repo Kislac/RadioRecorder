@@ -43,29 +43,51 @@ function render(item) {
   const size = document.createElement("td"); size.textContent = item.directory ? "Folder" : formatBytes(item.bytes);
   row.append(date, size);
   const actions = document.createElement("td"), container = document.createElement("div"); container.className = "row-actions";
-  if (item.directory) container.append(actionButton("ZIP", () => runQueue("zip", [item])));
+  const menu = document.createElement("details"), summary = document.createElement("summary"), options = document.createElement("div");
+  menu.className = "row-menu"; summary.textContent = "☰"; summary.title = "File actions";
+  summary.setAttribute("aria-label", "File actions"); menu.append(summary);
+  if (item.directory) options.append(actionButton("Download as ZIP", () => runQueue("zip", [item])));
   else {
     const download = document.createElement("a"); download.href = "/file?path=" + encodeURIComponent(item.path) + "&download=1";
-    download.textContent = "↓"; download.title = "Download"; download.download = item.name; container.append(download);
+    download.textContent = "Download"; download.download = item.name; options.append(download);
     download.addEventListener("click", event => { if (operationActive) { event.preventDefault(); message.textContent = "File operation busy"; } });
-    if (sound(item.name)) container.append(actionButton("▶", () => {
+    if (sound(item.name)) options.append(actionButton("Play in browser", () => {
       const existing = name.querySelector("audio");
       if (existing) { existing.pause(); existing.remove(); return; }
       const audio = document.createElement("audio"); audio.controls = true; audio.src = "/file?path=" + encodeURIComponent(item.path);
       name.append(audio); audio.play().catch(() => {});
     }));
   }
-  const menu = document.createElement("details"), summary = document.createElement("summary"), options = document.createElement("div");
-  menu.className = "row-menu"; summary.textContent = "⋮"; summary.title = "Actions";
-  summary.setAttribute("aria-label", "Actions"); menu.append(summary);
   options.append(actionButton("Rename", () => openDialog("rename", [item])),
     actionButton("Copy", () => openDialog("copy", [item])), actionButton("Move", () => openDialog("move", [item])),
     actionButton("Delete", () => deleteItems([item])));
   if (!item.directory && /\.wav$/i.test(item.name)) {
-    options.append(actionButton("Speaker", () => playOnEsp(item.path)), actionButton("Radio DAC", () => playOnEsp(item.path, "radio")));
+    options.append(actionButton("Play on Speaker", () => playOnEsp(item.path)), actionButton("Play on Radio", () => playOnEsp(item.path, "radio")));
   }
+  menu.addEventListener("toggle", () => {
+    if (!menu.open) return;
+    for (const other of document.querySelectorAll(".row-menu[open]")) if (other !== menu) other.open = false;
+    const anchor = summary.getBoundingClientRect();
+    const bottomNav = document.querySelector(".bottom-nav");
+    const bottom = bottomNav && getComputedStyle(bottomNav).display !== "none" ? bottomNav.getBoundingClientRect().top : innerHeight;
+    options.style.left = Math.max(8, Math.min(anchor.right - options.offsetWidth, innerWidth - options.offsetWidth - 8)) + "px";
+    options.style.top = (anchor.bottom + options.offsetHeight + 8 <= bottom
+      ? anchor.bottom : Math.max(8, Math.min(anchor.top - options.offsetHeight, bottom - options.offsetHeight - 8))) + "px";
+  });
+  options.addEventListener("click", event => { if (event.target.closest("a,button")) menu.open = false; });
   menu.append(options); container.append(menu); actions.append(container); row.append(actions); listEl.append(row);
 }
+
+document.addEventListener("pointerdown", event => {
+  for (const menu of document.querySelectorAll(".row-menu[open]")) if (!menu.contains(event.target)) menu.open = false;
+});
+addEventListener("scroll", event => {
+  if (event.target.closest?.(".row-menu")) return;
+  for (const menu of document.querySelectorAll(".row-menu[open]")) menu.open = false;
+}, true);
+addEventListener("resize", () => {
+  for (const menu of document.querySelectorAll(".row-menu[open]")) menu.open = false;
+});
 
 async function load(reset = false) {
   if (loading) { queuedReload = queuedReload || reset; return; }

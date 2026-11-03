@@ -16,6 +16,7 @@ const micSignalToggle = document.querySelector("#micSignalToggle"),
   micSignalChart = document.querySelector("#micSignalChart");
 let recordingRequestError = "";
 let lastStatus = null, userSelectedMode = false, autoMeterSource = null, recordActionPending = false;
+let lastArchiveFetch = 0;
 const selectedMode = () => modeInputs.find((input) => input.checked).value;
 const selectedSource = () => sourceInputs.find((input) => input.checked).value;
 function renderRecordAction(data) {
@@ -301,6 +302,33 @@ addEventListener("resize", () => {
   if (meterRunning) drawSignal();
   if (micMeterRunning) drawSignal(micSignalChart, micSignalHistory, 32768);
 });
+async function refreshArchive() {
+  try {
+    const [recordingsResponse, storageResponse] = await Promise.all([
+      fetch("/api/recordings?offset=0", { cache: "no-store" }),
+      fetch("/api/files?dir=%2F", { cache: "no-store" }),
+    ]);
+    if (!recordingsResponse.ok || !storageResponse.ok) throw Error();
+    const recordings = await recordingsResponse.json();
+    const storage = await storageResponse.json();
+    const list = document.querySelector("#recentRecordings");
+    list.replaceChildren();
+    for (const file of recordings.files.slice(0, 3)) {
+      const link = document.createElement("a"), label = document.createElement("span"), detail = document.createElement("small");
+      link.href = "/file?path=" + encodeURIComponent(file.path);
+      label.textContent = file.name;
+      detail.textContent = (file.bytes / 1024).toFixed(1) + " KiB";
+      label.append(detail); link.append(label); list.append(link);
+    }
+    if (!list.childElementCount) list.textContent = "No recordings yet.";
+    const free = storage.capacity - storage.used;
+    document.querySelector("#homeStorage").textContent = storage.capacity > 0
+      ? (free / (1024 ** 3)).toFixed(1) + " GiB FREE" : "UNAVAILABLE";
+  } catch {
+    document.querySelector("#recentRecordings").textContent = "Recordings unavailable.";
+    document.querySelector("#homeStorage").textContent = "UNAVAILABLE";
+  }
+}
 async function refresh() {
   try {
     const response = await fetch("/api/status", { cache: "no-store" });
@@ -311,6 +339,12 @@ async function refresh() {
     clockSource = data.clock?.source || "unset";
     demoSyncedAt = performance.now();
     renderDemoClock();
+    document.querySelector("#homeRtc").textContent = clockSource === "unset" ? "UNSET" : clockSource.toUpperCase();
+    document.querySelector("#homeNetwork").textContent = (data.wifi?.mode || "OFF") + (data.wifi?.ip ? " / " + data.wifi.ip : "");
+    if (data.state === "idle" && data.ready && !data.fileBusy && Date.now() - lastArchiveFetch > 15000) {
+      lastArchiveFetch = Date.now();
+      refreshArchive();
+    }
     if (window.renderAutomaticRecording) window.renderAutomaticRecording(data.automatic);
     if (data.state !== "idle" && data.recordingMode && data.recordingMode !== "none") {
       const source = data.recordingMode.endsWith("Mic") ? "microphone" : "radio";

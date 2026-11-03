@@ -10,68 +10,54 @@
   <body>
     <header>
       <a class="site-brand" href="/"><img src="/logo.svg" alt="" /><span>RADIORECORDER<small>CLEAR SKY / SIGNAL STATION</small></span></a> <span id="firmwareVersion">v?</span>
-      <time id="demoClock" class="header-clock">TIME UNSET</time>
       <nav aria-label="Pages"><a href="/" aria-current="page">Recording</a><a href="/files">File manager</a><a href="/settings#autoSettings">Automatic settings</a><a href="/settings">Settings</a><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></nav>
     </header>
-    <main>
-      <h1>Recording</h1>
-      <p class="state" id="state">Connecting...</p>
-      <p id="recordElapsed" class="note">Time: 00:00:00</p>
-      <div class="record-controls">
-        <fieldset><legend>Mode</legend><label><input type="radio" name="recordMode" value="manual" checked />Manual</label><label><input type="radio" name="recordMode" value="auto" />Automatic</label></fieldset>
-        <fieldset><legend>Source</legend><label><input type="radio" name="recordSource" value="radio" checked />Radio</label><label><input type="radio" name="recordSource" value="microphone" />Microphone</label></fieldset>
+    <main class="record-home">
+      <div class="home-eyebrow">STATION / 001 <time id="demoClock">TIME UNSET</time></div>
+      <div class="home-intro"><div><p>RADIO / MICROPHONE</p><h1>Recording</h1><p>Manual recording and automatic monitoring in one place.</p></div></div>
+      <section class="home-primary">
+        <div class="home-section-head"><span>01 / RECORDING</span><strong class="state" id="state" role="status">Connecting...</strong></div>
+        <div class="record-controls">
+          <fieldset><legend>Mode</legend><label><input type="radio" name="recordMode" value="manual" checked />Manual</label><label><input type="radio" name="recordMode" value="auto" />Automatic</label></fieldset>
+          <fieldset><legend>Source</legend><label><input type="radio" name="recordSource" value="radio" checked />Radio</label><label><input type="radio" name="recordSource" value="microphone" />Microphone</label></fieldset>
+        </div>
+        <div class="home-action-line"><button id="recordAction" type="button" disabled>Start recording</button><span id="recordElapsed">Time: 00:00:00</span></div>
+        <p class="note" id="message" role="status"></p>
+        <div class="home-watch">
+          <div class="home-watch-head"><span>LIVE SIGNAL MONITOR</span><span>MEASURED RMS / PEAK</span></div>
+          <section class="signal-panel" data-source="radio">
+            <div class="signalbar"><h2 id="signalHeading">Radio level history</h2><button id="signalToggle" hidden disabled>Enable measurement</button></div>
+            <p id="signalValues" class="signalvalues">Disabled</p>
+            <div id="signalPlot" hidden><canvas id="signalChart" aria-label="ADC RMS and peak history" role="img"></canvas><div class="legend"><b>RMS</b><b>Peak</b><span>ADC units / 30 s</span></div></div>
+          </section>
+          <section class="signal-panel" data-source="microphone" hidden>
+            <div class="signalbar"><h2>Microphone level history</h2><button id="micSignalToggle" hidden disabled>Enable measurement</button></div>
+            <p id="micSignalValues" class="signalvalues">Disabled</p>
+            <div id="micSignalPlot" hidden><canvas id="micSignalChart" aria-label="Microphone RMS and peak history" role="img"></canvas><div class="legend"><b>RMS</b><b>Peak</b><span>16-bit PCM / 30 s</span></div></div>
+          </section>
+          <div class="current-level"><h2>Current sound level</h2><div class="level-bars" role="img" aria-label="Current RMS and peak levels"><div><span id="levelRms"></span><small>RMS</small></div><div><span id="levelPeak"></span><small>Peak</small></div></div><p id="frequencyNote" class="note">Frequency spectrum requires PCM samples; only measured RMS and peak are available.</p></div>
+        </div>
+        <label class="filtercontrol"><input id="lowpassToggle" type="checkbox" />3.4 kHz low-pass filter</label>
+        <p class="note">Verified low-level test sources only. Do not connect the radio yet.</p>
+      </section>
+      <div class="home-columns">
+        <section class="home-module automatic-recording">
+          <div class="home-section-head"><span>02 / AUTOMATIC RULES</span><span>SETTINGS</span></div>
+          <h2>Monitoring thresholds</h2>
+          <div class="automatic-grid">
+            <div><h3>Radio automatic</h3><label hidden><input id="autoRadioArmed" type="checkbox" />Active</label><p id="autoRadioConfig"></p><p id="autoRadioStatus" role="status"></p><p id="autoRadioTime"></p><p id="autoRadioFile" data-i18n-ignore></p></div>
+            <div><h3>Microphone automatic</h3><label hidden><input id="autoMicArmed" type="checkbox" />Active</label><p id="autoMicConfig"></p><p id="autoMicStatus" role="status"></p><p id="autoMicTime"></p><p id="autoMicFile" data-i18n-ignore></p></div>
+          </div>
+          <a href="/settings#autoSettings">Automatic settings</a>
+        </section>
+        <section class="home-module home-archive">
+          <div class="home-section-head"><span>03 / ARCHIVE</span><a href="/files">ALL FILES</a></div>
+          <h2>Recent recordings</h2>
+          <div id="recentRecordings" class="home-recent" role="status">Loading recordings...</div>
+        </section>
       </div>
-      <button id="recordAction" type="button" disabled>Start recording</button>
-      <p class="note" id="message"></p>
-      <label class="filtercontrol"
-        ><input id="lowpassToggle" type="checkbox" />3.4 kHz low-pass filter</label
-      >
-      <p class="note">
-        Verified low-level test sources only. Do not connect the radio yet.
-      </p>
+      <section class="home-status-strip" aria-label="System status"><div>RTC <b id="homeRtc">--</b></div><div>NET <b id="homeNetwork">--</b></div><div>STORAGE <b id="homeStorage">--</b></div></section>
     </main>
-    <section class="automatic-recording">
-      <h2>Automatic rules</h2><p><a href="/settings#autoSettings">Automatic settings</a></p>
-      <div class="automatic-grid">
-        <div><h3>Radio automatic</h3><label hidden><input id="autoRadioArmed" type="checkbox" />Active</label>
-          <p id="autoRadioConfig"></p><p id="autoRadioStatus" role="status"></p><p id="autoRadioTime"></p>
-          <p id="autoRadioFile" data-i18n-ignore></p></div>
-        <div><h3>Microphone automatic</h3><label hidden><input id="autoMicArmed" type="checkbox" />Active</label>
-          <p id="autoMicConfig"></p><p id="autoMicStatus" role="status"></p><p id="autoMicTime"></p>
-          <p id="autoMicFile" data-i18n-ignore></p></div>
-      </div>
-    </section>
-    <section class="signal-panel" data-source="radio">
-      <div class="signalbar">
-        <h2 id="signalHeading">Radio level history</h2>
-        <button id="signalToggle" hidden disabled>Enable measurement</button>
-      </div>
-      <p id="signalValues" class="signalvalues">Disabled</p>
-      <div id="signalPlot" hidden>
-        <canvas
-          id="signalChart"
-          aria-label="ADC RMS and peak history"
-          role="img"
-        ></canvas>
-        <div class="legend">
-          <b>RMS</b><b>Peak</b><span>ADC units / 30 s</span>
-        </div>
-      </div>
-    </section>
-    <section class="signal-panel" data-source="microphone" hidden>
-      <div class="signalbar">
-        <h2>Microphone level history</h2>
-        <button id="micSignalToggle" hidden disabled>Enable measurement</button>
-      </div>
-      <p id="micSignalValues" class="signalvalues">Disabled</p>
-      <div id="micSignalPlot" hidden>
-        <canvas id="micSignalChart" aria-label="Microphone RMS and peak history" role="img"></canvas>
-        <div class="legend">
-          <b>RMS</b><b>Peak</b><span>16-bit PCM / 30 s</span>
-        </div>
-      </div>
-    </section>
-    <section class="current-level"><h2>Current sound level</h2><div class="level-bars" role="img" aria-label="Current RMS and peak levels"><div><span id="levelRms"></span><small>RMS</small></div><div><span id="levelPeak"></span><small>Peak</small></div></div><p id="frequencyNote" class="note">Frequency spectrum requires PCM samples; only measured RMS and peak are available.</p></section>
     <nav class="bottom-nav" aria-label="Main views"><a href="/" aria-current="page"><span aria-hidden="true">&#9673;</span>Recording</a><a href="/settings#autoSettings"><span aria-hidden="true">&#9678;</span>Auto settings</a><a href="/files"><span aria-hidden="true">&#9636;</span>Files</a><a href="/settings"><span aria-hidden="true">&#9881;</span>System</a><details class="more-menu"><summary><span aria-hidden="true">&#8943;</span>More</summary><div><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></div></details></nav>
     <footer>ESP32-S3 / microSD</footer>
     <script src="/automatic.js"></script>
