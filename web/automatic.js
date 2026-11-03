@@ -13,7 +13,7 @@
       const checkbox = document.querySelector("#" + prefix + "Armed");
       if (!source || !checkbox) continue;
       if (!checkbox.disabled) checkbox.checked = source.armed;
-      document.querySelector("#" + prefix + "Config").textContent = "RMS: " + source.rms + " · Threshold: " + source.threshold + " · Silence: " + source.silenceSeconds + " s";
+      document.querySelector("#" + prefix + "Config").textContent = "RMS threshold: " + source.threshold + " · Silence: " + source.silenceSeconds + " s";
       document.querySelector("#" + prefix + "Status").textContent = source.error || (source.armed ? source.blocked : "") || (source.recording ? "Recording: YES" : "Recording: NO");
       document.querySelector("#" + prefix + "Time").textContent = "Time: " + elapsedText(source.recording ? source.elapsedMs : source.lastElapsedMs);
       document.querySelector("#" + prefix + "File").textContent = source.lastFile || "";

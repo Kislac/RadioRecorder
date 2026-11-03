@@ -375,6 +375,11 @@ String wifiManagerStatusJson() {
   cJSON_AddStringToObject(root, "mode", wifiManagerModeName().c_str());
   cJSON_AddStringToObject(root, "ssid", wifiManagerSSID().c_str());
   cJSON_AddStringToObject(root, "ip", wifiManagerIPAddress().c_str());
+  cJSON_AddStringToObject(root, "apSsid", hasApInterface() ? kApSsid : "");
+  cJSON_AddStringToObject(root, "apIp", hasApInterface() ? WiFi.softAPIP().toString().c_str() : "");
+  bool stationConnected = (mode == Mode::station || mode == Mode::apStation || mode == Mode::connecting) && WiFi.status() == WL_CONNECTED;
+  cJSON_AddStringToObject(root, "staSsid", stationConnected ? WiFi.SSID().c_str() : "");
+  cJSON_AddStringToObject(root, "staIp", stationConnected ? WiFi.localIP().toString().c_str() : "");
   cJSON_AddStringToObject(root, "savedSsid", savedSsid.c_str());
   cJSON_AddBoolToObject(root, "hasSavedNetwork", !savedSsid.isEmpty());
   cJSON_AddBoolToObject(root, "keepApHost", keepAp);

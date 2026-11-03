@@ -22,6 +22,7 @@ const selectedSource = () => sourceInputs.find((input) => input.checked).value;
 function renderRecordAction(data) {
   const busy = data.state !== "idle";
   const mode = selectedMode(), source = selectedSource();
+  document.querySelector(".home-watch-head span").textContent = source === "radio" ? "RADIO / SIGNAL MONITOR" : "MICROPHONE / SIGNAL MONITOR";
   const sourceCode = source === "radio" ? "Radio" : "Mic";
   const owner = (mode === "manual" ? "manual" : "auto") + sourceCode;
   const armed = !!data.automatic?.[source]?.armed;
@@ -30,13 +31,14 @@ function renderRecordAction(data) {
     : armed ? "Stop automatic monitoring" : "Start automatic monitoring";
   recordAction.classList.toggle("recording", mode === "manual" ? busy && data.recordingMode === owner : armed);
   recordAction.disabled = recordActionPending || (mode === "manual"
-    ? (busy && data.recordingMode !== owner) || (!busy && !(source === "radio" ? data.ready : data.micReady)) || data.state === "starting" || data.stopping || data.playback !== "idle" || (!busy && data.fileBusy)
+    ? (busy && data.recordingMode !== owner) || (!busy && !(source === "radio" ? data.ready : data.micReady)) || data.state === "starting" || (busy && data.stopping) || data.playback !== "idle" || (!busy && data.fileBusy)
     : !armed && (busy || data.fileBusy || data.playback !== "idle" || !(source === "radio" ? data.ready : data.micReady)));
   for (const input of [...modeInputs, ...sourceInputs]) input.disabled = busy || recordActionPending;
   for (const panel of document.querySelectorAll(".signal-panel")) panel.hidden = panel.dataset.source !== source;
 }
 for (const input of [...modeInputs, ...sourceInputs]) input.addEventListener("change", () => {
   userSelectedMode = true;
+  document.querySelector("#monitorState").textContent = "NO LIVE DATA";
   if (lastStatus) {
     renderRecordAction(lastStatus);
     showCurrentLevel(selectedSource());
@@ -165,8 +167,9 @@ async function pollSignal(generation) {
     if (generation !== meterGeneration) return;
     if (!data.enabled) {
       meterRunning = false;
-      signalPlot.hidden = signalHistory.length === 0;
+      signalPlot.hidden = false;
       signalToggle.textContent = "Enable measurement";
+      if (selectedSource() === "radio") document.querySelector("#monitorState").textContent = "NO LIVE DATA";
       signalValues.textContent = data.fault
         ? "ADC measurement error (" + data.fault + ")"
         : "Disabled";
@@ -174,6 +177,7 @@ async function pollSignal(generation) {
     }
     signalToggle.textContent = "Disable measurement";
     signalPlot.hidden = false;
+    if (selectedSource() === "radio") document.querySelector("#monitorState").textContent = data.active && data.sequence > 0 ? "LIVE DATA" : "NO LIVE DATA";
     if (
       data.active &&
       data.sequence !== lastSignalSequence &&
@@ -222,7 +226,7 @@ signalToggle.addEventListener("click", async () => {
       drawSignal();
       pollSignal(meterGeneration);
     } else {
-      signalPlot.hidden = signalHistory.length === 0;
+      signalPlot.hidden = false;
       signalValues.textContent = signalHistory.length ? "Last measured RMS: " + signalHistory.at(-1).rms + " | Peak: " + signalHistory.at(-1).peak : "Disabled";
       signalToggle.textContent = "Enable measurement";
     }
@@ -241,8 +245,9 @@ async function pollMicSignal(generation) {
     if (generation !== micMeterGeneration) return;
     if (!data.enabled) {
       micMeterRunning = false;
-      micSignalPlot.hidden = micSignalHistory.length === 0;
+      micSignalPlot.hidden = false;
       micSignalToggle.textContent = "Enable measurement";
+      if (selectedSource() === "microphone") document.querySelector("#monitorState").textContent = "NO LIVE DATA";
       micSignalValues.textContent = data.fault
         ? "Microphone measurement error (" + data.fault + ")"
         : "Disabled";
@@ -250,6 +255,7 @@ async function pollMicSignal(generation) {
     }
     micSignalToggle.textContent = "Disable measurement";
     micSignalPlot.hidden = false;
+    if (selectedSource() === "microphone") document.querySelector("#monitorState").textContent = data.active && data.sequence > 0 ? "LIVE DATA" : "NO LIVE DATA";
     if (data.active && data.sequence > 0 && data.sequence !== lastMicSequence) {
       lastMicSequence = data.sequence;
       micSignalHistory.push({ rms: data.rms, peak: data.peak });
@@ -284,7 +290,7 @@ micSignalToggle.addEventListener("click", async () => {
       drawSignal(micSignalChart, micSignalHistory, 32768);
       pollMicSignal(micMeterGeneration);
     } else {
-      micSignalPlot.hidden = micSignalHistory.length === 0;
+      micSignalPlot.hidden = false;
       micSignalValues.textContent = micSignalHistory.length ? "Last measured RMS: " + micSignalHistory.at(-1).rms + " | Peak: " + micSignalHistory.at(-1).peak : "Disabled";
       micSignalToggle.textContent = "Enable measurement";
     }
@@ -340,7 +346,10 @@ async function refresh() {
     demoSyncedAt = performance.now();
     renderDemoClock();
     document.querySelector("#homeRtc").textContent = clockSource === "unset" ? "UNSET" : clockSource.toUpperCase();
-    document.querySelector("#homeNetwork").textContent = (data.wifi?.mode || "OFF") + (data.wifi?.ip ? " / " + data.wifi.ip : "");
+    document.querySelector("#homeAp").textContent = data.wifi?.apSsid && data.wifi?.apIp
+      ? data.wifi.apSsid + " / " + data.wifi.apIp : "OFF";
+    document.querySelector("#homeSta").textContent = data.wifi?.staSsid && data.wifi?.staIp
+      ? data.wifi.staSsid + " / " + data.wifi.staIp : "OFF";
     if (data.state === "idle" && data.ready && !data.fileBusy && Date.now() - lastArchiveFetch > 15000) {
       lastArchiveFetch = Date.now();
       refreshArchive();

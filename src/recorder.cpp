@@ -127,7 +127,7 @@ bool recorderFinalized() { return finalizedFile.load(); }
 void recorderNotify() { if (recorderTask) xTaskNotifyGive(recorderTask); }
 CaptureState recorderState() { return captureState.load(); }
 CaptureSource recorderSource() { return captureSource.load(); }
-bool recorderStopping() { return stopRequested.load(); }
+bool recorderStopping() { return captureState.load() != CaptureState::idle && stopRequested.load(); }
 const char *recorderName() { return recordingName; }
 const char *recorderError() { return lastError; }
 bool recorderHasRecordings() { return recordingsPresent.load(); }

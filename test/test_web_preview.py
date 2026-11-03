@@ -39,8 +39,8 @@ class WebAssetTests(unittest.TestCase):
         self.assertIn('renderRecordAction(data)', script)
         self.assertIn('peak: null', script)
         self.assertIn('showCurrentLevel("microphone", data.rms, data.peak)', script)
-        self.assertIn('signalPlot.hidden = signalHistory.length === 0', script)
-        self.assertIn('micSignalPlot.hidden = micSignalHistory.length === 0', script)
+        self.assertIn('signalPlot.hidden = false', script)
+        self.assertIn('micSignalPlot.hidden = false', script)
         self.assertNotIn('id="speakerStop"', page)
         self.assertIn('id="speakerStop"', (WEB_ROOT / "files.html").read_text(encoding="utf-8"))
         self.assertNotIn('id="liveToggle"', page)
@@ -64,13 +64,46 @@ class WebAssetTests(unittest.TestCase):
             self.assertIn(heading, page)
         self.assertLess(page.index("01 / RECORDING"), page.index("02 / AUTOMATIC RULES"))
         self.assertLess(page.index("02 / AUTOMATIC RULES"), page.index("03 / ARCHIVE"))
-        for element_id in ("recentRecordings", "homeRtc", "homeNetwork", "homeStorage"):
+        for element_id in ("recentRecordings", "homeRtc", "homeAp", "homeSta", "homeStorage"):
             self.assertIn(f'id="{element_id}"', page)
         self.assertIn('fetch("/api/recordings?offset=0"', script)
         self.assertIn('fetch("/api/files?dir=%2F"', script)
         self.assertIn('data.state === "idle" && data.ready && !data.fileBusy', script)
         self.assertIn('recordings.files.slice(0, 3)', script)
         self.assertIn('label.textContent = file.name', script)
+
+    def test_idle_recorder_does_not_disable_manual_recording_after_stop(self):
+        recorder = (WEB_ROOT.parent / "src" / "recorder.cpp").read_text(encoding="utf-8")
+        script = (WEB_ROOT / "index.js").read_text(encoding="utf-8")
+        self.assertIn('return captureState.load() != CaptureState::idle && stopRequested.load()', recorder)
+        self.assertIn('(busy && data.stopping)', script)
+
+    def test_idle_monitor_and_network_have_distinct_real_data_states(self):
+        page = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+        script = (WEB_ROOT / "index.js").read_text(encoding="utf-8")
+        firmware = (WEB_ROOT.parent / "src" / "wifi_manager.cpp").read_text(encoding="utf-8")
+        self.assertIn('id="signalPlot"><canvas', page)
+        self.assertIn('id="micSignalPlot"><canvas', page)
+        self.assertIn('class="home-spectrum-bands"', page)
+        self.assertIn('NO PCM DATA', page)
+        self.assertIn('source === "radio" ? "RADIO / SIGNAL MONITOR" : "MICROPHONE / SIGNAL MONITOR"', script)
+        self.assertIn('id="autoRadioStatus" role="status" hidden', page)
+        self.assertIn('id="autoMicTime" hidden', page)
+        self.assertNotIn('<footer>ESP32-S3 / microSD</footer>', page)
+        for field in ("apSsid", "apIp", "staSsid", "staIp"):
+            self.assertIn(f'cJSON_AddStringToObject(root, "{field}"', firmware)
+            self.assertIn(f'data.wifi.{field}', script)
+        device = PreviewDevice("ready")
+        self.assertEqual((device.wifi["apSsid"], device.wifi["apIp"]), ("RadioRecorder", "192.168.4.1"))
+        device.pending_network = (0, "Home WiFi", True)
+        device.tick()
+        self.assertEqual((device.wifi["staSsid"], device.wifi["staIp"]), ("Home WiFi", "192.168.1.80"))
+        self.assertEqual(device.wifi["apIp"], "192.168.4.1")
+
+    def test_home_automatic_summary_contains_only_rule_settings(self):
+        script = (WEB_ROOT / "automatic.js").read_text(encoding="utf-8")
+        self.assertIn('"RMS threshold: " + source.threshold + " · Silence: " + source.silenceSeconds', script)
+        self.assertNotIn('"RMS: " + source.rms', script)
 
     def test_real_pages_share_station_navigation_and_automatic_settings_view(self):
         for name in PAGES:

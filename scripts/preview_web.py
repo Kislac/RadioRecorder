@@ -130,7 +130,7 @@ class PreviewDevice:
         self.radio_write = False
         self.scan_started = None
         self.pending_network = None
-        self.wifi = {"mode": "AP", "ssid": "RadioRecorder", "ip": "192.168.4.1", "apIp": "192.168.4.1",
+        self.wifi = {"mode": "AP", "ssid": "RadioRecorder", "ip": "192.168.4.1", "apSsid": "RadioRecorder", "apIp": "192.168.4.1", "staSsid": "", "staIp": "",
                      "savedSsid": "", "hasSavedNetwork": False, "keepApHost": False,
                      "connecting": False, "apAvailable": True, "autoOffMinutes": 5}
         self.automatic = PreviewAutomaticRecording(self, saved_auto)
@@ -153,10 +153,12 @@ class PreviewDevice:
             self.pending_network = None
             self.wifi["connecting"] = False
             if self.scenario == "wifi-failure":
-                self.wifi.update(mode="AP", ssid="RadioRecorder", ip="192.168.4.1", apAvailable=True)
+                self.wifi.update(mode="AP", ssid="RadioRecorder", ip="192.168.4.1", apSsid="RadioRecorder", apIp="192.168.4.1", staSsid="", staIp="", apAvailable=True)
             else:
                 self.wifi.update(mode="AP+STA" if keep_ap else "STA", ssid=ssid, ip="192.168.1.80",
-                                 savedSsid=ssid, hasSavedNetwork=True, keepApHost=keep_ap, apAvailable=keep_ap)
+                                 apSsid="RadioRecorder" if keep_ap else "", apIp="192.168.4.1" if keep_ap else "",
+                                 staSsid=ssid, staIp="192.168.1.80", savedSsid=ssid, hasSavedNetwork=True,
+                                 keepApHost=keep_ap, apAvailable=keep_ap)
                 self.clock_epoch = self.saved_epoch = int(time.time())
                 self.clock_started_at = now
                 self.clock_source = "internet"
@@ -566,7 +568,7 @@ class PreviewDevice:
                 self.pending_network = None
                 if self.clock_source == "internet":
                     self.clock_source = "saved"
-                self.wifi.update(mode="AP", ssid="RadioRecorder", ip="192.168.4.1", savedSsid="",
+                self.wifi.update(mode="AP", ssid="RadioRecorder", ip="192.168.4.1", apSsid="RadioRecorder", apIp="192.168.4.1", staSsid="", staIp="", savedSsid="",
                                  hasSavedNetwork=False, keepApHost=False, connecting=False, apAvailable=True)
                 return 200, {"state": "ap"}
         return 404, "Not found"
