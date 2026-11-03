@@ -51,6 +51,18 @@
 .watch-panel .meter { height: 28px; margin: 4px 0 0; opacity: .8; }
 .watch-panel .meter span { background: #86c3b4; }
 .watch-panel .meter span:nth-child(5n) { background: var(--accent); }
+.system-readout { display: grid; grid-template-columns: 1fr minmax(200px, 1.6fr) 1fr; align-items: start; }
+.system-readout > :last-child { text-align: right; }
+.system-readout .network-readout { display: grid; gap: 9px; }
+.system-readout .network-readout b { overflow-wrap: anywhere; }
+
+.watch-sta { --background: #183137; --primary: #203d42; --source: #19363b; --selected: #31555a; --panel: #1c373c; --text: #e8f1ec; --muted: #bdd2ca; --accent: #e7bd77; --button-ink: #1b3033; --border: #648d88; --strong-border: #b2cbc1; --grid: #82a6a0; }
+.watch-sta .shell { background-image: linear-gradient(155deg, #44686a 0%, #1c393e 43%, #14292c 100%); }
+.watch-sta .brand-emblem { border: 0; border-radius: 0; padding: 0; }
+.watch-sta .primary { border-left-color: #b2cbc1; }
+.watch-sta .scope-line { background: #b7d6c3; }
+.watch-sta .system-readout { border-top: 2px solid #b2cbc1; }
+.watch-sta .system-readout .network-readout { border-left: 1px solid var(--border); padding-left: 18px; }
 
 @media (max-width: 700px) {
   .brand-emblem { width: 39px; height: 39px; }
@@ -65,4 +77,9 @@
   .watch-head { font-size: 8px; }
   .watch-panel .scope { height: 90px; }
   .watch-panel .scope-line { top: 0; }
+  .system-readout { grid-template-columns: 1fr; }
+  .system-readout > :last-child { text-align: left; }
+  .system-readout .network-readout { gap: 12px; }
+  .system-readout .network-readout > div { display: flex; justify-content: space-between; gap: 8px; }
+  .watch-sta .system-readout .network-readout { border-left: 0; padding-left: 0; }
 }

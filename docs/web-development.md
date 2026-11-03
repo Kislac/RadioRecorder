@@ -8,6 +8,8 @@ A következő körben a kiválasztott vizuális irányt kell a tényleges állap
 
 Második kör: a Terepi terminál szövegére és felépítésére épülő [Határállomás](web-concepts/outpost.html) a hangszintet emeli ki, a [Kék archívum](web-concepts/archive.html) a Clear Sky-jelvényt hangsúlyozza, a [Jelőr](web-concepts/watch.html) pedig grafikonra és műszeres színekre épít. A `pics/` alatti helyi képek a koncepciók részei; a meglévő három lap változatlan. Az itt látható hullámok és RMS/peak értékek nem élő adatok. Az éles verzióban az egyszerű hangszintoszlopok a meglévő forrásonkénti RMS/csúcs-mérésből frissíthetők; a pontos hullámforma külön PCM-mintafolyamot és annak terhelési felülvizsgálatát igényelné. A logók forrását és felhasználhatóságát éles beágyazás előtt ellenőrizni kell.
 
+A [7. Jelőr + Wi-Fi](web-concepts/watch-sta.html) az AP+STA kapcsolatra mutat külön külső hálózati név/IP mintát; a 6. Jelőr az AP-only változat. Mind a hét oldalon ugyanaz a görgethető felső koncepcióválasztó van, az alsó részmenü pedig asztali és mobilnézetben is látható. A megjelenített RTC, AP és STA adatok csak illusztrációk, nem a firmware-hez kapcsolódnak.
+
 ## Helyi előnézet
 
 VS Code: **Terminal > Run Task > RadioRecorder: Web Preview (offline)**. A `--scenario` értékével válassz állapotot:

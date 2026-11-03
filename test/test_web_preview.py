@@ -59,6 +59,48 @@ class WebAssetTests(unittest.TestCase):
                 self.assertNotIn("/api/", page)
                 self.assertNotIn("<script", page)
 
+    def test_all_seven_concepts_have_bidirectional_navigation_and_status_examples(self):
+        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
+        names = ("field", "sky", "signal", "outpost", "archive", "watch", "watch-sta")
+
+        class ConceptNavigation(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.inside = False
+                self.links = []
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if tag == "nav" and attributes.get("class") == "concept-switch":
+                    self.inside = True
+                if self.inside and tag == "a":
+                    self.links.append((attributes.get("href"), attributes.get("aria-current")))
+
+            def handle_endtag(self, tag):
+                if tag == "nav":
+                    self.inside = False
+
+        for name in names:
+            with self.subTest(name=name):
+                page = (concepts / (name + ".html")).read_text(encoding="utf-8")
+                navigation = ConceptNavigation()
+                navigation.feed(page)
+                self.assertEqual([link for link, _ in navigation.links], [item + ".html" for item in names])
+                self.assertEqual([link for link, current in navigation.links if current == "page"], [name + ".html"])
+
+        desktop_css = (concepts / "concepts.css").read_text(encoding="utf-8")
+        self.assertIn(".bottom-nav { display: grid", desktop_css)
+        self.assertIn("overflow-x: auto", desktop_css)
+        watch = (concepts / "watch.html").read_text(encoding="utf-8")
+        self.assertIn("RADIORECORDER<small>CLEAR SKY</small>", watch)
+        for label in ("RTC <b>SYNC</b>", "WI-FI <b>AP AKTÍV</b>", "NET <b>AP / 192.168.4.1</b>", "TÁRHELY <b>6,2 GB SZABAD</b>"):
+            self.assertIn(label, watch)
+        external = (concepts / "watch-sta.html").read_text(encoding="utf-8")
+        self.assertIn("STA <b>Bázis-01 / 192.168.0.52</b>", external)
+        self.assertIn('class="record-button" type="button" disabled', external)
+        self.assertNotIn("/api/", external)
+        self.assertNotIn("<script", external)
+
     def test_settings_runtime_advances_and_handles_rollover(self):
         self.assertIn('id="runtime"', render_page("settings"))
         node = shutil.which("node")
