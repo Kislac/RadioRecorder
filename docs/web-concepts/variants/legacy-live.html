@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Original web design | Radio Recorder</title>
+  <style>
+    :root { --ink:#24302d; --line:#c8d0ca; --accent:#ad3d34; --muted:#52635a; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:repeating-linear-gradient(0deg,#f3f5f2 0 39px,#e9eee9 40px); font:16px "Trebuchet MS",sans-serif; }
+    header,main,section,footer { padding:20px max(20px,calc((100vw - 760px)/2)); }
+    header { background:var(--ink); color:#f6f5ed; display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; align-items:center; font:700 18px Georgia,serif; }
+    header a { color:inherit; font:16px "Trebuchet MS",sans-serif; }
+    header time { flex:1 0 100%; font:16px "Trebuchet MS",sans-serif; }
+    main { padding-block:44px 40px; border-bottom:1px solid var(--line); }
+    h1 { font:normal 36px Georgia,serif; margin:0 0 16px; }
+    h2 { font:normal 25px Georgia,serif; margin:0 0 20px; }
+    h3 { font:normal 21px Georgia,serif; margin:0 0 12px; }
+    .state { font-size:19px; font-weight:bold; }
+    .note,.signalvalues { color:var(--muted); line-height:1.5; }
+    button { font:inherit; border:1px solid var(--ink); background:var(--ink); color:white; padding:12px 18px; opacity:.5; cursor:not-allowed; }
+    section { padding-block:34px; border-bottom:1px solid var(--line); }
+    .automatic-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
+    .signalbar { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:16px; }
+    .signalbar h2 { margin:0; }
+    .signal-chart { height:180px; border:1px solid var(--line); background:repeating-linear-gradient(90deg,transparent 0 37px,#d8e0d9 38px),repeating-linear-gradient(0deg,#f8faf7 0 37px,#d8e0d9 38px); }
+    footer { color:var(--muted); font-size:13px; }
+    @media(max-width:600px) { .automatic-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <header>RADIO RECORDER <span>v?</span><time>TIME UNSET</time><span>Settings · File manager · DAC test · Radio Programming</span></header>
+  <main><h1>Recording</h1><p class="state">Ready to record</p><p class="note">Time: 00:00:00</p><button disabled>Start recording</button> <button disabled>Start microphone recording</button><p class="note">Verified low-level test sources only. Do not connect the radio yet.</p><label><input type="checkbox" disabled> 3.4 kHz low-pass filter</label></main>
+  <section><h2>Automatic recording</h2><div class="automatic-grid"><div><h3>Radio automatic</h3><label><input type="checkbox" disabled> Active</label><p class="note">RMS · Threshold · Silence</p></div><div><h3>Microphone automatic</h3><label><input type="checkbox" disabled> Active</label><p class="note">RMS · Threshold · Silence</p></div></div></section>
+  <section><div class="signalbar"><h2>ADC signal</h2><button disabled>Enable measurement</button></div><p class="signalvalues">Disabled</p><div class="signal-chart" role="img" aria-label="Original ADC signal chart placeholder"></div></section>
+  <section><div class="signalbar"><h2>Microphone signal</h2><button disabled>Enable measurement</button></div><p class="signalvalues">Disabled</p><div class="signal-chart" role="img" aria-label="Original microphone signal chart placeholder"></div></section>
+  <section><div class="signalbar"><h2>Live audio</h2><button disabled>Start listening</button></div><p class="note">Disabled</p></section>
+  <section><div class="signalbar"><h2>Playback</h2><button disabled>Stop ESP playback</button></div><p class="note">ESP speaker: off</p></section>
+  <footer>ESP32-S3 / microSD · Static design archive; no device connection</footer>
+</body>
+</html>
