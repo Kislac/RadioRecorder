@@ -10,7 +10,7 @@
   <body>
     <header id="autoSettings">
       <a class="site-brand" href="/"><img src="/logo.svg" alt="" /><span>RADIORECORDER<small>CLEAR SKY / SIGNAL STATION</small></span></a>
-      <nav aria-label="Pages"><a href="/">Recording</a><a href="/files">File manager</a><a href="/settings#autoSettings" class="auto-link">Automatic settings</a><a href="/settings" class="settings-link">Settings</a><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></nav>
+      <nav aria-label="Pages"><a href="/">Recording</a><a href="/files">File manager</a><a href="/settings#autoSettings" class="auto-link">Automatic settings</a><a href="/settings" class="settings-link">Settings</a><a href="/settings#diagnostics">Diagnostics</a><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></nav>
     </header>
     <main>
       <h1>Settings</h1>
@@ -52,12 +52,18 @@
         ><button id="wakeDisplay" type="button">Wake display</button>
         <p id="result" role="status" aria-live="polite">Loading...</p>
       </form>
-      <section class="performance-settings">
-        <h2>Performance</h2>
+      <section id="diagnostics" class="performance-settings">
+        <h2>Diagnostics</h2>
         <label><input id="performanceEnabled" type="checkbox" disabled />Enable diagnostics</label>
         <button id="refreshPerformance" type="button" disabled>Refresh</button>
         <p id="performanceStatus" role="status"></p>
-        <pre id="performanceSnapshot"></pre>
+        <div id="performanceSnapshot" hidden>
+          <table><thead><tr><th>Timing</th><th>Current</th><th>Average</th><th>Peak</th><th>Samples</th></tr></thead><tbody id="performanceTimings"></tbody></table>
+          <dl id="performanceDetails"></dl>
+          <label><input id="performanceLogEnabled" type="checkbox" />Log to SD (once per minute, max 256 KiB)</label>
+          <p id="performanceLogStatus" role="status"></p>
+          <a id="performanceLogDownload" href="/api/performance/log" hidden download>Download current log</a>
+        </div>
       </section>
       <section class="auto-settings">
         <h2>Automatic recording</h2>
@@ -138,7 +144,7 @@
       </section>
       <p><a href="/test">Hardware test page</a></p>
     </main>
-    <nav class="bottom-nav" aria-label="Main views"><a href="/"><span aria-hidden="true">&#9673;</span>Recording</a><a href="/settings#autoSettings" class="auto-link"><span aria-hidden="true">&#9678;</span>Auto settings</a><a href="/files"><span aria-hidden="true">&#9636;</span>Files</a><a href="/settings" class="settings-link"><span aria-hidden="true">&#9881;</span>System</a><details class="more-menu"><summary><span aria-hidden="true">&#8943;</span>More</summary><div><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></div></details></nav>
+    <nav class="bottom-nav" aria-label="Main views"><a href="/"><span aria-hidden="true">&#9673;</span>Recording</a><a href="/settings#autoSettings" class="auto-link"><span aria-hidden="true">&#9678;</span>Auto settings</a><a href="/files"><span aria-hidden="true">&#9636;</span>Files</a><a href="/settings" class="settings-link"><span aria-hidden="true">&#9881;</span>System</a><details class="more-menu"><summary><span aria-hidden="true">&#8943;</span>More</summary><div><a href="/settings#diagnostics">Diagnostics</a><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></div></details></nav>
     <footer>ESP32-S3 / Radio Recorder</footer>
     <script src="/automatic.js"></script>
     <script src="/settings.js"></script>

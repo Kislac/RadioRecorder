@@ -112,6 +112,8 @@ class PreviewDevice:
         self.boost = 1
         self.screen_minutes = 5
         self.performance_enabled = True
+        self.performance_log_enabled = False
+        self.performance_log_path = ""
         self.record_cues = {mode: {"start": 1 if mode.startswith("auto") else 2,
                        "stop": 1 if mode.startswith("auto") else 2}
                     for mode in ("manualMic", "manualRadio", "autoRadio", "autoMic")}
@@ -341,6 +343,11 @@ class PreviewDevice:
                 return 200, {"enabled": True, "preview": True,
                              "uptimeMs": int((time.monotonic() - self.started_at) * 1000),
                              "loopMaxGapUs": 10000, "loopGapsOver100ms": 0, "taskCount": 5,
+                             "loopCurrentUs": 2100, "loopAverageUs": 2300, "loopPeakUs": 12000,
+                             "loopSamples": 1200, "displayCurrentUs": 8200,
+                             "displayAverageUs": 8500, "displayPeakUs": 16000, "displaySamples": 80,
+                             "logEnabled": self.performance_log_enabled, "logPath": self.performance_log_path,
+                             "logError": "", "logBytes": 0, "logSamples": 0, "logSkippedBusy": 0,
                              "loopStackFreeMinimum": 4096, "recorderStackFreeMinimum": 4096,
                              "speakerStackFreeMinimum": 4096, "lastFileWorkerStackFreeMinimum": 0,
                              "adcOverflows": 0, "liveAudioDroppedFrames": 0,
@@ -348,6 +355,8 @@ class PreviewDevice:
                              "internalLargestBlock": 80000, "psramFree": 4000000,
                              "psramMinimumFree": 3800000, "psramLargestBlock": 3000000,
                              "nvsTotalEntries": 500, "nvsUsedEntries": 30, "nvsFreeEntries": 440}
+            if path == "/api/performance/log":
+                return (200, '{"timestampUtc":"preview","firmware":"preview"}\n') if self.performance_log_path else (409, "No diagnostics log")
             if path == "/api/record-cues":
                 return 200, {mode: dict(events) for mode, events in self.record_cues.items()}
             if path == "/api/time":
@@ -574,7 +583,18 @@ class PreviewDevice:
                 if params.get("enabled") not in ("0", "1"):
                     return 400, "Invalid enabled value"
                 self.performance_enabled = params["enabled"] == "1"
+                if not self.performance_enabled:
+                    self.performance_log_enabled = False
                 return self.api("GET", path, {})
+            if path == "/api/performance/log":
+                if params.get("enabled") not in ("0", "1"):
+                    return 400, "Invalid enabled value"
+                if params["enabled"] == "1" and not self.performance_enabled:
+                    return 409, "Diagnostics off"
+                self.performance_log_enabled = params["enabled"] == "1"
+                if self.performance_log_enabled and not self.performance_log_path:
+                    self.performance_log_path = "/perf-preview-00.txt"
+                return self.api("GET", "/api/performance", {})
             if path == "/api/record-cues":
                 if set(params) != set(self.record_cues) or any(
                     not isinstance(params[mode], dict) or set(params[mode]) != {"start", "stop"} or

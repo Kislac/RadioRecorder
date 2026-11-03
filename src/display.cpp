@@ -1,3 +1,4 @@
+#include "performance.h"
 #include "display.h"
 
 #include <Arduino.h>
@@ -503,6 +504,7 @@ void drawSettings() {
 }
 
 void drawBody(bool fullUpdate = true) {
+  uint32_t startedUs = performanceEnabled() ? micros() : 0;
   automaticSetPreviewSource(!screenSleeping && !inSettings && (tile == 2 || tile == 3) ? static_cast<int8_t>(tile - 2) : -1);
   oled.clearBuffer();
   drawStatus();
@@ -573,6 +575,7 @@ void drawBody(bool fullUpdate = true) {
   }
   if (fullUpdate) oled.sendBuffer();
   else oled.updateDisplayArea(0, 2, 16, 6);
+  if (startedUs) performanceDisplaySample(micros() - startedUs);
   lastBodyAt = millis();
 }
 

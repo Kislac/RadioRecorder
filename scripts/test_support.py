@@ -69,6 +69,9 @@ def validate_performance_snapshot(snapshot):
             raise AssertionError("Disabled diagnostics must not collect metrics")
         return "disabled (persistent setting)"
     keys = ("uptimeMs", "loopMaxGapUs", "loopGapsOver100ms", "taskCount",
+            "loopCurrentUs", "loopAverageUs", "loopPeakUs", "loopSamples",
+            "displayCurrentUs", "displayAverageUs", "displayPeakUs", "displaySamples",
+            "logBytes", "logSamples", "logSkippedBusy",
             "loopStackFreeMinimum", "recorderStackFreeMinimum", "speakerStackFreeMinimum",
             "lastFileWorkerStackFreeMinimum", "adcOverflows", "liveAudioDroppedFrames",
             "internalFree", "internalMinimumFree", "internalLargestBlock",
@@ -77,6 +80,11 @@ def validate_performance_snapshot(snapshot):
     for key in keys:
         if type(snapshot.get(key)) is not int or snapshot[key] < 0:
             raise AssertionError("Invalid performance metric: " + key)
+    if type(snapshot.get("logEnabled")) is not bool or not isinstance(snapshot.get("logPath"), str) or not isinstance(snapshot.get("logError"), str):
+        raise AssertionError("Invalid SD diagnostics log status")
+    for prefix in ("loop", "display"):
+        if snapshot[prefix + "PeakUs"] < snapshot[prefix + "CurrentUs"] or (snapshot[prefix + "Samples"] and snapshot[prefix + "PeakUs"] < snapshot[prefix + "AverageUs"]):
+            raise AssertionError("Invalid timing summary: " + prefix)
     for pool in ("internal", "psram"):
         if snapshot[pool + "LargestBlock"] > snapshot[pool + "Free"]:
             raise AssertionError("Largest block exceeds free " + pool + " heap")

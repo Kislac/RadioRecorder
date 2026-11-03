@@ -12,12 +12,16 @@ class PerformanceDiagnosticsTests(unittest.TestCase):
     def test_enabled_snapshot_requires_memory_tasks_nvs_and_audio_counters(self):
         snapshot = {key: 1 for key in (
             "uptimeMs", "loopMaxGapUs", "loopGapsOver100ms", "taskCount",
+            "loopCurrentUs", "loopAverageUs", "loopPeakUs", "loopSamples",
+            "displayCurrentUs", "displayAverageUs", "displayPeakUs", "displaySamples",
+            "logBytes", "logSamples", "logSkippedBusy",
             "loopStackFreeMinimum", "recorderStackFreeMinimum", "speakerStackFreeMinimum",
             "lastFileWorkerStackFreeMinimum", "adcOverflows", "liveAudioDroppedFrames",
             "internalFree", "internalMinimumFree", "internalLargestBlock",
             "psramFree", "psramMinimumFree", "psramLargestBlock",
             "nvsTotalEntries", "nvsUsedEntries", "nvsFreeEntries")}
-        snapshot.update(enabled=True, taskCount=5, nvsTotalEntries=10, nvsFreeEntries=4)
+        snapshot.update(enabled=True, taskCount=5, nvsTotalEntries=10, nvsFreeEntries=4,
+                logEnabled=False, logPath="", logError="")
         self.assertIn("4 NVS entries free", validate_performance_snapshot(snapshot))
         for field in ("nvsFreeEntries", "recorderStackFreeMinimum", "adcOverflows", "loopMaxGapUs"):
             with self.subTest(field=field):
@@ -39,6 +43,10 @@ class PerformanceDiagnosticsTests(unittest.TestCase):
         self.assertIn('id="performanceSnapshot"', page)
         self.assertIn('fetch("/api/performance?enabled="', script)
         self.assertIn('fetch("/api/performance",', script)
+        self.assertIn('id="diagnostics"', page)
+        self.assertIn('id="performanceTimings"', page)
+        self.assertIn('id="performanceLogEnabled"', page)
+        self.assertIn('fetch("/api/performance/log?enabled="', script)
 
     def test_preview_on_off_and_invalid_value(self):
         device = PreviewDevice()
@@ -51,6 +59,19 @@ class PerformanceDiagnosticsTests(unittest.TestCase):
         self.assertEqual((code, snapshot), (200, {"enabled": False}))
         self.assertFalse(device.api("GET", "/api/settings", {})[1]["performanceEnabled"])
         self.assertTrue(device.api("POST", "/api/performance", {"enabled": "1"})[1]["enabled"])
+
+    def test_preview_sd_log_requires_opt_in_and_does_not_restart(self):
+        device = PreviewDevice()
+        self.assertEqual(device.api("GET", "/api/performance/log", {})[0], 409)
+        self.assertEqual(device.api("POST", "/api/performance/log", {"enabled": "invalid"})[0], 400)
+        started = device.api("POST", "/api/performance/log", {"enabled": "1"})[1]
+        self.assertTrue(started["logEnabled"])
+        self.assertTrue(started["logPath"].endswith(".txt"))
+        self.assertEqual(device.api("GET", "/api/performance/log", {})[0], 200)
+        self.assertFalse(device.api("POST", "/api/performance/log", {"enabled": "0"})[1]["logEnabled"])
+        self.assertEqual(device.api("POST", "/api/performance", {"enabled": "0"})[1], {"enabled": False})
+        self.assertEqual(device.api("POST", "/api/performance/log", {"enabled": "1"})[0], 409)
+        self.assertFalse(PreviewDevice().performance_log_enabled)
 
     def test_write_test_restores_original_even_after_bad_response(self):
         calls = []

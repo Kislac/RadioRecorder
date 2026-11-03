@@ -12,7 +12,14 @@
 .performance-settings label { display:inline-flex; align-items:center; gap:8px; }
 .performance-settings input { width:18px; height:18px; }
 .performance-settings button { margin-left:16px; }
-.performance-settings pre { max-width:100%; overflow-x:auto; padding:12px; background:#fff; border:1px solid var(--line); font-size:12px; }
+.performance-settings { scroll-margin-top:16px; }
+.performance-settings table { width:100%; border-collapse:collapse; margin:16px 0; font-variant-numeric:tabular-nums; }
+.performance-settings th, .performance-settings td { padding:8px 6px; border-bottom:1px solid var(--line); text-align:right; }
+.performance-settings th:first-child, .performance-settings td:first-child { text-align:left; }
+.performance-settings dl { display:grid; grid-template-columns: minmax(0,1fr) auto; gap:8px 16px; margin:18px 0; }
+.performance-settings dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; }
+.performance-settings #performanceSnapshot { overflow-x:auto; }
+.performance-settings #performanceLogStatus { overflow-wrap:anywhere; color:var(--muted); }
 .cue-settings { margin-top:32px; border-top:1px solid var(--line); padding-top:24px; }
 .cue-grid { display:grid; grid-template-columns:minmax(0,1.3fr) repeat(2,minmax(0,1fr)); gap:12px; align-items:center; }
 .cue-grid > span { font-weight:700; }

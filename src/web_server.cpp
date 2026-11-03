@@ -915,6 +915,31 @@ void initWeb() {
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", performanceJson());
   });
+  server.on("/api/performance/log", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    String value = server.arg("enabled");
+    if (value != "0" && value != "1") { server.send(400, "text/plain", "Invalid enabled value"); return; }
+    if (!performanceLogSetEnabled(value == "1")) {
+      server.send(409, "text/plain", "Diagnostics, SD, or audio busy; log not started"); return;
+    }
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", performanceJson());
+  });
+  server.on("/api/performance/log", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    const char *path = performanceLogPath();
+    if (!path[0] || !appSdReady() || recorderState() != CaptureState::idle ||
+      playbackGetState() != PlaybackState::idle || fileManagerBusy() ||
+      automaticAnyArmed() || radioProgrammingBusy()) {
+      server.send(409, "text/plain", "No available diagnostics log or SD busy"); return;
+    }
+    File file = SD_MMC.open(path, FILE_READ);
+    if (!file || file.isDirectory()) { file.close(); server.send(404, "text/plain", "Log not found"); return; }
+    server.sendHeader("Cache-Control", "no-store");
+    server.sendHeader("Content-Disposition", "attachment; filename=\"" + String(path + 1) + "\"");
+    server.streamFile(file, "application/x-ndjson");
+    file.close();
+  });
   server.on("/api/record-cues", HTTP_GET, sendRecordCues);
   server.on("/api/record-cues", HTTP_POST, saveRecordCues);
   server.on("/api/time", HTTP_GET, sendClock);

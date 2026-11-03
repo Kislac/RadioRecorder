@@ -7,17 +7,64 @@ const form = document.querySelector("#settingsForm"),
 const performanceToggle = document.querySelector("#performanceEnabled"),
   performanceRefresh = document.querySelector("#refreshPerformance"),
   performanceStatus = document.querySelector("#performanceStatus"),
-  performanceSnapshot = document.querySelector("#performanceSnapshot");
+  performanceSnapshot = document.querySelector("#performanceSnapshot"),
+  performanceTimings = document.querySelector("#performanceTimings"),
+  performanceDetails = document.querySelector("#performanceDetails"),
+  performanceLogToggle = document.querySelector("#performanceLogEnabled"),
+  performanceLogStatus = document.querySelector("#performanceLogStatus"),
+  performanceLogDownload = document.querySelector("#performanceLogDownload");
+function showPerformance(snapshot) {
+  performanceSnapshot.hidden = !snapshot.enabled;
+  if (!snapshot.enabled) return;
+  performanceTimings.replaceChildren();
+  for (const [label, prefix] of [["Main loop", "loop"], ["OLED refresh", "display"]]) {
+    const row = performanceTimings.insertRow();
+    for (const value of [label, ...["CurrentUs", "AverageUs", "PeakUs"].map(key =>
+      (snapshot[prefix + key] / 1000).toFixed(2) + " ms"), snapshot[prefix + "Samples"]]) {
+      const cell = row.insertCell();
+      cell.textContent = value;
+    }
+  }
+  performanceDetails.replaceChildren();
+  for (const [label, value] of [
+    ["Uptime", (snapshot.uptimeMs / 3600000).toFixed(1) + " h"],
+    ["Largest loop gap", (snapshot.loopMaxGapUs / 1000).toFixed(2) + " ms"],
+    ["Gaps over 100 ms", snapshot.loopGapsOver100ms],
+    ["Internal RAM free / minimum", snapshot.internalFree + " / " + snapshot.internalMinimumFree + " B"],
+    ["PSRAM free / minimum", snapshot.psramFree + " / " + snapshot.psramMinimumFree + " B"],
+    ["NVS entries free", snapshot.nvsFreeEntries],
+    ["ADC overflows", snapshot.adcOverflows], ["Live audio dropped frames", snapshot.liveAudioDroppedFrames],
+  ]) {
+    const term = document.createElement("dt"), detail = document.createElement("dd");
+    term.textContent = label; detail.textContent = value;
+    performanceDetails.append(term, detail);
+  }
+  performanceLogToggle.checked = snapshot.logEnabled;
+  performanceLogDownload.hidden = !snapshot.logPath;
+  performanceLogStatus.textContent = snapshot.logError ||
+    (snapshot.logPath ? `${snapshot.logPath} (${snapshot.logSamples} samples, ${snapshot.logBytes} B, ${snapshot.logSkippedBusy} busy intervals skipped)` : "SD logging off");
+}
 async function loadPerformance() {
   const response = await fetch("/api/performance", { cache: "no-store" });
   if (!response.ok) throw Error(await response.text());
   const snapshot = await response.json();
   performanceToggle.checked = snapshot.enabled;
-  performanceSnapshot.textContent = snapshot.enabled ? JSON.stringify(snapshot, null, 2) : "";
+  showPerformance(snapshot);
   performanceStatus.textContent = snapshot.enabled ? "Diagnostics active" : "Diagnostics off";
   performanceToggle.disabled = false;
   performanceRefresh.disabled = false;
 }
+performanceLogToggle.addEventListener("change", async () => {
+  performanceLogToggle.disabled = true;
+  try {
+    const response = await fetch("/api/performance/log?enabled=" + (performanceLogToggle.checked ? "1" : "0"), { method: "POST" });
+    if (!response.ok) throw Error(await response.text());
+    await loadPerformance();
+  } catch (error) {
+    await loadPerformance().catch(() => {});
+    performanceLogStatus.textContent = error.message || "Could not change SD logging.";
+  } finally { performanceLogToggle.disabled = false; }
+});
 performanceRefresh.addEventListener("click", async () => {
   try { await loadPerformance(); }
   catch { performanceStatus.textContent = "Could not load diagnostics."; }

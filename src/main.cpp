@@ -262,6 +262,7 @@ void setup() {
 }
 
 void loop() {
+  performanceLoopStart();
   pollPttTest();
   radioProgrammingPoll();
   int32_t steps = takeEncoderSteps();
@@ -282,6 +283,7 @@ void loop() {
   playbackPollSettings();
   wifiManagerPoll();
   appClockPoll();
+  performanceLogPoll();
   performanceLoopTick();
   feedSystemWatchdog();
   delay(10);
