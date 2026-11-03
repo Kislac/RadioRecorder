@@ -4,7 +4,7 @@
 
 enum class PlaybackState { idle, starting, playing };
 enum class PlaybackTarget { speaker, radio };
-enum class PlaybackCue { startup, recordingStarted, recordingStopped };
+enum class PlaybackCue { startup, recordingStarted, recordingStopped, autoStarted, autoStopped };
 
 struct DacToneSettings {
   uint16_t frequency;
@@ -36,6 +36,11 @@ PlaybackStatus playbackStatus();
 void playbackStart(const String &path, PlaybackTarget target = PlaybackTarget::speaker);
 bool playbackStartTone(const DacToneSettings &settings);
 void playbackPlayCue(PlaybackCue cue);
+void playbackRecordCue(bool automatic, bool microphone, bool started);
+uint8_t playbackCueSetting(bool automatic, bool microphone, bool started);
+bool playbackSaveCueSettings(uint16_t settings);
+bool playbackCueActive();
+bool playbackFileActive();
 bool playbackStop();
 bool playbackPause(bool paused);
 bool playbackSeek(uint32_t offset);

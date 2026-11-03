@@ -44,7 +44,6 @@ for (const input of [...modeInputs, ...sourceInputs]) input.addEventListener("ch
   }
   if (selectedSource() === "radio") drawSignal();
   else drawSignal(micSignalChart, micSignalHistory, 32768);
-  resetSpectrum();
 });
 recordAction.addEventListener("click", async () => {
   if (recordAction.disabled) return;
@@ -92,57 +91,6 @@ function renderDemoClock() {
 setInterval(renderDemoClock, 1000);
 const signalHistory = [];
 const micSignalHistory = [];
-const spectrumBands = [...document.querySelectorAll(".home-spectrum-bands span")];
-const spectrumFrequencies = [125, 250, 500, 1000, 2000, 4000, 8000, 10000];
-let spectrumPending = false;
-function resetSpectrum() {
-  for (const band of spectrumBands) {
-    band.style.removeProperty("--level");
-    band.style.removeProperty("--bar-color");
-  }
-  document.querySelector("#spectrumState").textContent = "NO PCM DATA";
-}
-function drawSpectrum(buffer) {
-  if (buffer.byteLength !== 1024) return resetSpectrum();
-  const view = new DataView(buffer);
-  const samples = 512;
-  const levels = spectrumFrequencies.map((frequency) => {
-    let real = 0, imaginary = 0;
-    for (let index = 0; index < samples; index++) {
-      const window = 0.5 - 0.5 * Math.cos(2 * Math.PI * index / (samples - 1));
-      const phase = 2 * Math.PI * frequency * index / 22050;
-      const value = view.getInt16(index * 2, true) * window;
-      real += value * Math.cos(phase);
-      imaginary += value * Math.sin(phase);
-    }
-    return Math.hypot(real, imaginary);
-  });
-  const strongest = Math.max(...levels);
-  for (const [index, band] of spectrumBands.entries()) {
-    const relative = strongest > 1 ? 20 * Math.log10(Math.max(1, levels[index]) / strongest) : -60;
-    band.style.setProperty("--level", Math.max(2, Math.round(80 * (relative + 60) / 60)) + "px");
-    band.style.setProperty("--bar-color", "#86c3b4");
-  }
-  document.querySelector("#spectrumState").textContent = "LIVE PCM";
-}
-async function pollSpectrum() {
-  if (spectrumPending || !lastStatus) return;
-  const source = selectedSource();
-  if (lastStatus.state === "idle" && !(source === "radio" ? meterRunning : micMeterRunning)) {
-    resetSpectrum();
-    return;
-  }
-  spectrumPending = true;
-  try {
-    const response = await fetch("/api/spectrum?source=" + source, { cache: "no-store" });
-    if (source !== selectedSource()) return;
-    if (response.status === 204) resetSpectrum();
-    else if (response.ok) drawSpectrum(await response.arrayBuffer());
-    else resetSpectrum();
-  } catch { resetSpectrum(); }
-  finally { spectrumPending = false; }
-}
-setInterval(pollSpectrum, 400);
 function drawSignal(chart = signalChart, history = signalHistory, ceiling = 4096) {
   const width = chart.clientWidth,
     height = 160,

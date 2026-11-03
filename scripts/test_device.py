@@ -279,7 +279,7 @@ def list_radio_wavs(device, report, firmware_version):
 
 def menu_state(device):
     device.write(b"p")
-    deadline = time.monotonic() + 2.5
+    deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         line = device.readline()
         if line.startswith(b"OLED_STATE "):

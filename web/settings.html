@@ -72,6 +72,19 @@
           <p id="autoSettingsResult" role="status">Loading...</p>
         </form>
       </section>
+      <section class="cue-settings">
+        <h2>Recording sounds</h2>
+        <form id="cueSettingsForm">
+          <div class="cue-grid">
+            <span>Manual radio</span><label>Start sound<select id="manualRadioStart"></select></label><label>Stop sound<select id="manualRadioStop"></select></label>
+            <span>Manual microphone</span><label>Start sound<select id="manualMicStart"></select></label><label>Stop sound<select id="manualMicStop"></select></label>
+            <span>Automatic radio</span><label>Start sound<select id="autoRadioStart"></select></label><label>Stop sound<select id="autoRadioStop"></select></label>
+            <span>Automatic microphone</span><label>Start sound<select id="autoMicStart"></select></label><label>Stop sound<select id="autoMicStop"></select></label>
+          </div>
+          <button id="saveCueSettings" type="submit" disabled>Save sounds</button>
+          <p id="cueSettingsResult" role="status">Loading...</p>
+        </form>
+      </section>
       <section class="clock-settings">
         <h2>Date and time</h2>
         <p id="clockStatus" role="status">Loading clock status...</p>

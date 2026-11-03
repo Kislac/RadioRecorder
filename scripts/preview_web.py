@@ -111,6 +111,9 @@ class PreviewDevice:
         self.radio_boost = 1
         self.boost = 1
         self.screen_minutes = 5
+        self.record_cues = {mode: {"start": 1 if mode.startswith("auto") else 2,
+                       "stop": 1 if mode.startswith("auto") else 2}
+                    for mode in ("manualMic", "manualRadio", "autoRadio", "autoMic")}
         self.wifi_minutes = 5
         self.wav = sample_wav()
         self.files = {"/REC00001.wav": self.wav, "/REC00002.wav": self.wav,
@@ -330,6 +333,8 @@ class PreviewDevice:
             if path == "/api/settings":
                 return 200, {"screenOffMinutes": self.screen_minutes, "wifiAutoOffMinutes": self.wifi_minutes,
                              "wifi": dict(self.wifi), "language": self.language}
+            if path == "/api/record-cues":
+                return 200, {mode: dict(events) for mode, events in self.record_cues.items()}
             if path == "/api/time":
                 return 200, self.clock_info()
             if path == "/api/wifi/status":
@@ -550,6 +555,15 @@ class PreviewDevice:
                 self.screen_minutes, self.wifi_minutes = screen, wifi
                 self.wifi["autoOffMinutes"] = wifi
                 return 200, {"screenOffMinutes": screen, "wifiAutoOffMinutes": wifi}
+            if path == "/api/record-cues":
+                if set(params) != set(self.record_cues) or any(
+                    not isinstance(params[mode], dict) or set(params[mode]) != {"start", "stop"} or
+                    any(type(value) is not int or value not in (0, 1, 2) for value in params[mode].values())
+                    for mode in self.record_cues
+                ):
+                    return 400, "Invalid recording cues"
+                self.record_cues = {mode: dict(events) for mode, events in params.items()}
+                return 200, {mode: dict(events) for mode, events in self.record_cues.items()}
             if path == "/api/display/wake":
                 return 200, "Display awake (simulated)"
             if path == "/api/play/volume":

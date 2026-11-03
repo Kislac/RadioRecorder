@@ -24,6 +24,7 @@ static std::atomic<PlaybackState> playbackState{PlaybackState::idle};
 static std::atomic<bool> playbackStopRequested{false};
 static std::atomic<bool> cuePlaying{false};
 static std::atomic<uint8_t> requestedCue{0};
+static std::atomic<uint16_t> recordCueSettings{0x55AA};
 static std::atomic<uint8_t> speakerVolume{25};
 static std::atomic<uint8_t> speakerBoost{1};
 static std::atomic<uint8_t> radioVolume{5};
@@ -37,6 +38,7 @@ static constexpr char kSpeakerVolumeKey[] = "spkVol";
 static constexpr char kSpeakerBoostKey[] = "spkBoost";
 static constexpr char kRadioVolumeKey[] = "radioVol";
 static constexpr char kRadioBoostKey[] = "radioGain";
+static constexpr char kRecordCueKey[] = "recCues";
 static constexpr uint32_t kSpeakerSaveDelayMs = 1000;
 static uint8_t savedSpeakerVolume = 25;
 static uint8_t savedSpeakerBoost = 1;
@@ -58,6 +60,8 @@ struct CueNote {
 static constexpr CueNote kStartupCue[] = {{523, 110}, {659, 110}, {784, 140}, {1047, 240}};
 static constexpr CueNote kRecordStartCue[] = {{659, 110}, {880, 150}, {1175, 210}};
 static constexpr CueNote kRecordStopCue[] = {{1047, 110}, {784, 110}, {587, 230}};
+static constexpr CueNote kAutoStartCue[] = {{880, 65}, {1175, 65}};
+static constexpr CueNote kAutoStopCue[] = {{784, 65}, {587, 65}};
 
 static void writeCueNotes(const CueNote *notes, size_t count) {
   if (!speakerReady || !speakerHandle || i2s_channel_enable(speakerHandle) != ESP_OK) return;
@@ -97,6 +101,8 @@ static void playCue(PlaybackCue cue) {
     case PlaybackCue::startup: writeCueNotes(kStartupCue, sizeof(kStartupCue) / sizeof(kStartupCue[0])); break;
     case PlaybackCue::recordingStarted: writeCueNotes(kRecordStartCue, sizeof(kRecordStartCue) / sizeof(kRecordStartCue[0])); break;
     case PlaybackCue::recordingStopped: writeCueNotes(kRecordStopCue, sizeof(kRecordStopCue) / sizeof(kRecordStopCue[0])); break;
+    case PlaybackCue::autoStarted: writeCueNotes(kAutoStartCue, sizeof(kAutoStartCue) / sizeof(kAutoStartCue[0])); break;
+    case PlaybackCue::autoStopped: writeCueNotes(kAutoStopCue, sizeof(kAutoStopCue) / sizeof(kAutoStopCue[0])); break;
   }
 }
 
@@ -154,6 +160,32 @@ void playbackPlayCue(PlaybackCue cue) {
   if (!cuePlaying.compare_exchange_strong(expected, true)) return;
   requestedCue.store(static_cast<uint8_t>(cue) + 1);
   xTaskNotifyGive(playbackTask);
+}
+
+bool playbackCueActive() { return cuePlaying.load(); }
+bool playbackFileActive() { return playbackState.load() != PlaybackState::idle; }
+
+uint8_t playbackCueSetting(bool automatic, bool microphone, bool started) {
+  uint8_t mode = automatic ? (microphone ? 3 : 2) : (microphone ? 0 : 1);
+  return (recordCueSettings.load() >> (mode * 4 + (started ? 0 : 2))) & 3;
+}
+
+bool playbackSaveCueSettings(uint16_t settings) {
+  for (uint8_t shift = 0; shift < 16; shift += 2) if (((settings >> shift) & 3) > 2) return false;
+  if (recordCueSettings.load() == settings) return true;
+  Preferences preferences;
+  if (!preferences.begin(kSpeakerSettingsNamespace, false)) return false;
+  bool saved = preferences.putUShort(kRecordCueKey, settings) == sizeof(settings);
+  preferences.end();
+  if (saved) recordCueSettings.store(settings);
+  return saved;
+}
+
+void playbackRecordCue(bool automatic, bool microphone, bool started) {
+  uint8_t setting = playbackCueSetting(automatic, microphone, started);
+  if (!setting) return;
+  playbackPlayCue(setting == 1 ? started ? PlaybackCue::autoStarted : PlaybackCue::autoStopped :
+    started ? PlaybackCue::recordingStarted : PlaybackCue::recordingStopped);
 }
 
 bool playbackStop() {
@@ -478,6 +510,10 @@ void initPlayback(bool sdReady) {
     uint8_t boost = preferences.getUChar(kSpeakerBoostKey, savedSpeakerBoost);
     uint8_t radio = preferences.getUChar(kRadioVolumeKey, savedRadioVolume);
     uint8_t radioGain = preferences.getUChar(kRadioBoostKey, savedRadioBoost);
+    uint16_t cues = preferences.getUShort(kRecordCueKey, recordCueSettings.load());
+    bool validCues = true;
+    for (uint8_t shift = 0; shift < 16; shift += 2) if (((cues >> shift) & 3) > 2) validCues = false;
+    if (validCues) recordCueSettings.store(cues);
     if (volume <= 100) savedSpeakerVolume = volume;
     if (boost == 1 || boost == 2 || boost == 4) savedSpeakerBoost = boost;
     if (radio <= 100) savedRadioVolume = radio;

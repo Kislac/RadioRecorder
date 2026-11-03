@@ -644,7 +644,7 @@ void recordLoop(void *) {
       recordingStartedAt.store(millis());
       captureState.store(CaptureState::recording);
       Serial.printf("Recording started: %s (%s)\n", recordingName, microphone ? "microphone" : "ADC");
-      if (!automaticFile.load() && !automaticAnyArmed()) playbackPlayCue(PlaybackCue::recordingStarted);
+      playbackRecordCue(automaticFile.load(), microphone, true);
       float dcLevel = automaticFile.load() ? automaticDcLevel : 2048.0f;
       SignalWindow window;
       SignalWindow micWindow;
@@ -734,7 +734,7 @@ void recordLoop(void *) {
     else Serial.printf("Recording failed: %s\n", recordingName);
     if (lastError[0]) Serial.printf("Recording error: %s\n", lastError);
     captureState.store(CaptureState::idle);
-    if (started && !automaticFile.load() && !automaticAnyArmed()) playbackPlayCue(PlaybackCue::recordingStopped);
+    if (valid) playbackRecordCue(automaticFile.load(), microphone, false);
     watchdogUnsubscribeCurrentTask(recordingWatchdog);
     if (signalRequested() || micSignalRequested() || liveAudioClient() >= 0) xTaskNotifyGive(recorderTask);
   }

@@ -136,6 +136,12 @@ void automaticInputFault(bool microphone, const char *error) {
 void automaticObserve(bool microphone, uint16_t rms) {
   if (!controlMutex) return;
   uint8_t source = microphone ? 1 : 0;
+  if (playbackCueActive()) {
+    lock(); detectors[source].hasSample = false; detectors[source].aboveCount = 0;
+    detectors[source].sampledAt = nowMs();
+    if (current == (microphone ? RecordingMode::autoMic : RecordingMode::autoRadio)) detectors[source].lastSoundAt = nowMs();
+    unlock(); return;
+  }
   lock(); detectors[source].observe(rms, nowMs(), configs[source], current == (microphone ? RecordingMode::autoMic : RecordingMode::autoRadio)); unlock();
 }
 
@@ -171,11 +177,11 @@ bool automaticStopCurrent() {
 void pollAutomaticRecording() {
   if (!controlMutex) return;
   uint64_t now = nowMs();
-  bool resources = appSdReady() && !fileManagerBusy() && playbackGetState() == PlaybackState::idle && liveAudioClient() < 0;
+  bool resources = appSdReady() && !fileManagerBusy() && !playbackFileActive() && liveAudioClient() < 0;
   CaptureState capture = recorderState();
   lock();
   blockedReason = !appSdReady() ? "SD unavailable" : fileManagerBusy() ? "File operation busy" :
-    playbackGetState() != PlaybackState::idle ? "Playback active" : liveAudioClient() >= 0 ? "Live audio active" : "";
+    playbackFileActive() ? "Playback active" : liveAudioClient() >= 0 ? "Live audio active" : "";
   if (capture == CaptureState::idle && current != RecordingMode::none) {
     if (isAutomatic(current)) {
       uint8_t source = isMicrophone(current) ? 1 : 0;

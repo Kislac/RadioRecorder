@@ -69,7 +69,7 @@ assert.equal(sent.length, 2);
         self.assertIn('(seconds - 30) + "s"', script)
         self.assertIn('drawSignal();\nrefresh();', script)
         self.assertIn('else drawSignal(micSignalChart, micSignalHistory, 32768);', script)
-        self.assertIn('background:var(--bar-color,var(--border))', (WEB_ROOT / "station.css").read_text(encoding="utf-8"))
+        self.assertNotIn('home-spectrum-bands', (WEB_ROOT / "station.css").read_text(encoding="utf-8"))
         self.assertIn('signalPlot.hidden = false', script)
         self.assertIn('micSignalPlot.hidden = false', script)
         self.assertNotIn('id="speakerStop"', page)
@@ -132,11 +132,9 @@ assert.equal(sent.length, 2);
         firmware = (WEB_ROOT.parent / "src" / "wifi_manager.cpp").read_text(encoding="utf-8")
         self.assertIn('id="signalPlot"><canvas', page)
         self.assertIn('id="micSignalPlot"><canvas', page)
-        self.assertIn('class="home-spectrum-bands"', page)
-        self.assertIn('NO PCM DATA', page)
-        self.assertIn('id="spectrumState"', page)
-        self.assertIn('fetch("/api/spectrum?source=" + source', script)
-        self.assertIn('view.getInt16(index * 2, true)', script)
+        self.assertNotIn('home-spectrum', page)
+        self.assertNotIn('/api/spectrum', script)
+        self.assertIn('drawSignal(micSignalChart, micSignalHistory, 32768)', script)
         self.assertIn('source === "radio" ? "RADIO / SIGNAL MONITOR" : "MICROPHONE / SIGNAL MONITOR"', script)
         self.assertIn('id="autoRadioStatus" role="status" hidden', page)
         self.assertIn('id="autoMicTime" hidden', page)
@@ -162,6 +160,41 @@ assert.equal(sent.length, 2);
         self.assertEqual(device.api("GET", "/api/spectrum", {"source": "radio"})[0], 204)
         firmware = (WEB_ROOT.parent / "src" / "recorder.cpp").read_text(encoding="utf-8")
         self.assertIn('publishSpectrum(CaptureSource::microphone, pcmBuffer, pcmLength)', firmware)
+
+    def test_recording_cues_have_eight_independent_persisted_choices(self):
+        device = PreviewDevice("ready")
+        code, defaults = device.api("GET", "/api/record-cues", {})
+        self.assertEqual(code, 200)
+        self.assertEqual(defaults, {
+            "manualMic": {"start": 2, "stop": 2}, "manualRadio": {"start": 2, "stop": 2},
+            "autoRadio": {"start": 1, "stop": 1}, "autoMic": {"start": 1, "stop": 1},
+        })
+        changes = {mode: dict(events) for mode, events in defaults.items()}
+        changes["autoMic"]["stop"] = 0
+        changes["manualRadio"]["start"] = 1
+        self.assertEqual(device.api("POST", "/api/record-cues", changes), (200, changes))
+        invalid = {mode: dict(events) for mode, events in changes.items()}
+        invalid["autoRadio"]["start"] = 3
+        self.assertEqual(device.api("POST", "/api/record-cues", invalid)[0], 400)
+        invalid = {mode: dict(events) for mode, events in changes.items()}
+        invalid["manualMic"]["unexpected"] = 1
+        self.assertEqual(device.api("POST", "/api/record-cues", invalid)[0], 400)
+        self.assertEqual(device.api("GET", "/api/record-cues", {})[1], changes)
+
+        page = (WEB_ROOT / "settings.html").read_text(encoding="utf-8")
+        script = (WEB_ROOT / "settings.js").read_text(encoding="utf-8")
+        playback = (WEB_ROOT.parent / "src" / "playback.cpp").read_text(encoding="utf-8")
+        recorder = (WEB_ROOT.parent / "src" / "recorder.cpp").read_text(encoding="utf-8")
+        automatic = (WEB_ROOT.parent / "src" / "automatic_record.cpp").read_text(encoding="utf-8")
+        for mode in defaults:
+            for event in ("Start", "Stop"):
+                self.assertIn(f'id="{mode}{event}"', page)
+        self.assertIn('fetch("/api/record-cues", {', script)
+        self.assertIn('preferences.putUShort(kRecordCueKey, settings)', playback)
+        self.assertIn('playbackRecordCue(automaticFile.load(), microphone, true)', recorder)
+        self.assertIn('if (valid) playbackRecordCue(automaticFile.load(), microphone, false)', recorder)
+        self.assertIn('if (playbackCueActive())', automatic)
+        self.assertIn('!playbackFileActive()', automatic)
 
     def test_waveform_and_pause_seek_keep_playback_position(self):
         device = PreviewDevice("ready")

@@ -4,6 +4,43 @@ const form = document.querySelector("#settingsForm"),
   save = document.querySelector("#save"),
   wakeDisplay = document.querySelector("#wakeDisplay"),
   result = document.querySelector("#result");
+const cueForm = document.querySelector("#cueSettingsForm"),
+  cueSave = document.querySelector("#saveCueSettings"),
+  cueResult = document.querySelector("#cueSettingsResult"),
+  cueModes = ["manualRadio", "manualMic", "autoRadio", "autoMic"];
+for (const mode of cueModes) for (const event of ["Start", "Stop"]) {
+  document.querySelector("#" + mode + event).replaceChildren(
+    new Option("Off", 0), new Option("Short", 1), new Option("Normal", 2));
+}
+async function loadCueSettings() {
+  try {
+    const response = await fetch("/api/record-cues", { cache: "no-store" });
+    if (!response.ok) throw Error(await response.text());
+    const settings = await response.json();
+    for (const mode of cueModes) for (const event of ["Start", "Stop"])
+      document.querySelector("#" + mode + event).value = settings[mode][event.toLowerCase()];
+    cueSave.disabled = false;
+    cueResult.textContent = "Sounds loaded.";
+  } catch { cueResult.textContent = "Could not load recording sounds."; }
+}
+cueForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  cueSave.disabled = true;
+  const settings = {};
+  for (const mode of cueModes) settings[mode] = {
+    start: Number(document.querySelector("#" + mode + "Start").value),
+    stop: Number(document.querySelector("#" + mode + "Stop").value),
+  };
+  try {
+    const response = await fetch("/api/record-cues", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings),
+    });
+    if (!response.ok) throw Error(await response.text());
+    cueResult.textContent = "Sounds saved.";
+  } catch (error) { cueResult.textContent = error.message || "Could not save recording sounds."; }
+  finally { cueSave.disabled = false; }
+});
+loadCueSettings();
 function updateSettingsNavigation() {
   const automatic = location.hash === "#autoSettings";
   for (const link of document.querySelectorAll(".auto-link")) {

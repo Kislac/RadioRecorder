@@ -175,6 +175,43 @@ void sendSettings() {
   server.send(200, "application/json", json);
 }
 
+void sendRecordCues() {
+  wifiManagerNotifyActivity();
+  String json = "{";
+  for (uint8_t mode = 0; mode < 4; ++mode) {
+    bool automatic = mode >= 2;
+    bool microphone = mode == 0 || mode == 3;
+    if (mode) json += ',';
+    json += "\"" + String(recordingModeCode(static_cast<RecordingMode>(mode))) + "\":{\"start\":" +
+      String(playbackCueSetting(automatic, microphone, true)) + ",\"stop\":" +
+      String(playbackCueSetting(automatic, microphone, false)) + "}";
+  }
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", json + "}");
+}
+
+void saveRecordCues() {
+  String body = server.arg("plain");
+  if (body.length() > 512) { server.send(400, "text/plain", "Invalid recording cues"); return; }
+  cJSON *json = cJSON_Parse(body.c_str());
+  bool valid = cJSON_IsObject(json) && cJSON_GetArraySize(json) == 4;
+  uint16_t settings = 0;
+  for (uint8_t mode = 0; mode < 4 && valid; ++mode) {
+    cJSON *profile = cJSON_GetObjectItemCaseSensitive(json, recordingModeCode(static_cast<RecordingMode>(mode)));
+    valid = cJSON_IsObject(profile) && cJSON_GetArraySize(profile) == 2;
+    for (uint8_t event = 0; event < 2 && valid; ++event) {
+      cJSON *value = cJSON_GetObjectItemCaseSensitive(profile, event ? "stop" : "start");
+      valid = cJSON_IsNumber(value) && value->valuedouble >= 0 && value->valuedouble <= 2 &&
+        value->valuedouble == floor(value->valuedouble);
+      if (valid) settings |= static_cast<uint16_t>(value->valueint) << (mode * 4 + event * 2);
+    }
+  }
+  cJSON_Delete(json);
+  if (!valid) { server.send(400, "text/plain", "Invalid recording cues"); return; }
+  if (!playbackSaveCueSettings(settings)) { server.send(500, "text/plain", "Could not save recording cues"); return; }
+  sendRecordCues();
+}
+
 void sendClock() {
   wifiManagerNotifyActivity();
   server.sendHeader("Cache-Control", "no-store");
@@ -863,6 +900,8 @@ void initWeb() {
   });
   server.on("/api/settings", HTTP_GET, sendSettings);
   server.on("/api/settings", HTTP_POST, saveSettings);
+  server.on("/api/record-cues", HTTP_GET, sendRecordCues);
+  server.on("/api/record-cues", HTTP_POST, saveRecordCues);
   server.on("/api/time", HTTP_GET, sendClock);
   server.on("/api/language", HTTP_POST, setLanguage);
   server.on("/api/time", HTTP_POST, setClock);

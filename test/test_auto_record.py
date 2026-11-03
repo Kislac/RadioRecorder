@@ -279,7 +279,7 @@ int main() {
             "app_control.h": "#pragma once\nbool appSdReady();\n",
             "file_manager.h": "#pragma once\nbool fileManagerBusy();\n",
             "live_audio.h": "#pragma once\nint liveAudioClient();\n",
-            "playback.h": "#pragma once\nenum class PlaybackState{idle,starting,playing}; PlaybackState playbackGetState();\n",
+            "playback.h": "#pragma once\nenum class PlaybackState{idle,starting,playing}; PlaybackState playbackGetState(); bool playbackCueActive(); bool playbackFileActive();\n",
             "esp_timer.h": "#pragma once\n#include <cstdint>\nextern uint64_t clockMs; inline int64_t esp_timer_get_time(){return clockMs*1000;}\n",
             "Preferences.h": "#pragma once\n#include <vector>\n#include <cstring>\nextern std::vector<unsigned char> stored; extern bool failWrite; extern int writes; struct Preferences{bool begin(const char*,bool){return true;} size_t getBytesLength(const char*){return stored.size();} size_t getBytes(const char*,void *value,size_t size){memcpy(value,stored.data(),size);return size;} size_t putBytes(const char*,const void *value,size_t size){++writes;if(failWrite)return 0;stored.assign(static_cast<const unsigned char*>(value),static_cast<const unsigned char*>(value)+size);return size;} void end(){}};\n",
             "cJSON.h": "#pragma once\nstruct cJSON{}; inline cJSON *cJSON_CreateObject(){return nullptr;} template<class... Args> void cJSON_AddStringToObject(Args...){} template<class... Args> void cJSON_AddNumberToObject(Args...){} template<class... Args> void cJSON_AddBoolToObject(Args...){} template<class... Args> cJSON *cJSON_AddObjectToObject(Args...){return nullptr;} template<class... Args> cJSON *cJSON_AddArrayToObject(Args...){return nullptr;} inline cJSON *cJSON_CreateString(const char*){return nullptr;} inline void cJSON_AddItemToArray(cJSON*,cJSON*){} inline char *cJSON_PrintUnformatted(cJSON*){return nullptr;} inline void cJSON_free(void*){} inline void cJSON_Delete(cJSON*){}\n",
@@ -290,10 +290,11 @@ int main() {
 #include "automatic_record.h"
 #include "playback.h"
 uint64_t clockMs=0; std::vector<unsigned char> stored; bool failWrite=false; int writes=0;
-CaptureState state=CaptureState::idle; bool stopped=false, finalized=false; int starts=0;
+CaptureState state=CaptureState::idle; bool stopped=false, finalized=false, cueActive=false; int starts=0;
 const char *name="", *error=""; uint64_t elapsed=0;
 bool appSdReady(){return true;} bool fileManagerBusy(){return false;} int liveAudioClient(){return -1;}
 PlaybackState playbackGetState(){return PlaybackState::idle;}
+bool playbackCueActive(){return cueActive;} bool playbackFileActive(){return false;}
 bool recorderAdcReady(){return true;} bool recorderMicReady(){return true;} bool recorderTaskReady(){return true;}
 CaptureState recorderState(){return state;} const char *recorderName(){return name;} const char *recorderError(){return error;}
 uint64_t recorderElapsedMs(){return elapsed;} bool recorderFinalized(){return finalized;} void recorderNotify(){}
@@ -304,13 +305,14 @@ int main(){
  assert(initAutomaticRecording()); assert(!automaticAnyArmed());
  assert(automaticSetArmed(false,true)); clockMs=2000;automaticObserve(false,100);pollAutomaticRecording();assert(starts==0);
  clockMs=2100;automaticObserve(false,100);pollAutomaticRecording();assert(starts==1);assert(automaticCurrentMode()==RecordingMode::autoRadio);
+ cueActive=true;clockMs=2200;automaticObserve(false,200);pollAutomaticRecording();assert(starts==1 && !stopped);cueActive=false;
  assert(automaticRequestManual(CaptureSource::microphone));assert(stopped);assert(starts==1);
  assert(!automaticRequestManual(CaptureSource::adc));assert(starts==1);
  finish();assert(starts==2);assert(automaticCurrentMode()==RecordingMode::manualMic);assert(automaticStatus(false).lastFile=="RadioAut.wav");
  assert(!automaticRequestManual(CaptureSource::adc));assert(automaticStopCurrent());finish();assert(automaticCurrentMode()==RecordingMode::none);
- clockMs=4100;automaticObserve(false,100);clockMs=4200;automaticObserve(false,100);pollAutomaticRecording();assert(starts==3);
- clockMs=7100;automaticObserve(false,0);pollAutomaticRecording();assert(!stopped);
- clockMs=7200;automaticObserve(false,0);pollAutomaticRecording();assert(stopped);finish();assert(automaticStatus(false).lastElapsedMs==3500);
+ clockMs=4300;automaticObserve(false,100);clockMs=4400;automaticObserve(false,100);pollAutomaticRecording();assert(starts==3);
+ clockMs=7300;automaticObserve(false,0);pollAutomaticRecording();assert(!stopped);
+ clockMs=7400;automaticObserve(false,0);pollAutomaticRecording();assert(stopped);finish();assert(automaticStatus(false).lastElapsedMs==3500);
  automaticSetArmed(false,false);
  AutoRecordConfig radio;radio.threshold=155;radio.silenceSeconds=5;AutoRecordConfig mic;mic.threshold=220;mic.silenceSeconds=2;
  std::array<RecordingMode,4> order={RecordingMode::autoMic,RecordingMode::autoRadio,RecordingMode::manualRadio,RecordingMode::manualMic};
