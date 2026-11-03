@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">RadioRecorder - terepi muszer</title>
+  <desc id="desc">Kerek, kekeszold radiofelvetel-jelveny muszer-skalaval, antennahullamokkal es hanghullammal.</desc>
+  <defs>
+    <radialGradient id="face" cx="45%" cy="30%" r="75%">
+      <stop stop-color="#254b50"/>
+      <stop offset="1" stop-color="#0c2428"/>
+    </radialGradient>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#b1d5cd" stroke-opacity=".085" stroke-width="1"/>
+    </pattern>
+    <clipPath id="round"><circle cx="256" cy="256" r="233"/></clipPath>
+    <path id="wordmarkArc" d="M130 141 A171 171 0 0 1 382 141"/>
+  </defs>
+  <circle cx="256" cy="256" r="250" fill="#071b20"/>
+  <circle cx="256" cy="256" r="239" fill="#759f9c"/>
+  <circle cx="256" cy="256" r="231" fill="url(#face)"/>
+  <circle cx="256" cy="256" r="231" fill="url(#grid)"/>
+  <circle cx="256" cy="256" r="213" fill="none" stroke="#9ac8c0" stroke-opacity=".7" stroke-width="2"/>
+  <circle cx="256" cy="256" r="200" fill="none" stroke="#709c98" stroke-opacity=".6" stroke-width="1" stroke-dasharray="2 13"/>
+  <g clip-path="url(#round)" fill="none" stroke="#b7d6ca" stroke-opacity=".55" stroke-width="2">
+    <path d="M256 20v17M256 475v17M20 256h17M475 256h17"/>
+    <path d="M99 99l12 12M401 401l12 12M99 413l12-12M401 111l12-12"/>
+  </g>
+  <g fill="#d5e7db" font-family="'IBM Plex Mono', Consolas, monospace" text-anchor="middle">
+    <text font-size="24" font-weight="700" letter-spacing="3"><textPath href="#wordmarkArc" startOffset="50%">RADIORECORDER</textPath></text>
+  </g>
+  <g fill="none" stroke="#a8d1c6" stroke-width="9" stroke-linecap="round">
+    <path d="M220 188a52 52 0 0 1 72 0M192 164a87 87 0 0 1 128 0"/>
+  </g>
+  <circle cx="256" cy="201" r="7" fill="#a8d1c6"/>
+  <path d="M256 209v26" fill="none" stroke="#a8d1c6" stroke-width="7" stroke-linecap="round"/>
+  <path d="M93 286h59l14-17 16 32 19-64 19 96 17-57h38l17-38 17 75 20-40 13 13h78" fill="none" stroke="#b5ded0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

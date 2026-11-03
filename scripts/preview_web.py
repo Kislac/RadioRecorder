@@ -667,7 +667,8 @@ class PreviewHandler(BaseHTTPRequestHandler):
                 name = routes.get(url.path, url.path.lstrip("/"))
                 allowed = {page + extension for page in ("index", "files", "settings", "radio", "dac_test")
                            for extension in (".html", ".css", ".js")}
-                allowed.update(("test.html", "test.js", "radio_edit.js", "file_actions.js", "automatic.js"))
+                allowed.update(("test.html", "test.js", "live_audio.js", "radio_edit.js", "file_actions.js", "automatic.js"))
+                allowed.update(("station.css", "logo.svg"))
                 if name in allowed:
                     source = (WEB_ROOT / name).read_text(encoding="utf-8")
                     if name.endswith(".html"):
@@ -675,7 +676,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
                         source = source.replace("<head>", "<head><script>window.radioRecorderAudioUrl="
                                                 "'ws://'+location.host+'/preview/live';</script>", 1)
                         source = source.replace("<title>", "<title>[Offline] ", 1)
-                    mime = "text/html" if name.endswith(".html") else "text/css" if name.endswith(".css") else "text/javascript"
+                    mime = "text/html" if name.endswith(".html") else "text/css" if name.endswith(".css") else "image/svg+xml" if name.endswith(".svg") else "text/javascript"
                     self.reply(200, source, mime + "; charset=utf-8")
                     return
             self.reply(404, "Not found")

@@ -1,6 +1,7 @@
 """Bundle editable web sources into self-contained firmware pages."""
 
 import argparse
+import base64
 import json
 import re
 from html.parser import HTMLParser
@@ -75,6 +76,8 @@ class AssetReferences(HTMLParser):
             self.references.append(("style", self.get_starttag_text(), attributes["href"]))
         elif tag == "script" and "src" in attributes:
             self.references.append(("script", self.get_starttag_text(), attributes["src"]))
+        elif tag == "img" and attributes.get("src", "").endswith(".svg"):
+            self.references.append(("svg", self.get_starttag_text(), attributes["src"]))
 
 
 def localize_document(document):
@@ -93,6 +96,10 @@ def render_page(name, web_root=WEB_ROOT):
         asset = (web_root / reference.lstrip("/")).resolve()
         if not asset.is_relative_to(web_root):
             raise ValueError("Asset escapes web source directory: " + reference)
+        if kind == "svg":
+            data = "data:image/svg+xml;base64," + base64.b64encode(asset.read_bytes()).decode("ascii")
+            document = document.replace(original, original.replace(reference, data))
+            continue
         content = asset.read_text(encoding="utf-8")
         if kind == "style":
             document = document.replace(original, "<style>\n" + content + "</style>")

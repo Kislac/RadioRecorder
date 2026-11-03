@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Hardware tests - Radio Recorder</title>
     <link rel="stylesheet" href="/settings.css" />
+    <link rel="stylesheet" href="/station.css" />
   </head>
   <body>
     <header>
-      RADIO RECORDER
-      <nav><a href="/">Home</a> · <a href="/settings">Settings</a></nav>
+      <a class="site-brand" href="/"><img src="/logo.svg" alt="" /><span>RADIORECORDER<small>CLEAR SKY / SIGNAL STATION</small></span></a>
+      <nav aria-label="Pages"><a href="/">Recording</a><a href="/files">File manager</a><a href="/settings#autoSettings">Automatic settings</a><a href="/settings">Settings</a><a href="/radio">Radio Programming</a><a href="/test" aria-current="page">Hardware tests</a><a href="/dac-test">DAC test</a></nav>
     </header>
     <main>
       <h1>Hardware tests</h1>
@@ -31,6 +32,11 @@
         <canvas id="adcChart" role="img" aria-label="Raw ADC sample chart"></canvas>
         <output id="adcStats">Min – · Average – · Max – · Peak-to-peak –</output>
       </section>
+      <section class="live-audio-test">
+        <div class="signalbar"><h2>Live audio</h2><button id="liveToggle" type="button" disabled>Start listening</button></div>
+        <div class="livecontrols"><label for="liveVolume">Volume</label><input id="liveVolume" type="range" min="0" max="100" value="50" /><button id="liveTest" type="button">Audio test</button></div>
+        <p id="liveStatus" class="note" role="status">Disabled</p>
+      </section>
       <section class="ptt-test">
         <h2>PTT relay</h2>
         <p>Use only with the radio disconnected, verified GPIO10 and an active-low relay module. The pulse lasts one second; the switch stays on until you turn it off.</p>
@@ -42,7 +48,9 @@
         </div>
       </section>
     </main>
+    <nav class="bottom-nav" aria-label="Main views"><a href="/"><span aria-hidden="true">&#9673;</span>Recording</a><a href="/settings#autoSettings"><span aria-hidden="true">&#9678;</span>Auto settings</a><a href="/files"><span aria-hidden="true">&#9636;</span>Files</a><a href="/settings"><span aria-hidden="true">&#9881;</span>System</a><details class="more-menu"><summary aria-current="page"><span aria-hidden="true">&#8943;</span>More</summary><div><a href="/radio">Radio Programming</a><a href="/test" aria-current="page">Hardware tests</a><a href="/dac-test">DAC test</a></div></details></nav>
     <footer>ESP32-S3 / Radio Recorder</footer>
     <script src="/test.js"></script>
+    <script src="/live_audio.js"></script>
   </body>
 </html>

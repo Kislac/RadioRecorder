@@ -5,19 +5,23 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Radio Recorder</title>
     <link rel="stylesheet" href="/index.css" />
+    <link rel="stylesheet" href="/station.css" />
   </head>
   <body>
     <header>
-      RADIO RECORDER <span id="firmwareVersion">v?</span>
+      <a class="site-brand" href="/"><img src="/logo.svg" alt="" /><span>RADIORECORDER<small>CLEAR SKY / SIGNAL STATION</small></span></a> <span id="firmwareVersion">v?</span>
       <time id="demoClock" class="header-clock">TIME UNSET</time>
-      <a href="/settings">Settings</a> <a href="/files">File manager</a> <a href="/dac-test">DAC test</a> <a href="/radio">Radio Programming</a>
+      <nav aria-label="Pages"><a href="/" aria-current="page">Recording</a><a href="/files">File manager</a><a href="/settings#autoSettings">Automatic settings</a><a href="/settings">Settings</a><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></nav>
     </header>
     <main>
       <h1>Recording</h1>
       <p class="state" id="state">Connecting...</p>
       <p id="recordElapsed" class="note">Time: 00:00:00</p>
-      <button id="toggle" disabled>Start recording</button>
-      <button id="micToggle" disabled>Start microphone recording</button>
+      <div class="record-controls">
+        <fieldset><legend>Mode</legend><label><input type="radio" name="recordMode" value="manual" checked />Manual</label><label><input type="radio" name="recordMode" value="auto" />Automatic</label></fieldset>
+        <fieldset><legend>Source</legend><label><input type="radio" name="recordSource" value="radio" checked />Radio</label><label><input type="radio" name="recordSource" value="microphone" />Microphone</label></fieldset>
+      </div>
+      <button id="recordAction" type="button" disabled>Start recording</button>
       <p class="note" id="message"></p>
       <label class="filtercontrol"
         ><input id="lowpassToggle" type="checkbox" />3.4 kHz low-pass filter</label
@@ -27,20 +31,20 @@
       </p>
     </main>
     <section class="automatic-recording">
-      <h2>Automatic recording</h2>
+      <h2>Automatic rules</h2><p><a href="/settings#autoSettings">Automatic settings</a></p>
       <div class="automatic-grid">
-        <div><h3>Radio automatic</h3><label><input id="autoRadioArmed" type="checkbox" />Active</label>
+        <div><h3>Radio automatic</h3><label hidden><input id="autoRadioArmed" type="checkbox" />Active</label>
           <p id="autoRadioConfig"></p><p id="autoRadioStatus" role="status"></p><p id="autoRadioTime"></p>
           <p id="autoRadioFile" data-i18n-ignore></p></div>
-        <div><h3>Microphone automatic</h3><label><input id="autoMicArmed" type="checkbox" />Active</label>
+        <div><h3>Microphone automatic</h3><label hidden><input id="autoMicArmed" type="checkbox" />Active</label>
           <p id="autoMicConfig"></p><p id="autoMicStatus" role="status"></p><p id="autoMicTime"></p>
           <p id="autoMicFile" data-i18n-ignore></p></div>
       </div>
     </section>
-    <section>
+    <section class="signal-panel" data-source="radio">
       <div class="signalbar">
-        <h2 id="signalHeading">ADC signal</h2>
-        <button id="signalToggle" disabled>Enable measurement</button>
+        <h2 id="signalHeading">Radio level history</h2>
+        <button id="signalToggle" hidden disabled>Enable measurement</button>
       </div>
       <p id="signalValues" class="signalvalues">Disabled</p>
       <div id="signalPlot" hidden>
@@ -54,10 +58,10 @@
         </div>
       </div>
     </section>
-    <section>
+    <section class="signal-panel" data-source="microphone" hidden>
       <div class="signalbar">
-        <h2>Microphone signal</h2>
-        <button id="micSignalToggle" disabled>Enable measurement</button>
+        <h2>Microphone level history</h2>
+        <button id="micSignalToggle" hidden disabled>Enable measurement</button>
       </div>
       <p id="micSignalValues" class="signalvalues">Disabled</p>
       <div id="micSignalPlot" hidden>
@@ -67,65 +71,8 @@
         </div>
       </div>
     </section>
-    <section>
-      <div class="signalbar">
-        <h2>Live audio</h2>
-        <button id="liveToggle" disabled>Start listening</button>
-      </div>
-      <div class="livecontrols">
-        <label for="liveVolume">Volume</label
-        ><input
-          id="liveVolume"
-          type="range"
-          min="0"
-          max="100"
-          value="50"
-        /><button id="liveTest">Audio test</button>
-      </div>
-      <p id="liveStatus" class="note">Disabled</p>
-    </section>
-    <section>
-      <div class="signalbar">
-        <h2>Playback</h2>
-        <button id="speakerStop" disabled>Stop ESP playback</button>
-      </div>
-      <p id="speakerStatus" class="note">ESP speaker: off</p>
-      <div class="speaker-volume">
-        <label for="speakerVolume">ESP speaker volume</label
-        ><input
-          id="speakerVolume"
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          value="25"
-        />
-        <div class="speaker-volume-steps">
-          <button
-            id="speakerDown"
-            type="button"
-            aria-label="Decrease volume by 5%"
-            title="5% quieter"
-          >
-            ←</button
-          ><output id="speakerVolumeValue" for="speakerVolume">25%</output
-          ><button
-            id="speakerUp"
-            type="button"
-            aria-label="Increase volume by 5%"
-            title="5% louder"
-          >
-            →
-          </button>
-        </div>
-        <label class="boost-label" for="speakerBoost">Playback gain</label
-        ><select id="speakerBoost">
-          <option value="1">1×</option>
-          <option value="2">2×</option>
-          <option value="4">4×</option>
-        </select>
-      </div>
-    </section>
+    <section class="current-level"><h2>Current sound level</h2><div class="level-bars" role="img" aria-label="Current RMS and peak levels"><div><span id="levelRms"></span><small>RMS</small></div><div><span id="levelPeak"></span><small>Peak</small></div></div><p id="frequencyNote" class="note">Frequency spectrum requires PCM samples; only measured RMS and peak are available.</p></section>
+    <nav class="bottom-nav" aria-label="Main views"><a href="/" aria-current="page"><span aria-hidden="true">&#9673;</span>Recording</a><a href="/settings#autoSettings"><span aria-hidden="true">&#9678;</span>Auto settings</a><a href="/files"><span aria-hidden="true">&#9636;</span>Files</a><a href="/settings"><span aria-hidden="true">&#9881;</span>System</a><details class="more-menu"><summary><span aria-hidden="true">&#8943;</span>More</summary><div><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></div></details></nav>
     <footer>ESP32-S3 / microSD</footer>
     <script src="/automatic.js"></script>
     <script src="/index.js"></script>

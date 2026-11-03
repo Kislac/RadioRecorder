@@ -4,6 +4,19 @@ const form = document.querySelector("#settingsForm"),
   save = document.querySelector("#save"),
   wakeDisplay = document.querySelector("#wakeDisplay"),
   result = document.querySelector("#result");
+function updateSettingsNavigation() {
+  const automatic = location.hash === "#autoSettings";
+  for (const link of document.querySelectorAll(".auto-link")) {
+    if (automatic) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  for (const link of document.querySelectorAll(".settings-link")) {
+    if (automatic) link.removeAttribute("aria-current");
+    else link.setAttribute("aria-current", "page");
+  }
+}
+addEventListener("hashchange", updateSettingsNavigation);
+updateSettingsNavigation();
 const wifiStatus = document.querySelector("#wifiStatus"),
   scanButton = document.querySelector("#scanNetworks"),
   forgetButton = document.querySelector("#forgetNetwork"),

@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Settings - Radio Recorder</title>
     <link rel="stylesheet" href="/settings.css" />
+    <link rel="stylesheet" href="/station.css" />
   </head>
   <body>
-    <header>
-      RADIO RECORDER
-      <nav><a href="/">Home</a> · <a href="/files">File manager</a> · <a href="/radio">Radio Programming</a></nav>
+    <header id="autoSettings">
+      <a class="site-brand" href="/"><img src="/logo.svg" alt="" /><span>RADIORECORDER<small>CLEAR SKY / SIGNAL STATION</small></span></a>
+      <nav aria-label="Pages"><a href="/">Recording</a><a href="/files">File manager</a><a href="/settings#autoSettings" class="auto-link">Automatic settings</a><a href="/settings" class="settings-link">Settings</a><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></nav>
     </header>
     <main>
       <h1>Settings</h1>
@@ -117,6 +118,7 @@
       </section>
       <p><a href="/test">Hardware test page</a></p>
     </main>
+    <nav class="bottom-nav" aria-label="Main views"><a href="/"><span aria-hidden="true">&#9673;</span>Recording</a><a href="/settings#autoSettings" class="auto-link"><span aria-hidden="true">&#9678;</span>Auto settings</a><a href="/files"><span aria-hidden="true">&#9636;</span>Files</a><a href="/settings" class="settings-link"><span aria-hidden="true">&#9881;</span>System</a><details class="more-menu"><summary><span aria-hidden="true">&#8943;</span>More</summary><div><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></div></details></nav>
     <footer>ESP32-S3 / Radio Recorder</footer>
     <script src="/automatic.js"></script>
     <script src="/settings.js"></script>

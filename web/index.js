@@ -1,14 +1,10 @@
 const stateEl = document.querySelector("#state"),
-  toggle = document.querySelector("#toggle"),
-  micToggle = document.querySelector("#micToggle"),
+  recordAction = document.querySelector("#recordAction"),
+  modeInputs = [...document.querySelectorAll('input[name="recordMode"]')],
+  sourceInputs = [...document.querySelectorAll('input[name="recordSource"]')],
   lowpassToggle = document.querySelector("#lowpassToggle"),
   message = document.querySelector("#message"),
   firmwareVersion = document.querySelector("#firmwareVersion");
-const speakerStatus = document.querySelector("#speakerStatus"),
-  speakerStop = document.querySelector("#speakerStop");
-const speakerVolume = document.querySelector("#speakerVolume"),
-  speakerVolumeValue = document.querySelector("#speakerVolumeValue"),
-  speakerBoost = document.querySelector("#speakerBoost");
 const signalToggle = document.querySelector("#signalToggle"),
   signalValues = document.querySelector("#signalValues");
 const signalPlot = document.querySelector("#signalPlot"),
@@ -18,11 +14,51 @@ const micSignalToggle = document.querySelector("#micSignalToggle"),
   micSignalValues = document.querySelector("#micSignalValues"),
   micSignalPlot = document.querySelector("#micSignalPlot"),
   micSignalChart = document.querySelector("#micSignalChart");
-const liveToggle = document.querySelector("#liveToggle"),
-  liveStatus = document.querySelector("#liveStatus"),
-  liveVolume = document.querySelector("#liveVolume"),
-  liveTest = document.querySelector("#liveTest");
-let currentState = "", currentRecordingMode = "none", recordingRequestError = "";
+let recordingRequestError = "";
+let lastStatus = null, userSelectedMode = false, autoMeterSource = null, recordActionPending = false;
+const selectedMode = () => modeInputs.find((input) => input.checked).value;
+const selectedSource = () => sourceInputs.find((input) => input.checked).value;
+function renderRecordAction(data) {
+  const busy = data.state !== "idle";
+  const mode = selectedMode(), source = selectedSource();
+  const sourceCode = source === "radio" ? "Radio" : "Mic";
+  const owner = (mode === "manual" ? "manual" : "auto") + sourceCode;
+  const armed = !!data.automatic?.[source]?.armed;
+  recordAction.textContent = mode === "manual"
+    ? busy && data.recordingMode === owner ? source === "radio" ? "Stop recording" : "Stop microphone recording" : source === "radio" ? "Start recording" : "Start microphone recording"
+    : armed ? "Stop automatic monitoring" : "Start automatic monitoring";
+  recordAction.classList.toggle("recording", mode === "manual" ? busy && data.recordingMode === owner : armed);
+  recordAction.disabled = recordActionPending || (mode === "manual"
+    ? (busy && data.recordingMode !== owner) || (!busy && !(source === "radio" ? data.ready : data.micReady)) || data.state === "starting" || data.stopping || data.playback !== "idle" || (!busy && data.fileBusy)
+    : !armed && (busy || data.fileBusy || data.playback !== "idle" || !(source === "radio" ? data.ready : data.micReady)));
+  for (const input of [...modeInputs, ...sourceInputs]) input.disabled = busy || recordActionPending;
+  for (const panel of document.querySelectorAll(".signal-panel")) panel.hidden = panel.dataset.source !== source;
+}
+for (const input of [...modeInputs, ...sourceInputs]) input.addEventListener("change", () => {
+  userSelectedMode = true;
+  if (lastStatus) {
+    renderRecordAction(lastStatus);
+    showCurrentLevel(selectedSource());
+  }
+});
+recordAction.addEventListener("click", async () => {
+  if (recordAction.disabled) return;
+  recordActionPending = true;
+  recordAction.disabled = true;
+  recordingRequestError = "";
+  const source = selectedSource();
+  try {
+    const url = selectedMode() === "manual"
+      ? lastStatus?.state !== "idle" ? "/api/stop" : source === "radio" ? "/api/start" : "/api/mic/start"
+      : "/api/auto-record/arm?" + new URLSearchParams({ source, enabled: lastStatus?.automatic?.[source]?.armed ? "0" : "1" });
+    const response = await fetch(url, { method: "POST" });
+    if (!response.ok) throw Error(await response.text());
+  } catch (error) {
+    recordingRequestError = error.message || "Request failed.";
+  }
+  recordActionPending = false;
+  await refresh();
+});
 let meterRunning = false,
   meterGeneration = 0,
   meterTimer = null,
@@ -31,13 +67,6 @@ let micMeterRunning = false,
   micMeterGeneration = 0,
   micMeterTimer = null,
   lastMicSequence = -1;
-let liveSocket = null,
-  audioContext = null,
-  audioGain = null,
-  nextAudioTime = 0;
-let volumeQueued = null,
-  volumeSending = false,
-  boostUpdating = false;
 let clockBase = NaN,
   demoSyncedAt = performance.now(),
   clockSource = "unset";
@@ -58,211 +87,13 @@ function renderDemoClock() {
 setInterval(renderDemoClock, 1000);
 const signalHistory = [];
 const micSignalHistory = [];
-async function sendSpeakerVolume() {
-  if (volumeSending) return;
-  volumeSending = true;
-  while (volumeQueued !== null) {
-    const value = volumeQueued;
-    volumeQueued = null;
-    try {
-      const response = await fetch("/api/play/volume?value=" + value, {
-        method: "POST",
-      });
-      if (!response.ok) throw Error();
-    } catch {
-      speakerStatus.textContent = "Could not change volume.";
-    }
-  }
-  volumeSending = false;
+function showCurrentLevel(source, rms = 0, peak = null) {
+  if (source !== selectedSource()) return;
+  const maximum = source === "radio" ? 4095 : 32768;
+  document.querySelector("#levelRms").style.height = Math.min(56, Math.max(0, rms / maximum * 56)) + "px";
+  document.querySelector("#levelPeak").style.height = peak == null ? "0px" : Math.min(56, Math.max(0, peak / maximum * 56)) + "px";
+  document.querySelector("#levelPeak").parentElement.querySelector("small").textContent = peak == null ? "Peak n/a" : "Peak";
 }
-function setSpeakerVolume(value) {
-  const volume = Math.max(0, Math.min(100, value));
-  speakerVolume.value = volume;
-  speakerVolumeValue.textContent = volume + "%";
-  volumeQueued = volume;
-  sendSpeakerVolume();
-}
-speakerVolume.addEventListener("input", () =>
-  setSpeakerVolume(Number(speakerVolume.value)),
-);
-document
-  .querySelector("#speakerDown")
-  .addEventListener("click", () =>
-    setSpeakerVolume(Number(speakerVolume.value) - 5),
-  );
-document
-  .querySelector("#speakerUp")
-  .addEventListener("click", () =>
-    setSpeakerVolume(Number(speakerVolume.value) + 5),
-  );
-speakerBoost.addEventListener("change", async () => {
-  boostUpdating = true;
-  speakerBoost.disabled = true;
-  let failed = false;
-  try {
-    const response = await fetch(
-      "/api/play/boost?value=" + speakerBoost.value,
-      { method: "POST" },
-    );
-    if (!response.ok) throw Error();
-  } catch {
-    failed = true;
-  }
-  boostUpdating = false;
-  await refresh();
-  if (failed) speakerStatus.textContent = "Could not change gain.";
-});
-async function playOnEsp(path) {
-  try {
-    const response = await fetch("/api/play?path=" + encodeURIComponent(path), {
-      method: "POST",
-    });
-    if (!response.ok) throw Error(await response.text());
-    await refresh();
-  } catch (error) {
-    speakerStatus.textContent = error.message || "Could not start ESP playback.";
-  }
-}
-speakerStop.addEventListener("click", async () => {
-  speakerStop.disabled = true;
-  try {
-    const response = await fetch("/api/play/stop", { method: "POST" });
-    if (!response.ok) throw Error(await response.text());
-  } catch (error) {
-    speakerStatus.textContent = error.message || "Could not stop.";
-  }
-  await refresh();
-});
-function stopLive() {
-  const socket = liveSocket;
-  liveSocket = null;
-  if (socket) socket.close();
-  const context = audioContext;
-  audioContext = null;
-  audioGain = null;
-  if (context) context.close().catch(() => {});
-  liveToggle.textContent = "Start listening";
-  liveStatus.textContent = "Disabled";
-}
-liveToggle.addEventListener("click", async () => {
-  if (liveSocket) {
-    stopLive();
-    return;
-  }
-  liveToggle.disabled = true;
-  try {
-    const Context = window.AudioContext || window.webkitAudioContext;
-    if (!Context || !window.WebSocket) throw Error();
-    audioContext = new Context({ latencyHint: "interactive" });
-    audioGain = audioContext.createGain();
-    audioGain.gain.value = Number(liveVolume.value) / 100;
-    audioGain.connect(audioContext.destination);
-    const unlock = audioContext.createBufferSource();
-    unlock.buffer = audioContext.createBuffer(1, 1, 22050);
-    unlock.connect(audioGain);
-    unlock.start();
-    await audioContext.resume();
-    const socket = new WebSocket(
-      window.radioRecorderAudioUrl || "ws://" + location.hostname + ":81/",
-    );
-    socket.binaryType = "arraybuffer";
-    liveSocket = socket;
-    liveStatus.textContent = "Connecting...";
-    socket.onopen = () => {
-      if (socket !== liveSocket) return;
-      liveToggle.textContent = "Stop listening";
-      liveStatus.textContent = "Waiting for audio...";
-    };
-    socket.onmessage = (event) => {
-      if (
-        socket !== liveSocket ||
-        !(event.data instanceof ArrayBuffer) ||
-        !audioContext
-      )
-        return;
-      const view = new DataView(event.data),
-        length = Math.floor(view.byteLength / 2);
-      if (!length) return;
-      const buffer = audioContext.createBuffer(1, length, 22050),
-        channel = buffer.getChannelData(0);
-      let peak = 0;
-      for (let index = 0; index < length; index++) {
-        const value = view.getInt16(index * 2, true) / 32768;
-        channel[index] = value;
-        peak = Math.max(peak, Math.abs(value));
-      }
-      if (audioContext.state !== "running") {
-        liveStatus.textContent =
-          "Playback paused (" +
-          audioContext.state +
-          "), PCM peak: " +
-          Math.round(peak * 100) +
-          "%";
-        return;
-      }
-      const now = audioContext.currentTime;
-      if (nextAudioTime < now + 0.12 || nextAudioTime > now + 0.8)
-        nextAudioTime = now + 0.12;
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioGain);
-      source.start(nextAudioTime);
-      nextAudioTime += buffer.duration;
-      liveStatus.textContent =
-        "Live audio, PCM peak: " +
-        Math.round(peak * 100) +
-        "%, kb. " +
-        Math.round((nextAudioTime - now) * 1000) +
-        " ms puffer";
-    };
-    socket.onclose = () => {
-      if (socket !== liveSocket) return;
-      stopLive();
-      liveStatus.textContent = "Connection closed.";
-    };
-    socket.onerror = () => {
-      if (socket !== liveSocket) return;
-      stopLive();
-      liveStatus.textContent = "Audio connection unavailable.";
-    };
-  } catch {
-    stopLive();
-    liveStatus.textContent = "The browser could not start audio.";
-  }
-  liveToggle.disabled = false;
-});
-liveVolume.addEventListener("input", () => {
-  if (audioGain) audioGain.gain.value = Number(liveVolume.value) / 100;
-});
-liveTest.addEventListener("click", async () => {
-  const Context = window.AudioContext || window.webkitAudioContext;
-  if (!Context) {
-    liveStatus.textContent = "Audio test unsupported.";
-    return;
-  }
-  const context = audioContext || new Context({ latencyHint: "interactive" });
-  try {
-    const tone = context.createOscillator(),
-      gain = context.createGain();
-    tone.frequency.value = 440;
-    gain.gain.value = (Number(liveVolume.value) / 100) * 0.15;
-    tone.connect(gain);
-    gain.connect(context.destination);
-    tone.onended = () => {
-      tone.disconnect();
-      gain.disconnect();
-      if (context !== audioContext) context.close().catch(() => {});
-    };
-    tone.start();
-    tone.stop(context.currentTime + 0.4);
-    await context.resume();
-    liveStatus.textContent = "Audio test played.";
-  } catch {
-    if (context !== audioContext) context.close().catch(() => {});
-    liveStatus.textContent = "Audio test failed.";
-  }
-});
-addEventListener("pagehide", stopLive);
 function drawSignal(chart = signalChart, history = signalHistory, ceiling = 4096) {
   const width = chart.clientWidth,
     height = 200,
@@ -283,22 +114,22 @@ function drawSignal(chart = signalChart, history = signalHistory, ceiling = 4096
       2 **
         Math.ceil(
           Math.log2(
-            Math.max(1, ...history.map((point) => point.peak)) * 1.2,
+            Math.max(1, ...history.map((point) => point.peak ?? point.rms)) * 1.2,
           ),
         ),
     ),
   );
-  context.font = '12px "Trebuchet MS",sans-serif';
+  context.font = '12px "IBM Plex Mono",sans-serif';
   context.lineWidth = 1;
   context.textAlign = "right";
   for (let step = 0; step <= 4; step++) {
     const ordinate = bottom - ((bottom - top) * step) / 4;
-    context.strokeStyle = "#d8e0d9";
+    context.strokeStyle = "#41736e";
     context.beginPath();
     context.moveTo(left, ordinate);
     context.lineTo(right, ordinate);
     context.stroke();
-    context.fillStyle = "#52635a";
+    context.fillStyle = "#acc9c2";
     context.fillText(
       String(Math.round((maximum * step) / 4)),
       left - 7,
@@ -306,13 +137,14 @@ function drawSignal(chart = signalChart, history = signalHistory, ceiling = 4096
     );
   }
   for (const [key, color] of [
-    ["rms", "#12604f"],
-    ["peak", "#ad3d34"],
+    ["rms", "#86c3b4"],
+    ["peak", "#e1ba7b"],
   ]) {
     context.strokeStyle = color;
     context.lineWidth = 2;
     context.beginPath();
     history.forEach((point, index) => {
+      if (point[key] == null) return;
       const x =
         right - ((history.length - 1 - index) * (right - left)) / 119;
       const y =
@@ -332,7 +164,7 @@ async function pollSignal(generation) {
     if (generation !== meterGeneration) return;
     if (!data.enabled) {
       meterRunning = false;
-      signalPlot.hidden = true;
+      signalPlot.hidden = signalHistory.length === 0;
       signalToggle.textContent = "Enable measurement";
       signalValues.textContent = data.fault
         ? "ADC measurement error (" + data.fault + ")"
@@ -348,6 +180,7 @@ async function pollSignal(generation) {
     ) {
       lastSignalSequence = data.sequence;
       signalHistory.push({ rms: data.rms, peak: data.peak });
+      showCurrentLevel("radio", data.rms, data.peak);
       if (signalHistory.length > 120) signalHistory.shift();
       drawSignal();
     }
@@ -388,8 +221,8 @@ signalToggle.addEventListener("click", async () => {
       drawSignal();
       pollSignal(meterGeneration);
     } else {
-      signalPlot.hidden = true;
-      signalValues.textContent = "Disabled";
+      signalPlot.hidden = signalHistory.length === 0;
+      signalValues.textContent = signalHistory.length ? "Last measured RMS: " + signalHistory.at(-1).rms + " | Peak: " + signalHistory.at(-1).peak : "Disabled";
       signalToggle.textContent = "Enable measurement";
     }
   } catch {
@@ -407,7 +240,7 @@ async function pollMicSignal(generation) {
     if (generation !== micMeterGeneration) return;
     if (!data.enabled) {
       micMeterRunning = false;
-      micSignalPlot.hidden = true;
+      micSignalPlot.hidden = micSignalHistory.length === 0;
       micSignalToggle.textContent = "Enable measurement";
       micSignalValues.textContent = data.fault
         ? "Microphone measurement error (" + data.fault + ")"
@@ -419,6 +252,7 @@ async function pollMicSignal(generation) {
     if (data.active && data.sequence > 0 && data.sequence !== lastMicSequence) {
       lastMicSequence = data.sequence;
       micSignalHistory.push({ rms: data.rms, peak: data.peak });
+      showCurrentLevel("microphone", data.rms, data.peak);
       if (micSignalHistory.length > 120) micSignalHistory.shift();
       drawSignal(micSignalChart, micSignalHistory, 32768);
     }
@@ -449,8 +283,8 @@ micSignalToggle.addEventListener("click", async () => {
       drawSignal(micSignalChart, micSignalHistory, 32768);
       pollMicSignal(micMeterGeneration);
     } else {
-      micSignalPlot.hidden = true;
-      micSignalValues.textContent = "Disabled";
+      micSignalPlot.hidden = micSignalHistory.length === 0;
+      micSignalValues.textContent = micSignalHistory.length ? "Last measured RMS: " + micSignalHistory.at(-1).rms + " | Peak: " + micSignalHistory.at(-1).peak : "Disabled";
       micSignalToggle.textContent = "Enable measurement";
     }
   } catch {
@@ -478,6 +312,15 @@ async function refresh() {
     demoSyncedAt = performance.now();
     renderDemoClock();
     if (window.renderAutomaticRecording) window.renderAutomaticRecording(data.automatic);
+    if (data.state !== "idle" && data.recordingMode && data.recordingMode !== "none") {
+      const source = data.recordingMode.endsWith("Mic") ? "microphone" : "radio";
+      const mode = data.recordingMode.startsWith("auto") ? "auto" : "manual";
+      sourceInputs.find((input) => input.value === source).checked = true;
+      modeInputs.find((input) => input.value === mode).checked = true;
+    } else if (!userSelectedMode && (data.automatic?.radio?.armed || data.automatic?.microphone?.armed)) {
+      modeInputs.find((input) => input.value === "auto").checked = true;
+      sourceInputs.find((input) => input.value === (data.automatic.radio.armed ? "radio" : "microphone")).checked = true;
+    }
     const elapsed = Math.floor((data.recordElapsedMs || 0) / 1000);
     document.querySelector("#recordElapsed").textContent = "Time: " + [Math.floor(elapsed / 3600), Math.floor(elapsed / 60) % 60, elapsed % 60].map(value => String(value).padStart(2,"0")).join(":");
     lowpassToggle.checked = data.lowpass;
@@ -495,69 +338,46 @@ async function refresh() {
           ? "Starting recording..."
           : data.recordSource === "microphone" ? "Microphone recording in progress" : "ADC recording in progress"
         : "Ready to record";
-    const ownsRadio = data.recordingMode === "manualRadio", ownsMic = data.recordingMode === "manualMic";
-    toggle.textContent = busy && ownsRadio ? "Stop recording" : "Start recording";
-    micToggle.textContent = busy && ownsMic ? "Stop microphone recording" : "Start microphone recording";
-    toggle.classList.toggle("recording", busy && data.recordSource === "adc");
-    micToggle.classList.toggle("recording", busy && data.recordSource === "microphone");
-    toggle.disabled =
-      (!data.ready && !busy) ||
-      data.state === "starting" ||
-      (busy && data.stopping) ||
-      playing || (!busy && data.fileBusy);
-    micToggle.disabled =
-      (!data.micReady && !busy) ||
-      data.state === "starting" ||
-      (busy && data.stopping) ||
-      playing || (!busy && (!!liveSocket || data.fileBusy));
-    speakerStop.disabled = !playing;
-    speakerStatus.textContent = playing
-      ? (data.playbackTarget === "radio" ? "Radio DAC: " : "ESP speaker: ") +
-        (data.playback === "starting" ? "Starting..." : data.playbackPath)
-      : data.playbackError || "ESP speaker: off";
-    if (!volumeSending) {
-      speakerVolume.value = data.speakerVolume;
-      speakerVolumeValue.textContent = data.speakerVolume + "%";
-    }
-    speakerBoost.disabled = !data.speakerReady || boostUpdating;
-    if (!boostUpdating) speakerBoost.value = String(data.speakerBoost);
     signalToggle.disabled = (!data.meterReady || micMeterRunning) && !meterRunning;
-    micSignalToggle.disabled = (!data.micReady || meterRunning || !!liveSocket) && !micMeterRunning;
-    liveToggle.disabled = (!data.liveReady || playing) && !liveSocket;
-    liveTest.disabled = !!data.automatic?.microphone?.armed;
+    micSignalToggle.disabled = (!data.micReady || meterRunning) && !micMeterRunning;
     message.textContent = data.error || recordingRequestError;
-    currentState = data.state;
-    currentRecordingMode = data.recordingMode || "none";
+    lastStatus = data;
+    renderRecordAction(data);
+    const source = selectedSource();
+    const monitoring = data.state !== "idle" || (selectedMode() === "auto" && !!data.automatic?.[source]?.armed);
+    if (autoMeterSource && autoMeterSource !== source) {
+      const oldMeter = autoMeterSource === "radio" ? signalToggle : micSignalToggle;
+      if (autoMeterSource === "radio" ? meterRunning : micMeterRunning) oldMeter.click();
+      autoMeterSource = null;
+    }
+    if (monitoring && autoMeterSource !== source) {
+      autoMeterSource = source;
+      const meter = source === "radio" ? signalToggle : micSignalToggle;
+      if (!meterRunning && !micMeterRunning && !meter.disabled) meter.click();
+    } else if (!monitoring && autoMeterSource) {
+      const meter = autoMeterSource === "radio" ? signalToggle : micSignalToggle;
+      if (autoMeterSource === "radio" ? meterRunning : micMeterRunning) meter.click();
+      autoMeterSource = null;
+    }
+    if (monitoring && !(source === "radio" ? meterRunning : micMeterRunning)) {
+      const sample = data.automatic?.[source];
+      if (sample?.armed && Number.isFinite(sample.rms)) {
+        const history = source === "radio" ? signalHistory : micSignalHistory;
+        const plot = source === "radio" ? signalPlot : micSignalPlot;
+        const chart = source === "radio" ? signalChart : micSignalChart;
+        history.push({ rms: sample.rms, peak: null });
+        if (history.length > 120) history.shift();
+        plot.hidden = false;
+        drawSignal(chart, history, source === "radio" ? 4096 : 32768);
+        (source === "radio" ? signalValues : micSignalValues).textContent = "RMS: " + sample.rms + " | Peak: unavailable";
+        showCurrentLevel(source, sample.rms);
+      }
+    } else if (!monitoring) showCurrentLevel(source);
   } catch {
     stateEl.textContent = "Connection lost";
-    toggle.disabled = true;
+    recordAction.disabled = true;
   }
 }
-toggle.addEventListener("click", async () => {
-  recordingRequestError = "";
-  toggle.disabled = true;
-  try {
-    const response = await fetch(
-      currentState !== "idle" && currentRecordingMode === "manualRadio" ? "/api/stop" : "/api/start",
-      { method: "POST" },
-    );
-    if (!response.ok) recordingRequestError = await response.text();
-  } catch {
-    recordingRequestError = "Request failed.";
-  }
-  await refresh();
-});
-micToggle.addEventListener("click", async () => {
-  recordingRequestError = "";
-  micToggle.disabled = true;
-  try {
-    const response = await fetch(currentState !== "idle" && currentRecordingMode === "manualMic" ? "/api/stop" : "/api/mic/start", { method: "POST" });
-    if (!response.ok) recordingRequestError = await response.text();
-  } catch {
-    recordingRequestError = "Microphone request failed.";
-  }
-  await refresh();
-});
 lowpassToggle.addEventListener("change", async () => {
   const enabled = lowpassToggle.checked;
   lowpassToggle.disabled = true;

@@ -6,9 +6,10 @@
     <title>DAC test - Radio Recorder</title>
     <link rel="stylesheet" href="/settings.css" />
     <link rel="stylesheet" href="/dac_test.css" />
+    <link rel="stylesheet" href="/station.css" />
   </head>
   <body>
-    <header>RADIO RECORDER <nav><a href="/">Home</a> · <a href="/files">File manager</a></nav></header>
+    <header><a class="site-brand" href="/"><img src="/logo.svg" alt="" /><span>RADIORECORDER<small>CLEAR SKY / SIGNAL STATION</small></span></a><nav aria-label="Pages"><a href="/">Recording</a><a href="/files">File manager</a><a href="/settings#autoSettings">Automatic settings</a><a href="/settings">Settings</a><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test" aria-current="page">DAC test</a></nav></header>
     <main>
       <h1>DAC test</h1>
       <form id="toneForm">
@@ -22,6 +23,7 @@
       <p id="toneStatus" role="status" aria-live="polite">Loading status...</p>
       <progress id="toneProgress" max="100" value="0" aria-label="Tone progress"></progress>
     </main>
+    <nav class="bottom-nav" aria-label="Main views"><a href="/"><span aria-hidden="true">&#9673;</span>Recording</a><a href="/settings#autoSettings"><span aria-hidden="true">&#9678;</span>Auto settings</a><a href="/files"><span aria-hidden="true">&#9636;</span>Files</a><a href="/settings"><span aria-hidden="true">&#9881;</span>System</a><details class="more-menu"><summary aria-current="page"><span aria-hidden="true">&#8943;</span>More</summary><div><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test" aria-current="page">DAC test</a></div></details></nav>
     <footer>ESP32-S3 / Radio Recorder</footer>
     <script src="/dac_test.js"></script>
   </body>

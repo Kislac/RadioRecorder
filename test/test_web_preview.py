@@ -1,4 +1,5 @@
 import http.client
+import base64
 import io
 import json
 from html.parser import HTMLParser
@@ -20,6 +21,80 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_real_home_exposes_recording_mode_and_source_choices(self):
+        page = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+        for name, value in (("recordMode", "manual"), ("recordMode", "auto"), ("recordSource", "radio"), ("recordSource", "microphone")):
+            self.assertIn(f'name="{name}" value="{value}"', page)
+        self.assertNotIn('id="toggle"', page)
+        self.assertNotIn('id="micToggle"', page)
+        self.assertIn('id="recordAction" type="button" disabled', page)
+        self.assertIn('data-source="radio"', page)
+        self.assertIn('data-source="microphone" hidden', page)
+        self.assertIn('id="levelRms"', page)
+        self.assertIn('id="levelPeak"', page)
+        script = (WEB_ROOT / "index.js").read_text(encoding="utf-8")
+        self.assertIn('recordAction.addEventListener("click"', script)
+        self.assertIn('recordActionPending = true', script)
+        self.assertIn('await fetch(url, { method: "POST" })', script)
+        self.assertIn('renderRecordAction(data)', script)
+        self.assertIn('peak: null', script)
+        self.assertIn('showCurrentLevel("microphone", data.rms, data.peak)', script)
+        self.assertIn('signalPlot.hidden = signalHistory.length === 0', script)
+        self.assertIn('micSignalPlot.hidden = micSignalHistory.length === 0', script)
+        self.assertNotIn('id="speakerStop"', page)
+        self.assertIn('id="speakerStop"', (WEB_ROOT / "files.html").read_text(encoding="utf-8"))
+        self.assertNotIn('id="liveToggle"', page)
+        hardware = (WEB_ROOT / "test.html").read_text(encoding="utf-8")
+        self.assertIn('id="liveToggle"', hardware)
+        self.assertIn('src="/live_audio.js"', hardware)
+        live_script = (WEB_ROOT / "live_audio.js").read_text(encoding="utf-8")
+        self.assertIn('new WebSocket(', live_script)
+        self.assertIn('addEventListener("pagehide", stopLive)', live_script)
+        self.assertIn('!data.liveReady || data.playback !== "idle"', live_script)
+        self.assertIn('data.automatic?.microphone?.armed', live_script)
+        self.assertIn('href="/station.css"', page)
+        self.assertIn('background:#071b1ded', render_page("index"))
+        self.assertIn('src="data:image/svg+xml;base64,', render_page("index"))
+        self.assertEqual((Path(__file__).resolve().parents[1] / "web" / "logo.svg").read_bytes(), (Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "radio-logo-instrument.svg").read_bytes())
+
+    def test_real_pages_share_station_navigation_and_automatic_settings_view(self):
+        for name in PAGES:
+            with self.subTest(page=name):
+                page = (WEB_ROOT / (name + ".html")).read_text(encoding="utf-8")
+                self.assertIn('href="/station.css"', page)
+                self.assertIn('src="/logo.svg"', page)
+                self.assertIn('href="/settings#autoSettings"', page)
+                self.assertIn('href="/"', page)
+                self.assertIn('<nav class="bottom-nav" aria-label="Main views">', page)
+                self.assertIn('<details class="more-menu">', page)
+                for destination in ('/radio', '/test', '/dac-test'):
+                    self.assertIn(f'href="{destination}"', page)
+        settings = (WEB_ROOT / "settings.html").read_text(encoding="utf-8")
+        self.assertIn('<header id="autoSettings">', settings)
+        self.assertIn('<section class="auto-settings">', settings)
+        styles = (WEB_ROOT / "station.css").read_text(encoding="utf-8")
+        self.assertIn('body:not(:has(#autoSettings:target)) .auto-settings { display:none; }', styles)
+
+    def test_mobile_home_uses_demo_destinations_and_more_menu(self):
+        page = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
+        styles = (WEB_ROOT / "station.css").read_text(encoding="utf-8")
+        self.assertIn('<nav class="bottom-nav" aria-label="Main views">', page)
+        self.assertIn('href="/settings#autoSettings"', page)
+        self.assertIn('<details class="more-menu">', page)
+        for path in ("/radio", "/test", "/dac-test"):
+            self.assertIn(f'<a href="{path}">', page)
+        self.assertIn('@media(max-width:700px)', styles)
+        self.assertIn('body > header nav { display:none; }', styles)
+        self.assertIn('.bottom-nav { display:none; }', styles)
+
+    def test_original_web_design_remains_offline_in_variants(self):
+        legacy = (Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "variants" / "legacy-live.html").read_text(encoding="utf-8")
+        self.assertIn("--accent:#ad3d34", legacy)
+        self.assertIn("Recording</h1>", legacy)
+        self.assertIn("Automatic recording</h2>", legacy)
+        self.assertNotIn("<script", legacy)
+        self.assertNotIn("/api/", legacy)
+
     def test_instrument_logo_has_one_label_and_no_record_circle(self):
         concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
         logo = ElementTree.parse(concepts / "radio-logo-instrument.svg").getroot()
@@ -676,8 +751,12 @@ assert.equal(element.textContent, 'TIME UNSET');
                 document = render_page(name)
                 parser = AssetReferences()
                 parser.feed((WEB_ROOT / (name + ".html")).read_text(encoding="utf-8"))
-                for _, _, reference in parser.references:
-                    self.assertIn((WEB_ROOT / reference.lstrip("/")).read_text(encoding="utf-8"), document)
+                for kind, _, reference in parser.references:
+                    asset = WEB_ROOT / reference.lstrip("/")
+                    if kind == "svg":
+                        self.assertIn("data:image/svg+xml;base64," + base64.b64encode(asset.read_bytes()).decode("ascii"), document)
+                    else:
+                        self.assertIn(asset.read_text(encoding="utf-8"), document)
                 self.assertNotIn('<script src=', document)
                 self.assertNotIn('rel="stylesheet"', document)
                 self.assertNotIn("/preview/live", document)
@@ -831,7 +910,7 @@ class PreviewHttpTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertIn(b"[Offline]", page)
                 self.assertIn(b"/preview/live", page)
-                for asset_name in (("settings.css", "test.js") if name == "test" else (name + ".css", name + ".js")):
+                for asset_name in (("settings.css", "test.js", "live_audio.js") if name == "test" else (name + ".css", name + ".js")):
                     status, asset, _ = self.request('/' + asset_name)
                     self.assertEqual(status, 200)
                     self.assertGreater(len(asset), 100)
