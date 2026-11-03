@@ -20,7 +20,7 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 class WebAssetTests(unittest.TestCase):
     def test_static_design_concepts_are_mobile_and_device_inert(self):
-        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
+        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "variants"
         css = (concepts / "concepts.css").read_text(encoding="utf-8")
         self.assertIn("@media (max-width: 700px)", css)
         self.assertIn(".bottom-nav", css)
@@ -38,7 +38,7 @@ class WebAssetTests(unittest.TestCase):
                 self.assertNotIn("<script", page)
 
     def test_second_round_concepts_keep_originals_and_use_local_logos(self):
-        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
+        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "variants"
         css = (concepts / "round-two.css").read_text(encoding="utf-8")
         self.assertIn("@import url('concepts.css')", css)
         self.assertIn(".watch-panel .scope", css)
@@ -54,13 +54,13 @@ class WebAssetTests(unittest.TestCase):
                 for destination in ("outpost.html", "archive.html", "watch.html"):
                     self.assertIn('href="' + destination + '"', page)
                 for image in ("images.png", "clearsky_icon.png"):
-                    if 'pics/' + image in page:
-                        self.assertTrue((concepts / "pics" / image).is_file())
+                    if '../pics/' + image in page:
+                        self.assertTrue((concepts / ".." / "pics" / image).is_file())
                 self.assertNotIn("/api/", page)
                 self.assertNotIn("<script", page)
 
     def test_all_seven_concepts_have_bidirectional_navigation_and_status_examples(self):
-        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
+        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "variants"
         names = ("field", "sky", "signal", "outpost", "archive", "watch", "watch-sta")
 
         class ConceptNavigation(HTMLParser):
@@ -97,9 +97,81 @@ class WebAssetTests(unittest.TestCase):
             self.assertIn(label, watch)
         external = (concepts / "watch-sta.html").read_text(encoding="utf-8")
         self.assertIn("STA <b>Bázis-01 / 192.168.0.52</b>", external)
+        self.assertNotIn("AP + KÜLSŐ AKTÍV", external)
+        mobile_css = (concepts / "round-two.css").read_text(encoding="utf-8")
+        self.assertIn(".watch-sta .system-readout b { margin-left: auto; text-align: right; }", mobile_css)
         self.assertIn('class="record-button" type="button" disabled', external)
         self.assertNotIn("/api/", external)
         self.assertNotIn("<script", external)
+
+    def test_station_subpages_are_navigable_and_simulations_stay_local(self):
+        concepts = Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "demo"
+        names = ("station-files", "station-auto", "station-settings", "station-radio", "station-hardware", "station-dac")
+        home = (concepts / "station-home.html").read_text(encoding="utf-8")
+        for name in ("station-files", "station-auto", "station-settings"):
+            self.assertIn('href="' + name + '.html"', home)
+        css = (concepts / "station.css").read_text(encoding="utf-8")
+        self.assertIn("@import url('../variants/round-two.css')", css)
+        for name in names:
+            with self.subTest(name=name):
+                page = (concepts / (name + ".html")).read_text(encoding="utf-8")
+                self.assertIn('name="viewport"', page)
+                self.assertIn('src="station.js"', page)
+                self.assertIn('href="station.css"', page)
+                self.assertIn('href="station-home.html"', page)
+                self.assertIn('class="bottom-nav"', page)
+                for destination in names:
+                    self.assertIn('href="' + destination + '.html"', page)
+                self.assertNotIn("/api/", page)
+        for name in ("station-radio", "station-hardware"):
+            self.assertIn("disabled", (concepts / (name + ".html")).read_text(encoding="utf-8"))
+        script = (concepts / "station.js").read_text(encoding="utf-8")
+        self.assertNotIn("fetch(", script)
+        self.assertNotIn("XMLHttpRequest", script)
+        self.assertNotIn("WebSocket", script)
+
+    def test_station_demo_has_its_own_home_without_variant_navigation(self):
+        demo = Path(__file__).resolve().parents[1] / "docs" / "web-concepts" / "demo"
+        home = (demo / "station-home.html").read_text(encoding="utf-8")
+        self.assertIn("<h1>Adásnapló</h1>", home)
+        self.assertNotIn('class="concept-switch"', home)
+        self.assertIn('href="station.css"', home)
+        self.assertIn('href="station-home.html" aria-current="page"', home)
+        for name in ("station-files", "station-auto", "station-settings", "station-radio", "station-hardware", "station-dac"):
+            page = (demo / (name + ".html")).read_text(encoding="utf-8")
+            self.assertIn('href="station-home.html"', page)
+            self.assertNotIn('href="../variants/watch-sta.html"', page)
+
+    def test_concept_links_and_assets_resolve_after_folder_split(self):
+        root = Path(__file__).resolve().parents[1] / "docs" / "web-concepts"
+        variants = ("field", "sky", "signal", "outpost", "archive", "watch", "watch-sta")
+        demo = ("station-home", "station-files", "station-auto", "station-settings", "station-radio", "station-hardware", "station-dac")
+        documentation = (root.parent / "web-development.md").read_text(encoding="utf-8")
+
+        class LocalReferences(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.paths = []
+
+            def handle_starttag(self, tag, attrs):
+                if tag in ("a", "link", "img", "script"):
+                    attributes = dict(attrs)
+                    reference = attributes.get("href") or attributes.get("src")
+                    if reference and not reference.startswith(("#", "http:", "https:")):
+                        self.paths.append(reference)
+
+        for folder, names in (("variants", variants), ("demo", demo)):
+            for name in names:
+                with self.subTest(page=name):
+                    page = root / folder / (name + ".html")
+                    self.assertTrue(page.is_file())
+                    self.assertIn(f"(web-concepts/{folder}/{name}.html)", documentation)
+                    references = LocalReferences()
+                    references.feed(page.read_text(encoding="utf-8"))
+                    for reference in references.paths:
+                        self.assertTrue((page.parent / reference).is_file(), (name, reference))
+        self.assertIn("url('concepts.css')", (root / "variants" / "round-two.css").read_text(encoding="utf-8"))
+        self.assertIn("url('../variants/round-two.css')", (root / "demo" / "station.css").read_text(encoding="utf-8"))
 
     def test_settings_runtime_advances_and_handles_rollover(self):
         self.assertIn('id="runtime"', render_page("settings"))

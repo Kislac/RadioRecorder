@@ -78,7 +78,8 @@
   .watch-panel .scope { height: 90px; }
   .watch-panel .scope-line { top: 0; }
   .system-readout { grid-template-columns: 1fr; }
-  .system-readout > :last-child { text-align: left; }
+  .watch-sta .system-readout > :first-child, .watch-sta .system-readout > :last-child { display: flex; justify-content: space-between; gap: 8px; text-align: left; }
+  .watch-sta .system-readout b { margin-left: auto; text-align: right; }
   .system-readout .network-readout { gap: 12px; }
   .system-readout .network-readout > div { display: flex; justify-content: space-between; gap: 8px; }
   .watch-sta .system-readout .network-readout { border-left: 0; padding-left: 0; }
