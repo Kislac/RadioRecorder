@@ -86,7 +86,7 @@ function renderDemoClock() {
   const local = new Date(clockBase + elapsed).toISOString().slice(0, 19);
   clock.dateTime = local;
   clock.textContent =
-    (({ internet: "NTP ", manual: "MANUAL ", rtc: "RTC ", saved: "SAVED ", default: "DEFAULT " })[clockSource] || "") +
+    (({ internet: "NTP ", manual: "MANUAL ", rtc: "RTC ", phone: "PHONE ", saved: "SAVED ", default: "DEFAULT " })[clockSource] || "") +
     local.slice(0, 10).replaceAll("-", ".") + ". " + local.slice(11);
 }
 setInterval(renderDemoClock, 1000);

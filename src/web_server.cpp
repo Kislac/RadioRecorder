@@ -237,6 +237,21 @@ void setClock() {
   sendClock();
 }
 
+void setPhoneClock() {
+  wifiManagerNotifyActivity();
+  String text = server.arg("epoch");
+  if (text.length() != 10) { server.send(400, "text/plain", "Invalid UTC epoch"); return; }
+  for (char digit : text) if (!isDigit(digit)) { server.send(400, "text/plain", "Invalid UTC epoch"); return; }
+  uint64_t epoch = strtoull(text.c_str(), nullptr, 10);
+  if (epoch < 1577836800ULL || epoch > 4102444799ULL) {
+    server.send(400, "text/plain", "Invalid UTC epoch"); return;
+  }
+  if (!appClockSetPhoneEpoch(static_cast<time_t>(epoch))) {
+    server.send(500, "text/plain", "Could not set phone time"); return;
+  }
+  sendClock();
+}
+
 void setClockZone() {
   wifiManagerNotifyActivity();
   String text = server.arg("zone");
@@ -851,6 +866,7 @@ void initWeb() {
   server.on("/api/time", HTTP_GET, sendClock);
   server.on("/api/language", HTTP_POST, setLanguage);
   server.on("/api/time", HTTP_POST, setClock);
+  server.on("/api/time/auto", HTTP_POST, setPhoneClock);
   server.on("/api/time/zone", HTTP_POST, setClockZone);
   server.on("/api/ptt-test", HTTP_GET, []() {
     wifiManagerNotifyActivity();

@@ -21,6 +21,35 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_phone_clock_script_runs_on_each_page_and_sends_utc(self):
+        for page in PAGES:
+            document = render_page(page)
+            self.assertIn('"/api/time/auto?"', document)
+            self.assertIn('Math.floor(Date.now() / 1000)', document)
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node.js required for browser clock sync regression")
+        source = (WEB_ROOT / "clock_sync.js").read_text(encoding="utf-8")
+        script = """
+const assert = require('node:assert/strict');
+let now = 1793690000000, callback;
+const Date = {now: () => now};
+const document = {visibilityState: 'visible', addEventListener: () => {}};
+const sent = [];
+const fetch = (url, options) => {sent.push([url, options.method]); return Promise.resolve();};
+const setInterval = action => {callback = action;};
+""" + source + """
+assert.deepEqual(sent, [['/api/time/auto?epoch=1793690000', 'POST']]);
+now += 300000;
+callback();
+assert.deepEqual(sent[1], ['/api/time/auto?epoch=1793690300', 'POST']);
+document.visibilityState = 'hidden';
+callback();
+assert.equal(sent.length, 2);
+"""
+        result = subprocess.run([node, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_real_home_exposes_recording_mode_and_source_choices(self):
         page = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")
         for name, value in (("recordMode", "manual"), ("recordMode", "auto"), ("recordSource", "radio"), ("recordSource", "microphone")):
@@ -455,7 +484,7 @@ const element = { textContent: '', dateTime: '', removeAttribute: () => { elemen
 const document = { querySelector: () => element };
 const setInterval = () => {};
 """ + clock_script + """
-for (const [source, prefix] of Object.entries({internet:'NTP', manual:'MANUAL', rtc:'RTC', saved:'SAVED', default:'DEFAULT'})) {
+for (const [source, prefix] of Object.entries({internet:'NTP', manual:'MANUAL', rtc:'RTC', phone:'PHONE', saved:'SAVED', default:'DEFAULT'})) {
   clockSource = source;
   clockBase = Date.parse('2026-11-01T16:10:02Z');
   demoSyncedAt = now;
@@ -745,6 +774,11 @@ assert.equal(element.textContent, 'TIME UNSET');
         self.assertIn('case 12: drawText(9, y, "Timezone")', display)
         self.assertIn('if (!appClockSetLocal(value))', display)
         self.assertIn('server.on("/api/time", HTTP_POST, setClock)', server)
+        self.assertIn('server.on("/api/time/auto", HTTP_POST, setPhoneClock)', server)
+        self.assertIn('if (clockFromNtp || clockManual || clockFromRtc) return true;', control)
+        self.assertIn('if (difference > -30 && difference < 30) return true;', control)
+        self.assertIn('clockFromNtp = true;', control)
+        self.assertIn('clockFromPhone ? "phone"', control)
         self.assertIn('server.on("/api/time/zone", HTTP_POST, setClockZone)', server)
 
     def test_rtc_boot_sync_and_diagnostics_contract(self):
@@ -1234,6 +1268,41 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(clock()['source'], 'manual')
         self.assertEqual(self.request('/api/wifi/forget', 'POST')[0], 200)
         self.assertEqual(clock()['source'], 'manual')
+
+    def test_phone_clock_sync_threshold_and_source_priority(self):
+        clock = lambda: json.loads(self.request('/api/time')[1])
+        phone_epoch = 1793690000
+        sync = lambda epoch: self.request('/api/time/auto', 'POST', {'epoch': str(epoch)})
+        for invalid in ('', '0', '-1', '1793690000.5', 'not-a-date', '4102444800'):
+            self.assertEqual(sync(invalid)[0], 400)
+        self.assertEqual(sync(phone_epoch)[0], 200)
+        self.assertEqual(clock()['source'], 'phone')
+        self.assertLessEqual(abs(clock()['epoch'] - phone_epoch), 2)
+        saved = self.server.device.saved_epoch
+        self.assertEqual(sync(phone_epoch + 29)[0], 200)
+        self.assertEqual(self.server.device.saved_epoch, saved)
+        self.assertEqual(sync(phone_epoch + 31)[0], 200)
+        self.assertEqual(self.server.device.saved_epoch, phone_epoch + 31)
+        self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-11-03T12:00'})[0], 200)
+        self.assertEqual(sync(phone_epoch + 3600)[0], 200)
+        self.assertEqual(clock()['source'], 'manual')
+        self.server.device.clock_source = 'rtc'
+        self.assertEqual(sync(phone_epoch + 7200)[0], 200)
+        self.assertEqual(clock()['source'], 'rtc')
+        self.server.device.clock_source = 'internet'
+        self.assertEqual(sync(phone_epoch + 10800)[0], 200)
+        self.assertEqual(clock()['source'], 'internet')
+
+    def test_sta_without_ntp_accepts_phone_time(self):
+        self.server.device = PreviewDevice('wifi-no-ntp')
+        self.assertEqual(self.request('/api/wifi/connect', 'POST',
+                                      {'ssid': 'Offline LAN', 'password': 'dummy'})[0], 202)
+        deadline, ssid, keep = self.server.device.pending_network
+        self.server.device.pending_network = (deadline - 2, ssid, keep)
+        self.assertEqual(json.loads(self.request('/api/status')[1])['wifi']['mode'], 'STA')
+        self.assertEqual(json.loads(self.request('/api/time')[1])['source'], 'default')
+        self.assertEqual(self.request('/api/time/auto', 'POST', {'epoch': '1793690000'})[0], 200)
+        self.assertEqual(json.loads(self.request('/api/time')[1])['source'], 'phone')
 
     def test_ptt_test_requires_explicit_pulse_and_expires_without_extension(self):
         status = lambda: json.loads(self.request('/api/ptt-test')[1])

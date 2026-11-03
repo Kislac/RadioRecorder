@@ -84,7 +84,9 @@ def localize_document(document):
     catalogs = {code: {"name": catalog["name"], "web": catalog["web"]} for code, catalog in load_languages().items()}
     data = json.dumps(catalogs, ensure_ascii=False).replace("<", "\\u003c")
     script = (WEB_ROOT / "i18n.js").read_text(encoding="utf-8")
-    return document.replace("</head>", '<script>window.RR_LANGUAGES = ' + data + ";\n" + script + "</script>\n</head>")
+    clock_script = (WEB_ROOT / "clock_sync.js").read_text(encoding="utf-8")
+    return document.replace("</head>", '<script>window.RR_LANGUAGES = ' + data + ";\n" + script +
+                            "</script>\n<script>\n" + clock_script + "</script>\n</head>")
 
 
 def render_page(name, web_root=WEB_ROOT):

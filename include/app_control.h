@@ -27,6 +27,7 @@ String appClockJson();
 uint8_t appClockTimezone();
 bool appClockSetTimezone(uint8_t zone);
 bool appClockSetLocal(const String &local);
+bool appClockSetPhoneEpoch(time_t instant);
 void appClockStartSync();
 void appClockStopSync();
 void appClockPoll();

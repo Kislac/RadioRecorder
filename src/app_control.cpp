@@ -15,7 +15,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-static constexpr char kFirmwareVersion[] = "0.1.86";
+static constexpr char kFirmwareVersion[] = "0.1.87";
 static constexpr uint32_t kFirmwareBuild = FIRMWARE_BUILD;
 static constexpr uint16_t kDefaultScreenOffMinutes = 5;
 static constexpr uint16_t kMaxScreenOffMinutes = 999;
@@ -33,13 +33,14 @@ static bool clockKnown = false;
 static bool clockOnline = false;
 static bool clockSynced = false;
 static bool clockManual = false;
+static bool clockFromPhone = false;
+static bool clockFromNtp = false;
 static bool clockDefault = true;
 static bool clockFromRtc = false;
 static bool rtcAvailable = false;
 static bool rtcValid = false;
 static int32_t savedDay = -1;
 static uint32_t lastDayCheck = 0;
-static uint32_t lastSyncAt = 0;
 static bool sdReady = false;
 
 void appSetSdReady(bool ready) { sdReady = ready; }
@@ -184,11 +185,10 @@ bool appClockLocal(tm &local) {
   time_t now = time(nullptr);
   return localtime_r(&now, &local) != nullptr;
 }
-static bool clockFreshSync() { return clockOnline && clockSynced && millis() - lastSyncAt < 86400000UL; }
-char appClockIndicator() { return !clockKnown ? '-' : clockFreshSync() ? 'N' : clockManual ? 'K' : clockFromRtc ? 'R' : clockDefault ? 'A' : 'M'; }
+char appClockIndicator() { return !clockKnown ? '-' : clockFromNtp ? 'N' : clockManual ? 'K' : clockFromRtc ? 'R' : clockFromPhone ? 'T' : clockDefault ? 'A' : 'M'; }
 const char *appClockSourceLabel() {
-  return !clockKnown ? "Unknown" : clockFreshSync() ? "NTP" : clockManual ? "Manual" :
-         clockFromRtc ? "RTC" : clockDefault ? "Default" : "Saved (NVS)";
+  return !clockKnown ? "Unknown" : clockFromNtp ? "NTP" : clockManual ? "Manual" :
+         clockFromRtc ? "RTC" : clockFromPhone ? "Phone" : clockDefault ? "Default" : "Saved (NVS)";
 }
 uint8_t appClockTimezone() { return clockZone; }
 
@@ -202,8 +202,8 @@ String appClockJson() {
                 String(clockKnown ? static_cast<uint64_t>(now) : 0);
   json += ",\"zone\":" + String(clockZone);
   json += ",\"uptimeSeconds\":" + String(appUptimeSeconds());
-  json += ",\"source\":\"" + String(!clockKnown ? "unset" : clockFreshSync() ? "internet" :
-                                           clockManual ? "manual" : clockFromRtc ? "rtc" : clockDefault ? "default" : "saved") + "\"}";
+  json += ",\"source\":\"" + String(!clockKnown ? "unset" : clockFromNtp ? "internet" :
+                                           clockManual ? "manual" : clockFromRtc ? "rtc" : clockFromPhone ? "phone" : clockDefault ? "default" : "saved") + "\"}";
   return json;
 }
 
@@ -245,9 +245,26 @@ bool appClockSetLocal(const String &text) {
   if (settimeofday(&tv, nullptr) != 0) return false;
   clockKnown = true;
   clockSynced = false;
+  clockFromNtp = false;
   clockManual = true;
+  clockFromPhone = false;
   clockDefault = false;
   clockFromRtc = false;
+  rtcWriteUtc(instant);
+  return true;
+}
+
+bool appClockSetPhoneEpoch(time_t instant) {
+  if (instant < 1577836800LL || instant > 4102444799LL) return false;
+  if (clockFromNtp || clockManual || clockFromRtc) return true;
+  int64_t difference = static_cast<int64_t>(instant) - static_cast<int64_t>(time(nullptr));
+  if (difference > -30 && difference < 30) return true;
+  if (!saveClock(instant)) return false;
+  timeval tv = {instant, 0};
+  if (settimeofday(&tv, nullptr) != 0) return false;
+  clockKnown = true;
+  clockFromPhone = true;
+  clockDefault = false;
   rtcWriteUtc(instant);
   return true;
 }
@@ -268,10 +285,11 @@ void appClockPoll() {
     rtcWriteUtc(now);
     clockKnown = true;
     clockSynced = true;
+    clockFromNtp = true;
     clockManual = false;
+    clockFromPhone = false;
     clockDefault = false;
     clockFromRtc = false;
-    lastSyncAt = millis();
   }
   if (!clockKnown || millis() - lastDayCheck < 60000UL) return;
   lastDayCheck = millis();

@@ -22,7 +22,7 @@ from scripts.web_assets import WEB_ROOT, load_languages, localize_document
 from scripts.preview_files import PreviewFileManager
 from scripts.preview_auto import PreviewAutomaticRecording
 
-SCENARIOS = ("ready", "missing-sd", "recording", "wifi-failure")
+SCENARIOS = ("ready", "missing-sd", "recording", "wifi-failure", "wifi-no-ntp")
 DEFAULT_EPOCH = 946684800
 
 
@@ -160,10 +160,11 @@ class PreviewDevice:
                                  apSsid="RadioRecorder" if keep_ap else "", apIp="192.168.4.1" if keep_ap else "",
                                  staSsid=ssid, staIp="192.168.1.80", savedSsid=ssid, hasSavedNetwork=True,
                                  keepApHost=keep_ap, apAvailable=keep_ap)
-                self.clock_epoch = self.saved_epoch = int(time.time())
-                self.clock_started_at = now
-                self.clock_source = "internet"
-                self.saved_day = clock_local(self.clock_epoch, self.clock_zone).date()
+                if self.scenario != "wifi-no-ntp":
+                    self.clock_epoch = self.saved_epoch = int(time.time())
+                    self.clock_started_at = now
+                    self.clock_source = "internet"
+                    self.saved_day = clock_local(self.clock_epoch, self.clock_zone).date()
 
     def clock_info(self):
         epoch = int(self.clock_epoch + time.monotonic() - self.clock_started_at) if self.clock_epoch is not None else 0
@@ -400,6 +401,18 @@ class PreviewDevice:
                 return 200, {"items": items[offset:offset + 20],
                              "next": offset + 20 if offset + 20 < len(items) else None}
         if method == "POST":
+            if path == "/api/time/auto":
+                text = params.get("epoch", "")
+                if not re.fullmatch(r"\d{10}", text) or not 1577836800 <= int(text) <= 4102444799:
+                    return 400, "Invalid UTC epoch"
+                epoch = int(text)
+                current = self.clock_info()["epoch"]
+                if self.clock_source in ("default", "saved", "phone") and abs(epoch - current) >= 30:
+                    self.clock_epoch = self.saved_epoch = epoch
+                    self.clock_started_at = time.monotonic()
+                    self.clock_source = "phone"
+                    self.saved_day = clock_local(epoch, self.clock_zone).date()
+                return 200, self.clock_info()
             if path == "/api/time/zone":
                 self.clock_zone = self.integer(params, "zone", 0, 28)
                 if self.clock_epoch is not None:
@@ -617,8 +630,6 @@ class PreviewDevice:
                 return 202, {"state": "connecting"}
             if path == "/api/wifi/forget":
                 self.pending_network = None
-                if self.clock_source == "internet":
-                    self.clock_source = "saved"
                 self.wifi.update(mode="AP", ssid="RadioRecorder", ip="192.168.4.1", apSsid="RadioRecorder", apIp="192.168.4.1", staSsid="", staIp="", savedSsid="",
                                  hasSavedNetwork=False, keepApHost=False, connecting=False, apAvailable=True)
                 return 200, {"state": "ap"}

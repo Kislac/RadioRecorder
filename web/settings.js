@@ -56,7 +56,7 @@ function showClock(clock) {
   clockZone.value = String(clock.zone);
   clockCurrent.textContent = clock.local ? clock.local.replace("T", " ") : "Time is not set";
   clockStatus.textContent = ({ internet: "Synchronized from NTP", manual: "Set manually",
-    rtc: "Restored from RTC",
+    rtc: "Restored from RTC", phone: "Synchronized from phone",
     saved: "Saved time (without RTC)", default: "Default date (2000-01-01)",
     unset: "Time is not set" })[clock.source] || "Clock status unavailable";
   if (clock.local && !clockLocal.value) clockLocal.value = clock.local.slice(0, 16);
