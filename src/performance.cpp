@@ -13,6 +13,7 @@
 #include "live_audio.h"
 #include "automatic_record.h"
 #include "radio_programming.h"
+#include "watchdog.h"
 
 namespace {
 std::atomic<bool> enabled{true};
@@ -37,18 +38,54 @@ uint32_t slowLoops = 0;
 constexpr uint32_t kSlowLoopUs = 100000;
 constexpr uint32_t kLogIntervalMs = 60000;
 constexpr uint32_t kLogMaxBytes = 256 * 1024;
+constexpr uint8_t kLogMaxFiles = 16;
 bool logEnabled = false;
+bool logPreferred = true;
+bool autoLogPending = false;
+bool bootLogCountReady = false;
+uint16_t bootLogCount = 0;
 char logPath[64] = {};
 char logError[64] = {};
 uint32_t logBytes = 0;
 uint32_t logSamples = 0;
 uint32_t logSkipped = 0;
+uint32_t logBuildUs = 0;
+uint32_t logWriteUs = 0;
 uint32_t lastLogAt = 0;
 
 bool sdAvailableForLog() {
   return appSdReady() && recorderState() == CaptureState::idle &&
   playbackGetState() == PlaybackState::idle && !fileManagerBusy() &&
   !automaticAnyArmed() && !radioProgrammingBusy();
+}
+
+bool validLogPath(const String &path) {
+  if (!path.startsWith("/perf-") || !path.endsWith(".txt") || path.length() > 63) return false;
+  for (size_t index = 1; index < path.length(); ++index) {
+    char ch = path[index];
+    if (!isalnum(static_cast<unsigned char>(ch)) && ch != '-' && ch != '.') return false;
+  }
+  return true;
+}
+
+uint16_t logFileCount() {
+  File root = SD_MMC.open("/", FILE_READ);
+  if (!root || !root.isDirectory()) { root.close(); return kLogMaxFiles; }
+  uint16_t count = 0;
+  uint32_t visited = 0;
+  File file = root.openNextFile();
+  while (file) {
+    String name = file.name();
+    String path = "/" + name.substring(name.lastIndexOf('/') + 1);
+    if (!file.isDirectory() && validLogPath(path)) ++count;
+    file.close();
+    if (count >= kLogMaxFiles) break;
+    feedSystemWatchdog();
+    if (++visited % 32 == 0) delay(1);
+    file = root.openNextFile();
+  }
+  root.close();
+  return count;
 }
 
 void stopLog(const char *error) {
@@ -61,6 +98,8 @@ bool performanceInit() {
   Preferences preferences;
   if (!preferences.begin("radio-recorder", true)) return false;
   enabled.store(preferences.getBool("perfEnabled", true));
+  logPreferred = preferences.getBool("perfLogEnabled", true);
+  autoLogPending = enabled.load() && logPreferred;
   preferences.end();
   return true;
 }
@@ -76,6 +115,7 @@ bool performanceSetEnabled(bool value) {
   if (saved) {
     enabled.store(value);
     if (!value) logEnabled = false;
+    autoLogPending = value && logPreferred;
     loopTiming = {};
     displayTiming = {};
     loopStartedUs = 0;
@@ -108,11 +148,31 @@ void performanceDisplaySample(uint32_t durationUs) {
 
 bool performanceLogEnabled() { return logEnabled; }
 const char *performanceLogPath() { return logPath; }
+bool performanceLogSdIdle() { return sdAvailableForLog(); }
+bool performanceLogValidPath(const String &path) { return validLogPath(path); }
+void performancePrimeLogCount() {
+  if (autoLogPending && appSdReady()) {
+    bootLogCount = logFileCount();
+    bootLogCountReady = true;
+  }
+}
 
 bool performanceLogSetEnabled(bool value) {
+  if (value && !logEnabled && (!enabled.load() || !sdAvailableForLog())) {
+    stopLog("Diagnostics or SD busy"); return false;
+  }
+  Preferences preferences;
+  if (!preferences.begin("radio-recorder", false)) return false;
+  bool saved = logPreferred == value || preferences.putBool("perfLogEnabled", value) == sizeof(uint8_t);
+  preferences.end();
+  if (!saved) return false;
+  logPreferred = value;
+  autoLogPending = false;
   if (!value) { logEnabled = false; return true; }
   if (logEnabled) return true;
-  if (!enabled.load() || !sdAvailableForLog()) { stopLog("Diagnostics or SD busy"); return false; }
+  uint16_t existingLogs = bootLogCountReady ? bootLogCount : logFileCount();
+  bootLogCountReady = false;
+  if (existingLogs >= kLogMaxFiles) { stopLog("16 SD logs reached; remove older logs"); return false; }
   time_t now = time(nullptr);
   tm utc = {};
   if (now >= 1577836800) gmtime_r(&now, &utc);
@@ -139,9 +199,14 @@ bool performanceLogSetEnabled(bool value) {
 }
 
 void performanceLogPoll() {
+  if (autoLogPending && sdAvailableForLog()) {
+    autoLogPending = false;
+    performanceLogSetEnabled(true);
+  }
   if (!logEnabled || !enabled.load() || static_cast<uint32_t>(millis() - lastLogAt) < kLogIntervalMs) return;
   lastLogAt = millis();
   if (!sdAvailableForLog()) { ++logSkipped; return; }
+  uint32_t buildStartedUs = micros();
   time_t now = time(nullptr);
   tm utc = {};
   char timestamp[24] = "unknown";
@@ -151,11 +216,14 @@ void performanceLogPoll() {
   }
   String line = String("{\"timestampUtc\":\"") + timestamp + "\",\"firmware\":\"" +
                 appFirmwareVersion() + "\",\"metrics\":" + performanceJson() + "}\n";
+  logBuildUs = micros() - buildStartedUs;
   if (logBytes + line.length() > kLogMaxBytes) { stopLog("Log reached 256 KiB limit"); return; }
+  uint32_t writeStartedUs = micros();
   File file = SD_MMC.open(logPath, FILE_APPEND);
   if (!file) { stopLog("Cannot append SD log"); return; }
   size_t written = file.write(reinterpret_cast<const uint8_t *>(line.c_str()), line.length());
   file.close();
+  logWriteUs = micros() - writeStartedUs;
   if (written != line.length()) { stopLog("Incomplete SD log write"); return; }
   logBytes += written;
   ++logSamples;
@@ -182,6 +250,8 @@ String performanceJson() {
   json += ",\"logBytes\":" + String(logBytes);
   json += ",\"logSamples\":" + String(logSamples);
   json += ",\"logSkippedBusy\":" + String(logSkipped);
+  json += ",\"logBuildUs\":" + String(logBuildUs);
+  json += ",\"logWriteUs\":" + String(logWriteUs);
   json += ",\"taskCount\":" + String(uxTaskGetNumberOfTasks());
   json += ",\"loopStackFreeMinimum\":" + String(uxTaskGetStackHighWaterMark(nullptr));
   json += ",\"recorderStackFreeMinimum\":" + String(recorderStackFreeMinimum());
@@ -190,9 +260,11 @@ String performanceJson() {
   json += ",\"adcOverflows\":" + String(recorderAdcOverflowCount());
   json += ",\"liveAudioDroppedFrames\":" + String(liveAudioDroppedFrames());
   json += ",\"internalFree\":" + String(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+  json += ",\"internalTotal\":" + String(heap_caps_get_total_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   json += ",\"internalMinimumFree\":" + String(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   json += ",\"internalLargestBlock\":" + String(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   json += ",\"psramFree\":" + String(heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  json += ",\"psramTotal\":" + String(heap_caps_get_total_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   json += ",\"psramMinimumFree\":" + String(heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   json += ",\"psramLargestBlock\":" + String(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   nvs_stats_t stats = {};

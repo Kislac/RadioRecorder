@@ -71,11 +71,11 @@ def validate_performance_snapshot(snapshot):
     keys = ("uptimeMs", "loopMaxGapUs", "loopGapsOver100ms", "taskCount",
             "loopCurrentUs", "loopAverageUs", "loopPeakUs", "loopSamples",
             "displayCurrentUs", "displayAverageUs", "displayPeakUs", "displaySamples",
-            "logBytes", "logSamples", "logSkippedBusy",
+            "logBytes", "logSamples", "logSkippedBusy", "logBuildUs", "logWriteUs",
             "loopStackFreeMinimum", "recorderStackFreeMinimum", "speakerStackFreeMinimum",
             "lastFileWorkerStackFreeMinimum", "adcOverflows", "liveAudioDroppedFrames",
-            "internalFree", "internalMinimumFree", "internalLargestBlock",
-            "psramFree", "psramMinimumFree", "psramLargestBlock",
+            "internalFree", "internalTotal", "internalMinimumFree", "internalLargestBlock",
+            "psramFree", "psramTotal", "psramMinimumFree", "psramLargestBlock",
             "nvsTotalEntries", "nvsUsedEntries", "nvsFreeEntries")
     for key in keys:
         if type(snapshot.get(key)) is not int or snapshot[key] < 0:
@@ -86,6 +86,8 @@ def validate_performance_snapshot(snapshot):
         if snapshot[prefix + "PeakUs"] < snapshot[prefix + "CurrentUs"] or (snapshot[prefix + "Samples"] and snapshot[prefix + "PeakUs"] < snapshot[prefix + "AverageUs"]):
             raise AssertionError("Invalid timing summary: " + prefix)
     for pool in ("internal", "psram"):
+        if not 0 <= snapshot[pool + "MinimumFree"] <= snapshot[pool + "Free"] <= snapshot[pool + "Total"] or not snapshot[pool + "Total"]:
+            raise AssertionError("Invalid " + pool + " heap capacity")
         if snapshot[pool + "LargestBlock"] > snapshot[pool + "Free"]:
             raise AssertionError("Largest block exceeds free " + pool + " heap")
     if snapshot["nvsUsedEntries"] + snapshot["nvsFreeEntries"] > snapshot["nvsTotalEntries"]:

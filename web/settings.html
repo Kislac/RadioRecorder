@@ -57,12 +57,24 @@
         <label><input id="performanceEnabled" type="checkbox" disabled />Enable diagnostics</label>
         <button id="refreshPerformance" type="button" disabled>Refresh</button>
         <p id="performanceStatus" role="status"></p>
-        <div id="performanceSnapshot" hidden>
+        <div id="performanceSnapshot">
+          <div id="performanceLive" hidden>
           <table><thead><tr><th>Timing</th><th>Current</th><th>Average</th><th>Peak</th><th>Samples</th></tr></thead><tbody id="performanceTimings"></tbody></table>
-          <dl id="performanceDetails"></dl>
-          <label><input id="performanceLogEnabled" type="checkbox" />Log to SD (once per minute, max 256 KiB)</label>
+          <div id="performanceDetails" class="metric-list"></div>
+          </div>
+          <label><input id="performanceLogEnabled" type="checkbox" />SD logging (one sample/minute)</label>
           <p id="performanceLogStatus" role="status"></p>
-          <a id="performanceLogDownload" href="/api/performance/log" hidden download>Download current log</a>
+          <div class="log-browser">
+            <label for="performanceLogFiles">Saved logs</label>
+            <select id="performanceLogFiles"></select>
+            <button id="performanceLogView" type="button">View log</button>
+            <a id="performanceLogDownload" href="/api/performance/log" hidden download>Download selected log</a>
+          </div>
+          <p id="performanceLogMessage" role="status"></p>
+          <div id="performanceLogViewer" hidden>
+            <p id="performanceLogSummary"></p>
+            <div class="log-table-wrap"><table><thead><tr><th>Time (UTC)</th><th>Loop avg / peak</th><th>Display avg / peak</th><th>Internal RAM used</th><th>PSRAM used</th><th>Audio errors</th></tr></thead><tbody id="performanceLogRows"></tbody></table></div>
+          </div>
         </div>
       </section>
       <section class="auto-settings">

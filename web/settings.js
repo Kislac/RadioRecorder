@@ -7,15 +7,48 @@ const form = document.querySelector("#settingsForm"),
 const performanceToggle = document.querySelector("#performanceEnabled"),
   performanceRefresh = document.querySelector("#refreshPerformance"),
   performanceStatus = document.querySelector("#performanceStatus"),
-  performanceSnapshot = document.querySelector("#performanceSnapshot"),
+  performanceLive = document.querySelector("#performanceLive"),
   performanceTimings = document.querySelector("#performanceTimings"),
   performanceDetails = document.querySelector("#performanceDetails"),
   performanceLogToggle = document.querySelector("#performanceLogEnabled"),
   performanceLogStatus = document.querySelector("#performanceLogStatus"),
-  performanceLogDownload = document.querySelector("#performanceLogDownload");
+  performanceLogDownload = document.querySelector("#performanceLogDownload"),
+  performanceLogFiles = document.querySelector("#performanceLogFiles"),
+  performanceLogView = document.querySelector("#performanceLogView"),
+  performanceLogMessage = document.querySelector("#performanceLogMessage"),
+  performanceLogViewer = document.querySelector("#performanceLogViewer"),
+  performanceLogRows = document.querySelector("#performanceLogRows"),
+  performanceLogSummary = document.querySelector("#performanceLogSummary");
+function usedPercent(free, total) {
+  return Number.isFinite(free) && Number.isFinite(total) && total > 0 ?
+    Math.min(100, Math.max(0, 100 * (total - free) / total)) : null;
+}
+function formatPercent(value) { return value === null ? "Unavailable" : value.toFixed(0) + "% used"; }
+function severity(value, warning = 85, critical = 95) {
+  return value === null ? "" : value >= critical ? "critical" : value >= warning ? "warning" : "";
+}
+function addMetric(label, value, note, level = "") {
+  const row = document.createElement("div"), name = document.createElement("span"),
+    help = document.createElement("abbr"), amount = document.createElement("strong");
+  row.className = "metric-row" + (level ? " metric-" + level : "");
+  name.textContent = label;
+  help.textContent = "?";
+  help.title = note;
+  help.setAttribute("aria-label", note);
+  help.tabIndex = 0;
+  amount.textContent = (level === "critical" ? "Critical: " : level === "warning" ? "Watch: " : "") + value;
+  name.append(" ", help);
+  row.append(name, amount);
+  performanceDetails.append(row);
+}
 function showPerformance(snapshot) {
-  performanceSnapshot.hidden = !snapshot.enabled;
-  if (!snapshot.enabled) return;
+  performanceLive.hidden = !snapshot.enabled;
+  performanceLogToggle.disabled = !snapshot.enabled;
+  if (!snapshot.enabled) {
+    performanceLogToggle.checked = false;
+    performanceLogStatus.textContent = "Diagnostics off; saved logs remain available.";
+    return;
+  }
   performanceTimings.replaceChildren();
   for (const [label, prefix] of [["Main loop", "loop"], ["OLED refresh", "display"]]) {
     const row = performanceTimings.insertRow();
@@ -26,24 +59,84 @@ function showPerformance(snapshot) {
     }
   }
   performanceDetails.replaceChildren();
-  for (const [label, value] of [
-    ["Uptime", (snapshot.uptimeMs / 3600000).toFixed(1) + " h"],
-    ["Largest loop gap", (snapshot.loopMaxGapUs / 1000).toFixed(2) + " ms"],
-    ["Gaps over 100 ms", snapshot.loopGapsOver100ms],
-    ["Internal RAM free / minimum", snapshot.internalFree + " / " + snapshot.internalMinimumFree + " B"],
-    ["PSRAM free / minimum", snapshot.psramFree + " / " + snapshot.psramMinimumFree + " B"],
-    ["NVS entries free", snapshot.nvsFreeEntries],
-    ["ADC overflows", snapshot.adcOverflows], ["Live audio dropped frames", snapshot.liveAudioDroppedFrames],
-  ]) {
-    const term = document.createElement("dt"), detail = document.createElement("dd");
-    term.textContent = label; detail.textContent = value;
-    performanceDetails.append(term, detail);
+  const uptimeMinutes = Math.floor(snapshot.uptimeMs / 60000);
+  addMetric("Uptime", `${Math.floor(uptimeMinutes / 60)}h ${uptimeMinutes % 60}m`,
+    "Time since the ESP last started. This counter resets after a restart.");
+  addMetric("Longest loop gap", (snapshot.loopMaxGapUs / 1000).toFixed(1) + " ms",
+    "Longest interval between main-loop starts since diagnostics were enabled. A large value can indicate blocking work.",
+    snapshot.loopMaxGapUs >= 1000000 ? "critical" : snapshot.loopMaxGapUs >= 250000 ? "warning" : "");
+  const slowRate = snapshot.loopSamples ? 100 * snapshot.loopGapsOver100ms / snapshot.loopSamples : 0;
+  addMetric("Loops delayed over 100 ms", `${snapshot.loopGapsOver100ms} (${slowRate.toFixed(1)}%)`,
+    "Share of main-loop intervals above 100 ms since diagnostics were enabled. Watch above 1%, critical above 5%.",
+    severity(slowRate, 1, 5));
+  for (const [label, prefix] of [["Internal RAM", "internal"], ["PSRAM", "psram"]]) {
+    const current = usedPercent(snapshot[prefix + "Free"], snapshot[prefix + "Total"]);
+    const worst = usedPercent(snapshot[prefix + "MinimumFree"], snapshot[prefix + "Total"]);
+    addMetric(label, `${formatPercent(current)} · peak ${formatPercent(worst)}`,
+      `Free now: ${snapshot[prefix + "Free"]} B; lowest free since boot: ${snapshot[prefix + "MinimumFree"]} B; total allocatable: ${snapshot[prefix + "Total"]} B. Amber at 85%, red at 95%; these are advisory thresholds, not hardware limits.`,
+      severity(worst));
   }
+  const nvsUse = usedPercent(snapshot.nvsFreeEntries, snapshot.nvsTotalEntries);
+  addMetric("NVS settings storage", `${formatPercent(nvsUse)} · ${snapshot.nvsFreeEntries} entries free`,
+    "Flash entries available for saved settings, not SD space or bytes. Amber at 85%, red at 95% used.", severity(nvsUse));
+  addMetric("ADC buffer overruns", String(snapshot.adcOverflows),
+    "Audio samples discarded when the radio input buffer could not be drained in time.",
+    snapshot.adcOverflows ? "warning" : "");
+  addMetric("Live audio dropped frames", String(snapshot.liveAudioDroppedFrames),
+    "Frames not sent to web listeners when the live audio queue was full.",
+    snapshot.liveAudioDroppedFrames ? "warning" : "");
+  if (snapshot.logSamples) addMetric("Last SD log write", (snapshot.logWriteUs / 1000).toFixed(1) + " ms",
+    "Time to open, append and close the latest diagnostics log sample on SD. Watch above 250 ms, critical above 1 s.",
+    severity(snapshot.logWriteUs / 1000, 250, 1000));
   performanceLogToggle.checked = snapshot.logEnabled;
   performanceLogDownload.hidden = !snapshot.logPath;
   performanceLogStatus.textContent = snapshot.logError ||
-    (snapshot.logPath ? `${snapshot.logPath} (${snapshot.logSamples} samples, ${snapshot.logBytes} B, ${snapshot.logSkippedBusy} busy intervals skipped)` : "SD logging off");
+    (snapshot.logPath ? `${snapshot.logEnabled ? "Recording" : "Stopped"}: ${snapshot.logPath} (${snapshot.logSamples} samples, ${snapshot.logBytes} B, ${snapshot.logSkippedBusy} busy intervals skipped)` : "SD logging off");
 }
+async function loadLogFiles() {
+  const selected = performanceLogFiles.value;
+  const response = await fetch("/api/performance/logs", { cache: "no-store" });
+  if (!response.ok) throw Error(await response.text());
+  const data = await response.json();
+  performanceLogFiles.replaceChildren(...data.files.map(file => new Option(`${file.path.slice(1)} (${Math.ceil(file.bytes / 1024)} KiB)`, file.path)));
+  if (data.files.some(file => file.path === selected)) performanceLogFiles.value = selected;
+  performanceLogView.disabled = !performanceLogFiles.value;
+  performanceLogDownload.hidden = !performanceLogFiles.value;
+  if (performanceLogFiles.value) performanceLogDownload.href = "/api/performance/log?path=" + encodeURIComponent(performanceLogFiles.value);
+  performanceLogMessage.textContent = data.files.length ? `${data.files.length} saved log(s)` : "No saved logs";
+}
+performanceLogFiles.addEventListener("change", () => {
+  performanceLogViewer.hidden = true;
+  performanceLogDownload.href = "/api/performance/log?path=" + encodeURIComponent(performanceLogFiles.value);
+});
+performanceLogView.addEventListener("click", async () => {
+  const path = performanceLogFiles.value;
+  if (!path) return;
+  performanceLogView.disabled = true;
+  try {
+    const response = await fetch("/api/performance/log?path=" + encodeURIComponent(path), { cache: "no-store" });
+    if (!response.ok) throw Error(await response.text());
+    const lines = (await response.text()).trim().split("\n").filter(Boolean);
+    if (lines.length > 512) throw Error("Log contains too many samples to display.");
+    performanceLogRows.replaceChildren();
+    for (const line of lines) {
+      const sample = JSON.parse(line), metrics = sample.metrics;
+      if (!metrics || !metrics.enabled) throw Error("Invalid diagnostics sample.");
+      const row = performanceLogRows.insertRow();
+      for (const text of [sample.timestampUtc, ...["loop", "display"].map(prefix =>
+        `${(metrics[prefix + "AverageUs"] / 1000).toFixed(1)} / ${(metrics[prefix + "PeakUs"] / 1000).toFixed(1)} ms`),
+      formatPercent(usedPercent(metrics.internalFree, metrics.internalTotal)),
+      formatPercent(usedPercent(metrics.psramFree, metrics.psramTotal)),
+      String(metrics.adcOverflows + metrics.liveAudioDroppedFrames)]) row.insertCell().textContent = text;
+    }
+    performanceLogSummary.textContent = `${path} · ${lines.length} sample(s)`;
+    performanceLogMessage.textContent = lines.length ? "" : "This log has no samples yet.";
+    performanceLogViewer.hidden = !lines.length;
+  } catch (error) {
+    performanceLogViewer.hidden = true;
+    performanceLogMessage.textContent = error.message || "Could not read log.";
+  } finally { performanceLogView.disabled = false; }
+});
 async function loadPerformance() {
   const response = await fetch("/api/performance", { cache: "no-store" });
   if (!response.ok) throw Error(await response.text());
@@ -53,6 +146,7 @@ async function loadPerformance() {
   performanceStatus.textContent = snapshot.enabled ? "Diagnostics active" : "Diagnostics off";
   performanceToggle.disabled = false;
   performanceRefresh.disabled = false;
+  await loadLogFiles().catch(error => { performanceLogMessage.textContent = error.message || "Log list unavailable."; });
 }
 performanceLogToggle.addEventListener("change", async () => {
   performanceLogToggle.disabled = true;

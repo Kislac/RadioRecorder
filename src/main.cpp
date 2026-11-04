@@ -145,6 +145,10 @@ static void handleSerialCommand(char command, int32_t &steps, ButtonEvent &butto
 
   if (command == 'a') { Serial.printf("AUTO_STATE %s\n", automaticRecordingJson().c_str()); return; }
   if (command == 'V') { Serial.printf("PERFORMANCE %s\n", performanceJson().c_str()); return; }
+  if (command == 'Y') {
+    Serial.printf("PERFORMANCE_ENABLE %s\n", performanceSetEnabled(true) ? "enabled" : "error");
+    return;
+  }
   if (command == 'x') {
     deleteFilenameLength = 0;
     deleteFilenameOverflow = false;
@@ -247,6 +251,7 @@ void setup() {
   bool sdReady = SD_MMC.setPins(39, 38, 40) && SD_MMC.begin("/sdcard", true, false) && SD_MMC.cardType() != CARD_NONE;
   appSetSdReady(sdReady);
   if (sdReady) recorderSetRecordingsPresent(hasRecordings());
+  performancePrimeLogCount();
   initRecorderAdc();
   initRecorderMic();
   initPlayback(sdReady);

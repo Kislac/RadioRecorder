@@ -80,9 +80,11 @@ class FrameTests(unittest.TestCase):
 
                 with redirect_stdout(StringIO()) as console:
                     self.assertEqual(run_suite("online", run=online_command), 0)
-                self.assertEqual(len(outputs), 3)
-                self.assertIn("--record", outputs[0])
-                self.assertIn("--rtc-reboot", outputs[2])
+                self.assertEqual(len(outputs), 5)
+                self.assertIn("--ensure-performance", outputs[0])
+                self.assertIn("--record", outputs[1])
+                self.assertIn("--rtc-reboot", outputs[3])
+                self.assertIn("--check-performance", outputs[4])
                 self.assertIn("SKIP: Wi-Fi", console.getvalue())
                 self.assertIn("SKIP: RTC without NTP and software restart - upload firmware 0.1.54 or newer", console.getvalue())
                 self.assertNotIn("FAILED CASES", console.getvalue())
@@ -113,11 +115,42 @@ class FrameTests(unittest.TestCase):
             with patch("scripts.run_tests.urlopen"):
                 with redirect_stdout(StringIO()) as console:
                     self.assertEqual(run_suite("online", run=command_result), 1)
-        self.assertEqual(len(outputs), 4)
-        self.assertIn("--record", outputs[3])
+        self.assertEqual(len(outputs), 6)
+        self.assertIn("--ensure-performance", outputs[0])
+        self.assertIn("--record", outputs[4])
+        self.assertIn("--preserve-performance", outputs[4])
+        self.assertIn("--check-performance", outputs[5])
         self.assertIn("FAIL: Wi-Fi API and recording", console.getvalue().split("FAILED CASES", 1)[1])
         self.assertIn("HTTP 500", console.getvalue().split("FAILED CASES", 1)[1])
         self.assertNotIn("FAIL: Device recording and cleanup", console.getvalue().split("FAILED CASES", 1)[1])
+
+    def test_online_suite_aborts_mutations_when_diagnostics_preflight_fails(self):
+        outputs = []
+
+        def preflight_fails(command, **kwargs):
+            outputs.append(command)
+            return subprocess.CompletedProcess(command, 1, "FAIL: Enable diagnostics before tests: NVS write failed\n")
+
+        with TemporaryDirectory() as folder, patch("scripts.run_tests.TestRun", side_effect=lambda name: TestRun(name, folder)):
+            with redirect_stdout(StringIO()) as console:
+                self.assertEqual(run_suite("online", run=preflight_fails), 1)
+        self.assertEqual(len(outputs), 1)
+        self.assertIn("--ensure-performance", outputs[0])
+        self.assertIn("SKIP: Device recording and cleanup", console.getvalue())
+
+    def test_online_suite_checks_diagnostics_after_device_failure(self):
+        outputs = []
+
+        def device_fails(command, **kwargs):
+            outputs.append(command)
+            if "--record" in command:
+                return subprocess.CompletedProcess(command, 1, "FAIL: Device test failed\n")
+            return subprocess.CompletedProcess(command, 0, "SUMMARY: 1 passed, 0 failed, 0 skipped\n")
+
+        with TemporaryDirectory() as folder, patch("scripts.run_tests.TestRun", side_effect=lambda name: TestRun(name, folder)):
+            with patch("scripts.run_tests.urlopen", side_effect=URLError("no route")):
+                self.assertEqual(run_suite("online", run=device_fails), 1)
+        self.assertIn("--check-performance", outputs[-1])
 
     def test_rtc_progress_requires_offline_clock_and_elapsed_time(self):
         before = {"rtc": 1793270000, "system": 1793270000, "source": "R", "offline": True}

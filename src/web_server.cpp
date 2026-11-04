@@ -925,18 +925,45 @@ void initWeb() {
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", performanceJson());
   });
+  server.on("/api/performance/logs", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    if (!performanceLogSdIdle()) { server.send(409, "text/plain", "SD or audio busy"); return; }
+    File root = SD_MMC.open("/", FILE_READ);
+    if (!root || !root.isDirectory()) { root.close(); server.send(503, "text/plain", "SD unavailable"); return; }
+    String json = "{\"files\":[";
+    uint8_t count = 0;
+    uint32_t visited = 0;
+    File file = root.openNextFile();
+    while (file) {
+      String name = file.name();
+      String path = "/" + name.substring(name.lastIndexOf('/') + 1);
+      if (!file.isDirectory() && performanceLogValidPath(path) && file.size() <= 256 * 1024) {
+        if (count++) json += ',';
+        json += "{\"path\":\"" + path + "\",\"bytes\":" + String(file.size()) + "}";
+      }
+      file.close();
+      feedSystemWatchdog();
+      if (++visited % 32 == 0) delay(1);
+      if (count >= 32) break;
+      file = root.openNextFile();
+    }
+    root.close();
+    json += "]}";
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", json);
+  });
   server.on("/api/performance/log", HTTP_GET, []() {
     wifiManagerNotifyActivity();
-    const char *path = performanceLogPath();
-    if (!path[0] || !appSdReady() || recorderState() != CaptureState::idle ||
-      playbackGetState() != PlaybackState::idle || fileManagerBusy() ||
-      automaticAnyArmed() || radioProgrammingBusy()) {
+    String path = server.hasArg("path") ? server.arg("path") : String(performanceLogPath());
+    if (!performanceLogSdIdle()) {
       server.send(409, "text/plain", "No available diagnostics log or SD busy"); return;
     }
+    if (!performanceLogValidPath(path)) { server.send(400, "text/plain", "Invalid log path"); return; }
     File file = SD_MMC.open(path, FILE_READ);
     if (!file || file.isDirectory()) { file.close(); server.send(404, "text/plain", "Log not found"); return; }
+    if (file.size() > 256 * 1024) { file.close(); server.send(413, "text/plain", "Log too large"); return; }
     server.sendHeader("Cache-Control", "no-store");
-    server.sendHeader("Content-Disposition", "attachment; filename=\"" + String(path + 1) + "\"");
+    server.sendHeader("Content-Disposition", "attachment; filename=\"" + path.substring(1) + "\"");
     server.streamFile(file, "application/x-ndjson");
     file.close();
   });

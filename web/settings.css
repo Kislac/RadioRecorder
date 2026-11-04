@@ -16,8 +16,19 @@
 .performance-settings table { width:100%; border-collapse:collapse; margin:16px 0; font-variant-numeric:tabular-nums; }
 .performance-settings th, .performance-settings td { padding:8px 6px; border-bottom:1px solid var(--line); text-align:right; }
 .performance-settings th:first-child, .performance-settings td:first-child { text-align:left; }
-.performance-settings dl { display:grid; grid-template-columns: minmax(0,1fr) auto; gap:8px 16px; margin:18px 0; }
-.performance-settings dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; }
+.performance-settings .metric-list { margin:18px 0; border-top:1px solid var(--line); }
+.performance-settings .metric-row { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 16px; padding:10px 6px; border-bottom:1px solid var(--line); }
+.performance-settings .metric-row strong { text-align:right; font-variant-numeric:tabular-nums; }
+.performance-settings .metric-warning { color:#8a4c04; }
+.performance-settings .metric-critical { color:#a32525; font-weight:700; }
+.performance-settings abbr { display:inline-grid; place-items:center; width:17px; height:17px; border:1px solid currentColor; border-radius:50%; font-size:11px; cursor:help; text-decoration:none; }
+.performance-settings .log-browser { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:14px; }
+.performance-settings .log-browser select { min-width:0; max-width:100%; flex:1 1 260px; padding:8px; font:inherit; }
+.performance-settings .log-browser button { margin:0; }
+.performance-settings .log-table-wrap { max-height:430px; overflow:auto; }
+.performance-settings .log-table-wrap th, .performance-settings .log-table-wrap td { min-width:105px; white-space:nowrap; font-size:13px; }
+.performance-settings .log-table-wrap th:first-child, .performance-settings .log-table-wrap td:first-child { min-width:165px; }
+.performance-settings #performanceLogMessage { color:var(--muted); }
 .performance-settings #performanceSnapshot { overflow-x:auto; }
 .performance-settings #performanceLogStatus { overflow-wrap:anywhere; color:var(--muted); }
 .cue-settings { margin-top:32px; border-top:1px solid var(--line); padding-top:24px; }

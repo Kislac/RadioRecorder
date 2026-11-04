@@ -48,7 +48,7 @@ def run_suite(suite, port=None, base_url="http://192.168.4.1", run=subprocess.ru
                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
         except OSError as error:
             result(label, False, str(error))
-            return
+            return False
         for line in completed.stdout.splitlines():
             report.detail("OUTPUT: " + line)
         unit_count = re.search(r"Ran (\d+) tests?", completed.stdout)
@@ -62,6 +62,7 @@ def run_suite(suite, port=None, base_url="http://192.168.4.1", run=subprocess.ru
             result(label, None, rtc_skip.group(1))
         else:
             result(label, completed.returncode == 0, detail, completed.stdout)
+        return completed.returncode == 0
 
     if suite == "offline":
         command("Offline unit tests", [sys.executable, "-m", "unittest", "discover", "-s", "test",
@@ -73,20 +74,31 @@ def run_suite(suite, port=None, base_url="http://192.168.4.1", run=subprocess.ru
         device = [sys.executable, "-m", "scripts.test_device"]
         if port:
             device.extend(["--port", port])
-        command("Device recording and cleanup", device + ["--record", "--language-test", "--auto-test"])
-        command("OLED display", device + ["--display-only"])
-        command("RTC without NTP and software restart", device + ["--rtc-reboot"])
-        try:
-            with urlopen(base_url.rstrip("/") + "/api/status", timeout=2):
-                pass
-        except HTTPError:
-            command("Wi-Fi API and recording", [sys.executable, "-m", "scripts.test_wifi",
-                                               "--base-url", base_url, "--record", "--file-manager"])
-        except (URLError, OSError, TimeoutError) as error:
-            result("Wi-Fi API and recording", None, "ESP HTTP unreachable: " + str(error))
+        if command("Enable diagnostics before online tests", device + ["--ensure-performance"]):
+            try:
+                command("Device recording and cleanup", device + ["--record", "--language-test", "--auto-test"])
+                command("OLED display", device + ["--display-only"])
+                command("RTC without NTP and software restart", device + ["--rtc-reboot"])
+                try:
+                    with urlopen(base_url.rstrip("/") + "/api/status", timeout=2):
+                        pass
+                except HTTPError:
+                    command("Wi-Fi API and recording", [sys.executable, "-m", "scripts.test_wifi",
+                                                   "--base-url", base_url, "--record", "--file-manager",
+                                                   "--preserve-performance"])
+                except (URLError, OSError, TimeoutError) as error:
+                    result("Wi-Fi API and recording", None, "ESP HTTP unreachable: " + str(error))
+                else:
+                    command("Wi-Fi API and recording", [sys.executable, "-m", "scripts.test_wifi",
+                                                   "--base-url", base_url, "--record", "--file-manager",
+                                                   "--preserve-performance"])
+            finally:
+                command("Verify diagnostics after online tests", device + ["--check-performance"])
         else:
-            command("Wi-Fi API and recording", [sys.executable, "-m", "scripts.test_wifi",
-                                               "--base-url", base_url, "--record", "--file-manager"])
+            result("Device recording and cleanup", None, "diagnostics preflight failed")
+            result("OLED display", None, "diagnostics preflight failed")
+            result("RTC without NTP and software restart", None, "diagnostics preflight failed")
+            result("Wi-Fi API and recording", None, "diagnostics preflight failed")
     else:
         raise ValueError("Unknown test suite: " + suite)
 

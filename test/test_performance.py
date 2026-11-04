@@ -1,11 +1,13 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import json
 
-from scripts.test_support import validate_performance_snapshot
+from scripts.test_support import TestRun, validate_performance_snapshot
 from scripts.preview_web import PreviewDevice
-from scripts.test_wifi import recording_metadata_found, test_performance_switch
+from scripts.test_device import performance_preflight, performance_postcheck
+from scripts.test_wifi import main as wifi_main, recording_metadata_found, test_performance_switch
 
 
 class PerformanceDiagnosticsTests(unittest.TestCase):
@@ -14,11 +16,11 @@ class PerformanceDiagnosticsTests(unittest.TestCase):
             "uptimeMs", "loopMaxGapUs", "loopGapsOver100ms", "taskCount",
             "loopCurrentUs", "loopAverageUs", "loopPeakUs", "loopSamples",
             "displayCurrentUs", "displayAverageUs", "displayPeakUs", "displaySamples",
-            "logBytes", "logSamples", "logSkippedBusy",
+            "logBytes", "logSamples", "logSkippedBusy", "logBuildUs", "logWriteUs",
             "loopStackFreeMinimum", "recorderStackFreeMinimum", "speakerStackFreeMinimum",
             "lastFileWorkerStackFreeMinimum", "adcOverflows", "liveAudioDroppedFrames",
-            "internalFree", "internalMinimumFree", "internalLargestBlock",
-            "psramFree", "psramMinimumFree", "psramLargestBlock",
+            "internalFree", "internalTotal", "internalMinimumFree", "internalLargestBlock",
+            "psramFree", "psramTotal", "psramMinimumFree", "psramLargestBlock",
             "nvsTotalEntries", "nvsUsedEntries", "nvsFreeEntries")}
         snapshot.update(enabled=True, taskCount=5, nvsTotalEntries=10, nvsFreeEntries=4,
                 logEnabled=False, logPath="", logError="")
@@ -47,6 +49,26 @@ class PerformanceDiagnosticsTests(unittest.TestCase):
         self.assertIn('id="performanceTimings"', page)
         self.assertIn('id="performanceLogEnabled"', page)
         self.assertIn('fetch("/api/performance/log?enabled="', script)
+        self.assertIn('id="performanceLogViewer"', page)
+        self.assertIn('id="performanceLogFiles"', page)
+        self.assertIn('id="performanceLive"', page)
+        self.assertIn('fetch("/api/performance/logs"', script)
+        self.assertIn('function usedPercent(free, total)', script)
+        self.assertIn('help.title = note', script)
+        self.assertIn('addMetric("Last SD log write"', script)
+
+    def test_log_api_only_lists_safe_bounded_files(self):
+        root = Path(__file__).resolve().parents[1]
+        server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        logger = (root / "src" / "performance.cpp").read_text(encoding="utf-8")
+        main = (root / "src" / "main.cpp").read_text(encoding="utf-8")
+        self.assertIn('server.on("/api/performance/logs", HTTP_GET', server)
+        self.assertIn('performanceLogValidPath(path)', server)
+        self.assertIn('file.size() > 256 * 1024', server)
+        self.assertIn('constexpr uint8_t kLogMaxFiles = 16', logger)
+        self.assertIn('preferences.getBool("perfLogEnabled", true)', logger)
+        self.assertIn('bootLogCountReady ? bootLogCount : logFileCount()', logger)
+        self.assertLess(main.index('performancePrimeLogCount();'), main.index('void loop()'))
 
     def test_preview_on_off_and_invalid_value(self):
         device = PreviewDevice()
@@ -60,18 +82,66 @@ class PerformanceDiagnosticsTests(unittest.TestCase):
         self.assertFalse(device.api("GET", "/api/settings", {})[1]["performanceEnabled"])
         self.assertTrue(device.api("POST", "/api/performance", {"enabled": "1"})[1]["enabled"])
 
-    def test_preview_sd_log_requires_opt_in_and_does_not_restart(self):
+    def test_preview_sd_logs_default_on_and_allow_safe_browsing(self):
         device = PreviewDevice()
-        self.assertEqual(device.api("GET", "/api/performance/log", {})[0], 409)
+        self.assertTrue(device.performance_log_enabled)
+        code, listing = device.api("GET", "/api/performance/logs", {})
+        self.assertEqual(code, 200)
+        self.assertEqual(len(listing["files"]), 2)
+        older = listing["files"][0]["path"]
+        code, content = device.api("GET", "/api/performance/log", {"path": older})
+        self.assertEqual(code, 200)
+        self.assertGreater(json.loads(content)["metrics"]["loopSamples"], 0)
+        self.assertEqual(device.api("GET", "/api/performance/log", {"path": "/other.txt"})[0], 400)
+        self.assertEqual(device.api("GET", "/api/performance/log", {"path": "/perf-../secret.txt"})[0], 400)
         self.assertEqual(device.api("POST", "/api/performance/log", {"enabled": "invalid"})[0], 400)
-        started = device.api("POST", "/api/performance/log", {"enabled": "1"})[1]
-        self.assertTrue(started["logEnabled"])
-        self.assertTrue(started["logPath"].endswith(".txt"))
-        self.assertEqual(device.api("GET", "/api/performance/log", {})[0], 200)
         self.assertFalse(device.api("POST", "/api/performance/log", {"enabled": "0"})[1]["logEnabled"])
         self.assertEqual(device.api("POST", "/api/performance", {"enabled": "0"})[1], {"enabled": False})
+        code, historical = device.api("GET", "/api/performance/log", {"path": older})
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(historical)["metrics"]["enabled"])
         self.assertEqual(device.api("POST", "/api/performance/log", {"enabled": "1"})[0], 409)
-        self.assertFalse(PreviewDevice().performance_log_enabled)
+        self.assertTrue(PreviewDevice().performance_log_enabled)
+
+    def test_serial_diagnostics_preflight_and_postcheck_require_real_samples(self):
+        snapshot = PreviewDevice().api("GET", "/api/performance", {})[1]
+
+        class Device:
+            def __init__(self):
+                self.commands = []
+
+            def write(self, command):
+                self.commands.append(command)
+
+        device = Device()
+        responses = [["PERFORMANCE_ENABLE enabled"], ["PERFORMANCE " + json.dumps(snapshot)],
+                     ["PERFORMANCE " + json.dumps(snapshot)]]
+        with patch("scripts.test_device.read_until", side_effect=responses):
+            self.assertIn("loop", performance_preflight(device, None))
+            self.assertIn("display", performance_postcheck(device, None))
+        self.assertEqual(device.commands, [b"Y", b"V", b"V"])
+        snapshot["loopSamples"] = 0
+        with patch("scripts.test_device.read_until", return_value=["PERFORMANCE " + json.dumps(snapshot)]):
+            with self.assertRaisesRegex(AssertionError, "No loop or display"):
+                performance_postcheck(device, None)
+
+    def test_firmware_exposes_serial_enable_without_sd_logging(self):
+        source = (Path(__file__).resolve().parents[1] / "src" / "main.cpp").read_text(encoding="utf-8")
+        self.assertIn("if (command == 'Y')", source)
+        self.assertIn("performanceSetEnabled(true)", source)
+        self.assertNotIn("performanceLogSetEnabled(true)", source)
+
+    def test_wifi_suite_preserves_diagnostics_when_requested(self):
+        with TemporaryDirectory() as folder, patch("scripts.test_wifi.TestRun", side_effect=lambda name: TestRun(name, folder)):
+            with patch("scripts.test_wifi.test_api", return_value={"version": "0.1.92"}), \
+                    patch("scripts.test_wifi.test_record_and_delete", return_value="test file deleted"), \
+                    patch("scripts.test_wifi.test_performance_switch", return_value="restored") as toggle:
+                with patch("sys.argv", ["test_wifi", "--record", "--preserve-performance"]):
+                    self.assertEqual(wifi_main(), 0)
+                    toggle.assert_not_called()
+                with patch("sys.argv", ["test_wifi", "--record"]):
+                    self.assertEqual(wifi_main(), 0)
+                    toggle.assert_called_once()
 
     def test_write_test_restores_original_even_after_bad_response(self):
         calls = []

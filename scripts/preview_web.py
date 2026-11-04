@@ -112,7 +112,7 @@ class PreviewDevice:
         self.boost = 1
         self.screen_minutes = 5
         self.performance_enabled = True
-        self.performance_log_enabled = False
+        self.performance_log_enabled = self.sd_ready and not self.recording
         self.performance_log_path = ""
         self.record_cues = {mode: {"start": 1 if mode.startswith("auto") else 2,
                        "stop": 1 if mode.startswith("auto") else 2}
@@ -141,6 +141,13 @@ class PreviewDevice:
                      "savedSsid": "", "hasSavedNetwork": False, "keepApHost": False,
                      "connecting": False, "apAvailable": True, "autoOffMinutes": 5}
         self.automatic = PreviewAutomaticRecording(self, saved_auto)
+        self.performance_logs = {}
+        if self.sd_ready:
+            self.performance_logs["/perf-20261103-120000-v0.1.92-00.txt"] = True
+            if self.performance_log_enabled:
+                self.performance_log_path = "/perf-20261104-080000-v0.1.93-00.txt"
+                self.performance_logs[self.performance_log_path] = True
+        self.saved_performance = self.api("GET", "/api/performance", {})[1]
 
     def tick(self):
         now = time.monotonic()
@@ -347,16 +354,29 @@ class PreviewDevice:
                              "loopSamples": 1200, "displayCurrentUs": 8200,
                              "displayAverageUs": 8500, "displayPeakUs": 16000, "displaySamples": 80,
                              "logEnabled": self.performance_log_enabled, "logPath": self.performance_log_path,
-                             "logError": "", "logBytes": 0, "logSamples": 0, "logSkippedBusy": 0,
+                             "logError": "", "logBytes": 900 if self.performance_log_path else 0,
+                             "logSamples": 1 if self.performance_log_path else 0, "logSkippedBusy": 0,
+                             "logBuildUs": 1200, "logWriteUs": 4000,
                              "loopStackFreeMinimum": 4096, "recorderStackFreeMinimum": 4096,
                              "speakerStackFreeMinimum": 4096, "lastFileWorkerStackFreeMinimum": 0,
                              "adcOverflows": 0, "liveAudioDroppedFrames": 0,
-                             "internalFree": 120000, "internalMinimumFree": 100000,
-                             "internalLargestBlock": 80000, "psramFree": 4000000,
+                             "internalFree": 120000, "internalTotal": 320000, "internalMinimumFree": 100000,
+                             "internalLargestBlock": 80000, "psramFree": 4000000, "psramTotal": 8000000,
                              "psramMinimumFree": 3800000, "psramLargestBlock": 3000000,
                              "nvsTotalEntries": 500, "nvsUsedEntries": 30, "nvsFreeEntries": 440}
+            if path == "/api/performance/logs":
+                if not self.sd_ready or self.recording or self.playing:
+                    return 409, "SD or audio busy"
+                return 200, {"files": [{"path": name, "bytes": 900} for name in self.performance_logs]}
             if path == "/api/performance/log":
-                return (200, '{"timestampUtc":"preview","firmware":"preview"}\n') if self.performance_log_path else (409, "No diagnostics log")
+                if not self.sd_ready or self.recording or self.playing:
+                    return 409, "SD or audio busy"
+                selected = params.get("path", self.performance_log_path)
+                if not isinstance(selected, str) or not re.fullmatch(r"/perf-[A-Za-z0-9.-]+\.txt", selected):
+                    return 400, "Invalid log path"
+                if selected not in self.performance_logs:
+                    return 404, "Log not found"
+                return 200, json.dumps({"timestampUtc": "2026-11-04T08:01:00Z", "firmware": "preview", "metrics": self.saved_performance}) + "\n"
             if path == "/api/record-cues":
                 return 200, {mode: dict(events) for mode, events in self.record_cues.items()}
             if path == "/api/time":
@@ -593,7 +613,8 @@ class PreviewDevice:
                     return 409, "Diagnostics off"
                 self.performance_log_enabled = params["enabled"] == "1"
                 if self.performance_log_enabled and not self.performance_log_path:
-                    self.performance_log_path = "/perf-preview-00.txt"
+                    self.performance_log_path = "/perf-preview-{:02d}.txt".format(len(self.performance_logs))
+                    self.performance_logs[self.performance_log_path] = True
                 return self.api("GET", "/api/performance", {})
             if path == "/api/record-cues":
                 if set(params) != set(self.record_cues) or any(

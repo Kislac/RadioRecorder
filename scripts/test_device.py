@@ -144,6 +144,31 @@ def test_performance_serial(device, report):
     return validate_performance_snapshot(snapshot)
 
 
+def performance_preflight(device, report):
+    device.write(b"Y")
+    lines = read_until(device, lambda line: line.startswith("PERFORMANCE_ENABLE "), report=report)
+    if lines[-1] != "PERFORMANCE_ENABLE enabled":
+        raise AssertionError("Cannot enable diagnostics: " + lines[-1])
+    return performance_postcheck(device, report, require_samples=False)
+
+
+def performance_postcheck(device, report, require_samples=True):
+    device.write(b"V")
+    lines = read_until(device, lambda line: line.startswith("PERFORMANCE "), report=report)
+    snapshot = json.loads(lines[-1].split(" ", 1)[1])
+    validate_performance_snapshot(snapshot)
+    if not snapshot["enabled"]:
+        raise AssertionError("Diagnostics disabled during online tests")
+    if require_samples and (not snapshot["loopSamples"] or not snapshot["displaySamples"]):
+        raise AssertionError("No loop or display timing samples after online tests")
+    if snapshot["logEnabled"] and snapshot["logError"]:
+        raise AssertionError("SD diagnostics log failed: " + snapshot["logError"])
+    return "loop {} samples, average {} us, peak {} us; display {} samples, average {} us, peak {} us; SD log {}, build {} us, write {} us".format(
+        snapshot["loopSamples"], snapshot["loopAverageUs"], snapshot["loopPeakUs"],
+        snapshot["displaySamples"], snapshot["displayAverageUs"], snapshot["displayPeakUs"],
+        "on" if snapshot["logEnabled"] else "off", snapshot["logBuildUs"], snapshot["logWriteUs"])
+
+
 def valid_signal(lines):
     for line in lines:
         match = SIGNAL_PATTERN.search(line)
@@ -669,6 +694,9 @@ def main():
     parser = argparse.ArgumentParser(description="Check SD, ADC, OLED and serial encoder on RadioRecorder")
     parser.add_argument("--port", help="ESP serial port (default: auto-detect)")
     parser.add_argument("--record", action="store_true", help="Write and verify a brief WAV on the SD card")
+    performance_mode = parser.add_mutually_exclusive_group()
+    performance_mode.add_argument("--ensure-performance", action="store_true", help="Enable and verify diagnostics before online tests (NVS write only if disabled)")
+    performance_mode.add_argument("--check-performance", action="store_true", help="Verify enabled diagnostics and timing samples after online tests (read-only)")
     parser.add_argument("--language-test", action="store_true", help="Opt in to hu/en language NVS writes, restoring the original selection")
     parser.add_argument("--auto-test", action="store_true", help="Opt in to restoring automatic settings/priority and brief warm-up arming checks")
     parser.add_argument("--play-radio", metavar="WAV_PATH", help="Opt in to DAC playback of an existing SD WAV, no PTT")
@@ -677,6 +705,9 @@ def main():
     parser.add_argument("--rtc", action="store_true", help="Check RTC against elapsed time, AP-only without NTP")
     parser.add_argument("--rtc-reboot", action="store_true", help="Also reboot ESP and verify RTC recovery (opt-in)")
     args = parser.parse_args()
+    if (args.ensure_performance or args.check_performance) and (args.record or args.language_test or args.auto_test or
+            args.play_radio or args.list_wav or args.display_only or args.rtc or args.rtc_reboot):
+        parser.error("--ensure-performance and --check-performance must run separately from device tests")
     if args.language_test and (args.play_radio or args.list_wav or args.rtc or args.rtc_reboot or args.display_only):
         parser.error("--language-test must run separately from playback, RTC, and display-only checks")
     if args.auto_test and (args.play_radio or args.list_wav or args.rtc or args.rtc_reboot or args.display_only):
@@ -694,7 +725,11 @@ def main():
         if connected:
             report.detail("Connected to " + device.port)
             with device:
-                if args.play_radio or args.list_wav:
+                if args.ensure_performance or args.check_performance:
+                    report.case("Enable diagnostics before tests" if args.ensure_performance else "Verify diagnostics after tests",
+                                lambda: performance_preflight(device, report) if args.ensure_performance else
+                                performance_postcheck(device, report))
+                elif args.play_radio or args.list_wav:
                     ready, firmware_version = report.case("SD and DAC status", lambda: status(device, report, radio_only=True))
                     if ready:
                         if args.list_wav:

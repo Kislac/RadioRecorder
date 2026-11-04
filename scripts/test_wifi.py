@@ -288,6 +288,7 @@ def main():
     parser.add_argument("--base-url", default="http://192.168.4.1")
     parser.add_argument("--connect", action="store_true", help="Switch Windows Wi-Fi to the open RadioRecorder AP")
     parser.add_argument("--record", action="store_true", help="Write a short real WAV to the SD card")
+    parser.add_argument("--preserve-performance", action="store_true", help="Keep diagnostics collecting throughout a parent online suite")
     parser.add_argument("--file-manager", action="store_true", help="Opt in to run-specific SD upload/copy/move/rename/ZIP/delete tests with exact cleanup")
     args = parser.parse_args()
     base_url = args.base_url.rstrip("/")
@@ -305,7 +306,7 @@ def main():
                 report.case("File manager read/write operations and exact cleanup", lambda: test_file_operations(base_url, report))
             else:
                 report.skip("File manager read/write operations", "requires reachable ready API and firmware 0.1.76+")
-        if args.record:
+        if args.record and not args.preserve_performance:
             if passed and firmware_at_least(str(status.get("version", "")), (0, 1, 90)):
                 report.case("Performance setting NVS write and restore", lambda: test_performance_switch(base_url, report))
             else:
