@@ -547,7 +547,7 @@ assert.equal(element.textContent, 'TIME UNSET');
                                 capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_dac_tone_uses_independent_output_and_timed_web_control(self):
+    def test_dac_tone_uses_independent_output_and_selectable_duration(self):
         root = WEB_ROOT.parent
         playback = (root / "src" / "playback.cpp").read_text(encoding="utf-8")
         server = (root / "src" / "web_server.cpp").read_text(encoding="utf-8")
@@ -563,7 +563,20 @@ assert.equal(element.textContent, 'TIME UNSET');
         self.assertIn('i2s_channel_write(outputHandle,', tone)
         self.assertNotIn('i2s_channel_write(speakerHandle,', tone)
         self.assertNotIn('recorderStartRadioOutput()', tone)
-        self.assertIn('kToneDurationSeconds = 10', playback)
+        self.assertNotIn('radioVolume.load()', tone)
+        self.assertNotIn('radioBoost.load()', tone)
+        self.assertIn('settings.durationSeconds', tone)
+        self.assertIn('duration != "10" && duration != "30" && duration != "60" && duration != "0"', server)
+        page = render_page("dac_test")
+        for duration in ('10', '30', '60', '0'):
+            self.assertIn(f'value="{duration}"', page)
+        script = (WEB_ROOT / "dac_test.js").read_text(encoding="utf-8")
+        style = (WEB_ROOT / "dac_test.css").read_text(encoding="utf-8")
+        self.assertIn("data.set('duration', duration)", script)
+        self.assertIn('/api/play/radio-volume?value=', script)
+        self.assertIn('/api/play/radio-boost?value=', script)
+        self.assertIn('Tone running until stopped', script)
+        self.assertIn('#toneProgress[hidden] { display: none; }', style)
         self.assertIn('playbackStartTone(', playback)
         self.assertIn('playbackStopRequested.load()', playback)
         self.assertIn('server.on("/api/dac-tone", HTTP_POST', server)
@@ -998,8 +1011,9 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/adc/raw?gpio=1')[0], 409)
 
     def test_dac_tone_is_timed_stoppable_and_rejects_bad_or_busy_requests(self):
-        settings = {"frequency": "1000", "rate": "44100", "bits": "16", "format": "philips", "level": "50"}
+        settings = {"frequency": "1000", "rate": "44100", "bits": "16", "format": "philips", "level": "50", "duration": "10"}
         self.assertEqual(self.request("/api/dac-tone", "POST", {**settings, "rate": "96000"})[0], 400)
+        self.assertEqual(self.request("/api/dac-tone", "POST", {**settings, "duration": "11"})[0], 400)
         self.assertEqual(self.request("/api/dac-tone", "POST", settings)[0], 202)
         self.assertEqual(self.request("/api/dac-tone", "POST", settings)[0], 409)
         status, data, _ = self.request("/api/status")
@@ -1014,6 +1028,17 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(json.loads(self.request("/api/status")[1])["playback"], "idle")
         self.server.device.recording = True
         self.assertEqual(self.request("/api/dac-tone", "POST", settings)[0], 409)
+        self.server.device.recording = False
+        for duration in (30, 60, 0):
+            self.assertEqual(self.request("/api/dac-tone", "POST", {**settings, "duration": str(duration)})[0], 202)
+            playback = json.loads(self.request("/api/status")[1])
+            self.assertEqual(playback["playbackBytesTotal"], 44100 * duration * 4)
+            if duration == 0:
+                self.assertEqual(self.server.device.play_until, 0)
+                self.server.device.tone_started_at -= 2
+                self.assertGreater(json.loads(self.request("/api/status")[1])["playbackBytesPlayed"], 0)
+                self.assertEqual(json.loads(self.request("/api/status")[1])["playback"], "playing")
+            self.assertEqual(self.request("/api/play/stop", "POST")[0], 200)
 
     def test_removed_diagnostics_are_not_available_in_preview(self):
         self.assertEqual(self.request("/api/dac-demo", "POST")[0], 404)

@@ -16,7 +16,6 @@ static constexpr gpio_num_t kSpeakerDataGpio = GPIO_NUM_11;
 static constexpr gpio_num_t kDacBclkGpio = GPIO_NUM_12;
 static constexpr gpio_num_t kDacLrcGpio = GPIO_NUM_13;
 static constexpr gpio_num_t kDacDataGpio = GPIO_NUM_15;
-static constexpr uint32_t kToneDurationSeconds = 10;
 static i2s_chan_handle_t speakerHandle = nullptr;
 static DacToneSettings toneSettings = {};
 static std::atomic<bool> toneRequested{false};
@@ -139,15 +138,18 @@ bool playbackStartTone(const DacToneSettings &settings) {
   if (!speakerReady || !playbackTask || playbackGetState() != PlaybackState::idle ||
       (settings.sampleRate != 22050 && settings.sampleRate != 44100 && settings.sampleRate != 48000) ||
       (settings.bits != 16 && settings.bits != 32) || settings.frequency < 100 ||
-      settings.frequency > 3000 || settings.level < 10 || settings.level > 90) return false;
+      settings.frequency > 3000 || settings.level < 10 || settings.level > 90 ||
+      (settings.durationSeconds != 0 && settings.durationSeconds != 10 &&
+       settings.durationSeconds != 30 && settings.durationSeconds != 60)) return false;
   toneSettings = settings;
   playbackTarget = PlaybackTarget::radio;
-  snprintf(playbackPath, sizeof(playbackPath), "DAC tone %u Hz / %lu Hz / %u bit / %s / %u%%",
+  snprintf(playbackPath, sizeof(playbackPath), "DAC tone %u Hz / %lu Hz / %u bit / %s / %u%% / %s",
            settings.frequency, static_cast<unsigned long>(settings.sampleRate), settings.bits,
-           settings.leftJustified ? "MSB" : "Philips", settings.level);
+           settings.leftJustified ? "MSB" : "Philips", settings.level,
+           settings.durationSeconds ? "timed" : "until stopped");
   playbackError[0] = '\0';
   playbackBytesPlayed.store(0);
-  playbackBytesTotal.store(settings.sampleRate * kToneDurationSeconds * 2 * (settings.bits / 8));
+  playbackBytesTotal.store(settings.sampleRate * settings.durationSeconds * 2 * (settings.bits / 8));
   playbackStopRequested.store(false);
   toneRequested.store(true);
   playbackState.store(PlaybackState::starting);
@@ -324,12 +326,12 @@ static void playDacTone() {
     constexpr size_t kFrames = 128;
     int16_t output16[kFrames * 2];
     int32_t output32[kFrames * 2];
-    uint32_t framesLeft = settings.sampleRate * kToneDurationSeconds;
+    uint32_t framesLeft = settings.sampleRate * settings.durationSeconds;
     float phase = 0;
     float phaseStep = 2.0f * PI * settings.frequency / settings.sampleRate;
-    while (framesLeft && !playbackStopRequested.load()) {
+    while ((settings.durationSeconds == 0 || framesLeft) && !playbackStopRequested.load()) {
       watchdogResetCurrentTask();
-      size_t frames = min(static_cast<size_t>(framesLeft), kFrames);
+      size_t frames = settings.durationSeconds ? min(static_cast<size_t>(framesLeft), kFrames) : kFrames;
       for (size_t index = 0; index < frames; ++index) {
         int16_t sample = static_cast<int16_t>(sinf(phase) * 32767.0f * settings.level / 100.0f);
         phase += phaseStep;
@@ -346,8 +348,9 @@ static void playDacTone() {
                  esp_err_to_name(result), written, bytes);
         break;
       }
-      playbackBytesPlayed.fetch_add(bytes);
-      framesLeft -= frames;
+      uint32_t played = playbackBytesPlayed.load();
+      playbackBytesPlayed.store(played > UINT32_MAX - bytes ? UINT32_MAX : played + bytes);
+      if (settings.durationSeconds) framesLeft -= frames;
     }
   } else {
     snprintf(playbackError, sizeof(playbackError), "DAC tone start: %s", esp_err_to_name(result));

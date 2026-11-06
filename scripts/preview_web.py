@@ -158,7 +158,7 @@ class PreviewDevice:
                 self.saved_epoch, self.saved_day = int(instant), day
         if self.mic_signal_enabled and now - self.mic_signal_polled_at > 4:
             self.mic_signal_enabled = False
-        if self.playing and not self.play_paused_at and now >= self.play_until:
+        if self.playing and not self.play_paused_at and self.play_until and now >= self.play_until:
             self.playing = ""
         if self.ptt_until and now >= self.ptt_until:
             self.ptt_until = 0
@@ -319,9 +319,12 @@ class PreviewDevice:
                 clock = self.clock_info()
                 tone = self.playing.startswith("DAC tone")
                 pcm_total = self.tone_bytes_total if tone else len(self.files[self.playing]) - 44 if self.playing else 0
-                seconds = 10 if tone else 2
+                seconds = self.tone_duration if tone else 2
                 playback_now = self.play_paused_at or time.monotonic()
-                pcm_played = min(pcm_total, max(0, int((playback_now - (self.play_until - seconds)) * pcm_total / seconds))) if self.playing else 0
+                if tone and not seconds:
+                    pcm_played = int((playback_now - self.tone_started_at) * self.tone_rate * self.tone_channels_bytes)
+                else:
+                    pcm_played = min(pcm_total, max(0, int((playback_now - (self.play_until - seconds)) * pcm_total / seconds))) if self.playing else 0
                 return 200, {"version": "preview", "ready": self.sd_ready, "micReady": self.sd_ready,
                              "automatic": self.automatic.status(), "recordingMode": self.automatic.mode,
                              "recordElapsedMs": self.automatic.elapsed(), "fileBusy": self.file_manager.busy(),
@@ -675,18 +678,22 @@ class PreviewDevice:
                 self.play_until = (self.play_paused_at or time.monotonic()) + (len(self.files[self.playing]) - 44 - offset) / 44100
                 return 200, "Playback seek"
             if path == "/api/dac-tone":
-                frequency, rate, bits, format_name, level = (params.get(key, "") for key in
-                                                             ("frequency", "rate", "bits", "format", "level"))
+                frequency, rate, bits, format_name, level, duration = (params.get(key, "") for key in
+                                                                      ("frequency", "rate", "bits", "format", "level", "duration"))
                 if (frequency not in ("400", "1000", "2000") or rate not in ("22050", "44100", "48000") or
                         bits not in ("16", "32") or format_name not in ("philips", "msb") or
-                        level not in ("20", "50", "90")):
+                        level not in ("20", "50", "90") or duration not in ("10", "30", "60", "0")):
                     return 400, "Invalid DAC tone settings"
                 if self.recording or self.playing or self.mic_signal_enabled:
                     return 409, "Stop recording, playback or live audio first"
                 self.playback_target = "radio"
                 self.playing = f"DAC tone {frequency} Hz / {rate} Hz / {bits} bit / {format_name} / {level}%"
-                self.play_until = time.monotonic() + 10
-                self.tone_bytes_total = int(rate) * 10 * 2 * (int(bits) // 8)
+                self.tone_started_at = time.monotonic()
+                self.tone_duration = int(duration)
+                self.tone_rate = int(rate)
+                self.tone_channels_bytes = 2 * (int(bits) // 8)
+                self.play_until = self.tone_started_at + self.tone_duration if self.tone_duration else 0
+                self.tone_bytes_total = self.tone_rate * self.tone_duration * self.tone_channels_bytes
                 return 202, "DAC tone started"
             if path == "/api/play/stop":
                 self.playing = ""

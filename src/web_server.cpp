@@ -1066,10 +1066,12 @@ void initWeb() {
     String bits = server.arg("bits");
     String format = server.arg("format");
     String level = server.arg("level");
+    String duration = server.arg("duration");
     if ((frequency != "400" && frequency != "1000" && frequency != "2000") ||
         (rate != "22050" && rate != "44100" && rate != "48000") ||
         (bits != "16" && bits != "32") || (format != "philips" && format != "msb") ||
-        (level != "20" && level != "50" && level != "90")) {
+        (level != "20" && level != "50" && level != "90") ||
+        (duration != "10" && duration != "30" && duration != "60" && duration != "0")) {
       server.send(400, "text/plain", "Invalid DAC tone settings");
       return;
     }
@@ -1078,7 +1080,8 @@ void initWeb() {
       return;
     }
     DacToneSettings settings = {static_cast<uint16_t>(frequency.toInt()), static_cast<uint32_t>(rate.toInt()),
-                                static_cast<uint8_t>(bits.toInt()), static_cast<uint8_t>(level.toInt()), format == "msb"};
+                                static_cast<uint8_t>(bits.toInt()), static_cast<uint8_t>(level.toInt()), format == "msb",
+                                static_cast<uint8_t>(duration.toInt())};
     if (!playbackStartTone(settings)) { server.send(409, "text/plain", "DAC tone unavailable"); return; }
     server.send(202, "text/plain", "DAC tone started");
   });

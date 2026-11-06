@@ -30,7 +30,7 @@ Lábbal nem szerelt pinek:
 1. - FLT
 2. - DEMP
 3. - XSMT
-4. - FWT
+4. - FMT
  - A3v3
 G. - AGND
 R. - Rout

@@ -13,6 +13,7 @@ struct DacToneSettings {
   uint8_t bits;
   uint8_t level;
   bool leftJustified;
+  uint8_t durationSeconds;
 };
 
 struct PlaybackStatus {

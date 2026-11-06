@@ -18,10 +18,15 @@
         <div class="setting"><label for="bits">Sample size</label><select name="bits" id="bits"><option value="16" selected>16 bit</option><option value="32">32 bit</option></select></div>
         <div class="setting"><label for="format">I²S format</label><select name="format" id="format"><option value="philips" selected>Philips I²S</option><option value="msb">MSB / left justified</option></select></div>
         <div class="setting"><label for="level">Signal level</label><select name="level" id="level"><option value="20">20%</option><option value="50" selected>50%</option><option value="90">90%</option></select></div>
-        <div class="actions"><button id="startTone" type="submit" disabled>Start 10-second tone</button><button id="stopTone" type="button" disabled>Stop</button></div>
+        <div class="actions"><button class="start-tone" type="submit" name="duration" value="10" disabled>10 s</button><button class="start-tone" type="submit" name="duration" value="30" disabled>30 s</button><button class="start-tone" type="submit" name="duration" value="60" disabled>60 s</button><button class="start-tone" type="submit" name="duration" value="0" disabled>Start</button><button id="stopTone" type="button" disabled>Stop</button></div>
       </form>
       <p id="toneStatus" role="status" aria-live="polite">Loading status...</p>
       <progress id="toneProgress" max="100" value="0" aria-label="Tone progress"></progress>
+      <section class="wav-settings" aria-label="Radio DAC WAV playback settings">
+        <h2>Radio DAC WAV playback</h2>
+        <div class="setting"><label for="radioVolume">Volume <output id="radioVolumeValue" for="radioVolume">5%</output></label><input id="radioVolume" type="range" min="0" max="100" step="1" value="5" /></div>
+        <div class="setting"><label for="radioBoost">Gain</label><select id="radioBoost"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option><option value="16">16×</option></select></div>
+      </section>
     </main>
     <nav class="bottom-nav" aria-label="Main views"><a href="/"><span aria-hidden="true">&#9673;</span>Recording</a><a href="/settings#autoSettings"><span aria-hidden="true">&#9678;</span>Auto settings</a><a href="/files"><span aria-hidden="true">&#9636;</span>Files</a><a href="/settings"><span aria-hidden="true">&#9881;</span>System</a><details class="more-menu"><summary aria-current="page"><span aria-hidden="true">&#8943;</span>More</summary><div><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test" aria-current="page">DAC test</a></div></details></nav>
     <footer>ESP32-S3 / Radio Recorder</footer>
