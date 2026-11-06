@@ -764,6 +764,7 @@ assert.equal(element.textContent, 'TIME UNSET');
         main = (root / "src" / "main.cpp").read_text(encoding="utf-8")
         self.assertNotIn('radioHandle', recorder)
         self.assertNotIn('recorderRadioHandle()', playback)
+        self.assertIn('kDacBclkGpio = GPIO_NUM_18;', playback)
         self.assertIn('config.gpio_cfg.bclk = kDacBclkGpio;', playback)
         self.assertIn('config.gpio_cfg.ws = kDacLrcGpio;', playback)
         self.assertIn('config.gpio_cfg.dout = kDacDataGpio;', playback)
@@ -775,7 +776,7 @@ assert.equal(element.textContent, 'TIME UNSET');
         self.assertNotIn('i2s_channel_reconfig_std_gpio', playback)
         self.assertIn('startDacOutput(outputHandle, dacConfig)', playback)
         self.assertIn('stopDacOutput(outputHandle, enabled)', playback)
-        self.assertIn('Serial.printf("Radio DAC GPIO12/13/15: %s\\n"', main)
+        self.assertIn('Serial.printf("Radio DAC GPIO18/13/15: %s\\n"', main)
         self.assertIn('Serial.printf("I2S microphone GPIO6/7/8: %s\\n"', main)
         self.assertIn('Serial.printf("Playback error: %s\\n"', main)
 

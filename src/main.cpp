@@ -28,7 +28,7 @@ void printSetupStatus() {
   Serial.printf("OLED screen off: %u min\n", appScreenOffMinutes());
   PlaybackStatus playback = playbackStatus();
   Serial.printf("Speaker: %s\n", playback.ready ? "ready" : "unavailable");
-  Serial.printf("Radio DAC GPIO12/13/15: %s\n", playback.radioReady ? "ready" : "unavailable");
+  Serial.printf("Radio DAC GPIO18/13/15: %s\n", playback.radioReady ? "ready" : "unavailable");
   Serial.printf("Playback: %s\n", playback.state == PlaybackState::idle ? "idle" :
                 playback.state == PlaybackState::starting ? "starting" : "playing");
   Serial.printf("Playback target: %s\n", playback.target == PlaybackTarget::radio ? "radio" : "speaker");
