@@ -44,6 +44,40 @@ class FakeDevice:
 
 
 class FrameTests(unittest.TestCase):
+    def test_automatic_playback_is_marked_only_for_radio_sessions(self):
+        root = Path(__file__).resolve().parents[1]
+        header = (root / "include/playback.h").read_text(encoding="utf-8")
+        source = (root / "src/playback.cpp").read_text(encoding="utf-8")
+        self.assertIn("bool automatic;", header)
+        self.assertIn("automatic && target != PlaybackTarget::radio", source)
+        self.assertIn("automaticPlayback.store(automatic);", source)
+        self.assertIn("automaticPlayback.store(false);", source)
+        self.assertLess(source.index("automaticPlayback.store(false);"),
+                source.index("playbackState.store(PlaybackState::idle);", source.index("automaticPlayback.store(false);")))
+
+    def test_automatic_replay_press_stops_even_when_oled_is_asleep(self):
+        source = (Path(__file__).resolve().parents[1] / "src/display.cpp").read_text(encoding="utf-8")
+        poll = source.split("void pollDisplay(int32_t steps, ButtonEvent button) {", 1)[1]
+        self.assertLess(poll.index("playbackStop();"), poll.index("if (!ready) return;"))
+        self.assertLess(poll.index("playbackStop();"), poll.index("if (screenSleeping) {"))
+        self.assertIn("if (!activity && !automaticPlayback.automatic) return;", poll)
+        self.assertIn("if (automaticPlayback.automatic) {", poll)
+        self.assertIn("Press = stop", source)
+        self.assertIn("automaticPlayback.bytesTotal - automaticPlayback.bytesPlayed", source)
+
+    def test_automatic_replay_restores_only_previous_oled_sleep(self):
+        source = (Path(__file__).resolve().parents[1] / "src/display.cpp").read_text(encoding="utf-8")
+        poll = source.split("void pollDisplay(int32_t steps, ButtonEvent button) {", 1)[1]
+        start = poll.split("if (ready && automaticPlayback.automatic && !automaticPlaybackWasActive) {", 1)[1].split("} else if", 1)[0]
+        end = poll.split("} else if (ready && !automaticPlayback.automatic && automaticPlaybackWasActive) {", 1)[1].split("if (automaticPlayback.automatic && button", 1)[0]
+        self.assertIn("restoreSleepAfterAutomaticPlayback = screenSleeping;", start)
+        self.assertIn("if (screenSleeping) displayWake();", start)
+        self.assertIn("if (restoreSleepAfterAutomaticPlayback) {", end)
+        self.assertIn("displaySleep();", end)
+        self.assertLess(poll.index("if (screenSleeping) displayWake();"), poll.index("playbackStop();"))
+        wake = source.split("void displayWake() {", 1)[1].split("void printDisplayState()", 1)[0]
+        self.assertIn("if (isSignalTile(tile) && !playbackStatus().automatic) startDisplaySignal();", wake)
+
     def test_vscode_tasks_keep_utilities_and_only_two_test_suites(self):
         tasks_file = Path(__file__).resolve().parents[1] / ".vscode" / "tasks.json"
         config = json.loads(tasks_file.read_text(encoding="utf-8"))

@@ -28,6 +28,7 @@ struct PlaybackStatus {
   uint32_t bytesPlayed;
   uint32_t bytesTotal;
   bool paused;
+  bool automatic;
   String path;
   String error;
 };
@@ -35,7 +36,7 @@ struct PlaybackStatus {
 void initPlayback(bool sdReady);
 PlaybackState playbackGetState();
 PlaybackStatus playbackStatus();
-void playbackStart(const String &path, PlaybackTarget target = PlaybackTarget::speaker);
+void playbackStart(const String &path, PlaybackTarget target = PlaybackTarget::speaker, bool automatic = false);
 bool playbackStartTone(const DacToneSettings &settings);
 void playbackPlayCue(PlaybackCue cue);
 void playbackRecordCue(bool automatic, bool microphone, bool started);

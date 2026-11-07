@@ -70,7 +70,8 @@ class AutoRecordRulesTests(unittest.TestCase):
         self.assertIn('drawText(128 - oled.getStrWidth(rms), 31, rms)', automatic)
         self.assertIn('"RMS:--"', automatic)
         self.assertIn('recorderMicSignalStatus().active : recorderSignalStatus().active', automatic)
-        self.assertIn('automaticSetPreviewSource(!screenSleeping && !inSettings && (tile == 2 || tile == 3)', display)
+        self.assertIn('automaticSetPreviewSource(!screenSleeping && !showingAutomaticPlayback && !inSettings &&', display)
+        self.assertIn('(tile == 2 || tile == 3) ? static_cast<int8_t>(tile - 2) : -1)', display)
         sleep = display.split("void displaySleep()", 1)[1].split("void displayWake()", 1)[0]
         self.assertIn("automaticSetPreviewSource(-1)", sleep)
 

@@ -6,7 +6,7 @@ A jelenlegi és tervezett modulok GPIO-kiosztása az [eszközjegyzékben](docs/d
 
 A rádióhang vételi és adási trafós leválasztásának [tervezési rajzai és feltételes anyaglistája](docs/functional-hardware.md#leválasztott-rádiós-hangutak---tervezési-rajzok-nem-kész-bekötés) külön szerepelnek. A rádióoldali bekötés a mért hangszóró-DC, MIC-előfeszítés és PTT-csatlakozó ellenőrzéséig nem jóváhagyott.
 
-Az időközönkénti rádiós visszajátszás még nem működik: az [automatikus visszajátszás terve](docs/automatic-replay.md) rögzíti az ütemezés, vételi prioritás, PTT-biztonság és TOT-folytatás javasolt működését és a nyitott döntéseket.
+Az időközönkénti rádiós visszajátszás még nem működik: az [automatikus visszajátszás terve](docs/automatic-replay.md) rögzíti az ütemezés, vételi prioritás, PTT-biztonság és TOT-folytatás javasolt működését és a nyitott döntéseket. Az automatikus rádiós munkamenetekhez már van külön lejátszásjelölés és OLED állapotnézet: fájlnév, PCM-alapú haladás, hátralévő idő és parancsolt PTT-állapot. Induláskor a korábban alvó kijelző felébred, a munkamenet alatt ébren marad, majd a lejátszás végén visszaalszik; az előtte ébren lévő kijelző ébren marad. Futás közben az encoder rövid nyomása azonnali leállítást kér; az automatikus indítás és az újraindítás letiltása még nincs bekötve.
 
 ## Megvalósított funkciók
 

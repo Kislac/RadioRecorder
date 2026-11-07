@@ -1,6 +1,6 @@
 # Automatikus rádiós visszajátszás - tervezet
 
-**Állapot:** az automatikus ütemezés tervezés, nem megvalósított funkció. A kézi rádiós WAV és a DAC-próbajel már PTT-t kapcsol; a nyílt AP-n nincs adásindítási hitelesítés.
+**Állapot:** az automatikus ütemezés tervezés, nem megvalósított funkció. A kézi rádiós WAV és a DAC-próbajel már PTT-t kapcsol; a nyílt AP-n nincs adásindítási hitelesítés. A lejátszó automatikus rádiós jelölést is támogat, de ütemező még nem hívja. A megjelölt lejátszáshoz OLED állapotnézet (fájl, haladás, PCM-alapú hátralévő idő és parancsolt PTT-állapot) tartozik. Induláskor a kijelző felébred, és csak akkor alszik vissza a munkamenet végén, ha előtte is aludt; közben az encoder rövid nyomása leállítja a futó lejátszást. Ez önmagában nem törli a később megvalósítandó sort vagy globális élesítést, ezért nem teljes vészstop.
 
 ## Cél és határok
 

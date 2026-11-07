@@ -33,6 +33,7 @@ static std::atomic<uint16_t> radioTotSeconds{60};
 static std::atomic<uint32_t> playbackBytesPlayed{0};
 static std::atomic<uint32_t> playbackBytesTotal{0};
 static std::atomic<bool> playbackPaused{false};
+static std::atomic<bool> automaticPlayback{false};
 static std::atomic<uint32_t> playbackSeekOffset{UINT32_MAX};
 static constexpr char kSpeakerSettingsNamespace[] = "radio-recorder";
 static constexpr char kSpeakerVolumeKey[] = "spkVol";
@@ -123,11 +124,13 @@ PlaybackStatus playbackStatus() {
       radioVolume.load(), radioBoost.load(), cuePlaying.load() ? 0 : playbackBytesPlayed.load(),
       cuePlaying.load() ? 0 : playbackBytesTotal.load(),
       playbackPaused.load() && state == PlaybackState::playing,
+      !cuePlaying.load() && state != PlaybackState::idle && automaticPlayback.load(),
       state == PlaybackState::idle ? "" : cuePlaying.load() ? "Firmware cue" : playbackPath, playbackError};
 }
 
-void playbackStart(const String &path, PlaybackTarget target) {
-  if (playbackGetState() != PlaybackState::idle || !playbackTask || !speakerReady) return;
+    void playbackStart(const String &path, PlaybackTarget target, bool automatic) {
+      if (playbackGetState() != PlaybackState::idle || !playbackTask || !speakerReady ||
+      (automatic && target != PlaybackTarget::radio)) return;
   playbackTarget = target;
   path.toCharArray(playbackPath, sizeof(playbackPath));
   playbackError[0] = '\0';
@@ -136,6 +139,7 @@ void playbackStart(const String &path, PlaybackTarget target) {
   playbackPaused.store(false);
   playbackSeekOffset.store(UINT32_MAX);
   playbackStopRequested.store(false);
+  automaticPlayback.store(automatic);
   playbackState.store(PlaybackState::starting);
   xTaskNotifyGive(playbackTask);
 }
@@ -598,6 +602,7 @@ static void speakerLoop(void *) {
     if (file) file.close();
     playbackPaused.store(false);
     playbackSeekOffset.store(UINT32_MAX);
+    automaticPlayback.store(false);
     playbackState.store(PlaybackState::idle);
     watchdogUnsubscribeCurrentTask(playbackWatchdog);
   }

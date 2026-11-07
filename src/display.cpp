@@ -54,6 +54,9 @@ bool inSettings = false;
 bool editing = false;
 bool messagePending = false;
 bool screenSleeping = false;
+bool showingAutomaticPlayback = false;
+bool automaticPlaybackWasActive = false;
+bool restoreSleepAfterAutomaticPlayback = false;
 bool browsingFiles = false;
 bool choosingPlayback = false;
 bool confirmingDelete = false;
@@ -511,17 +514,32 @@ void drawSettings() {
 
 void drawBody(bool fullUpdate = true) {
   uint32_t startedUs = performanceEnabled() ? micros() : 0;
-  automaticSetPreviewSource(!screenSleeping && !inSettings && (tile == 2 || tile == 3) ? static_cast<int8_t>(tile - 2) : -1);
+  PlaybackStatus automaticPlayback = playbackStatus();
+  showingAutomaticPlayback = automaticPlayback.automatic;
+  automaticSetPreviewSource(!screenSleeping && !showingAutomaticPlayback && !inSettings &&
+                            (tile == 2 || tile == 3) ? static_cast<int8_t>(tile - 2) : -1);
   oled.clearBuffer();
   drawStatus();
   oled.setFont(u8g2_font_6x10_tf);
-  String heading = inSettings ? "Settings" : tile == kFileTile && browsingFiles ?
+  String heading = showingAutomaticPlayback ? "Automatic replay" : inSettings ? "Settings" : tile == kFileTile && browsingFiles ?
                    (choosingPlayback ? "Playback" : browsePath == "/" ? "microSD" :
                     browsePath.substring(browsePath.lastIndexOf('/') + 1, browsePath.lastIndexOf('/') + 19)) : kTileNames[tile];
   if (!inSettings && tile == kFileTile && browsingFiles) oled.drawStr(0, 22, heading.c_str());
   else drawText(0, 22, heading.c_str());
   oled.setFont(u8g2_font_5x8_tf);
-  if (inSettings) {
+  if (showingAutomaticPlayback) {
+    String filename = automaticPlayback.path.substring(automaticPlayback.path.lastIndexOf('/') + 1);
+    oled.drawStr(0, 32, filename.substring(0, 25).c_str());
+    char progress[32];
+    uint32_t remaining = automaticPlayback.bytesTotal > automaticPlayback.bytesPlayed ?
+                         (automaticPlayback.bytesTotal - automaticPlayback.bytesPlayed) / (22050UL * 2) : 0;
+    snprintf(progress, sizeof(progress), "%lu%%  left %02lu:%02lu", static_cast<unsigned long>(
+             automaticPlayback.bytesTotal ? static_cast<uint64_t>(automaticPlayback.bytesPlayed) * 100 /
+             automaticPlayback.bytesTotal : 0), static_cast<unsigned long>(remaining / 60),
+             static_cast<unsigned long>(remaining % 60));
+    oled.drawStr(0, 42, progress);
+    drawText(0, 51, playbackPttActive() ? "PTT commanded ON" : "PTT commanded OFF");
+  } else if (inSettings) {
     drawSettings();
   } else if (tile == 0) {
     CaptureState state = recorderState();
@@ -568,12 +586,14 @@ void drawBody(bool fullUpdate = true) {
   } else {
     drawText(0, 38, "Unavailable");
   }
-  bool inMenu = inSettings || (tile == kFileTile && browsingFiles) || (isSignalTile(tile) && graphMode);
+  bool inMenu = !showingAutomaticPlayback && (inSettings || (tile == kFileTile && browsingFiles) || (isSignalTile(tile) && graphMode));
   if (!inMenu) oled.drawHLine(0, 56, 128);
   if (messagePending) {
     if (inMenu) { oled.setDrawColor(0); oled.drawBox(0, 55, 128, 9); oled.setDrawColor(1); }
     drawText(0, 63, message);
     messagePending = false;
+  } else if (showingAutomaticPlayback) {
+    drawText(0, 63, "Press = stop");
   } else if (!inMenu) {
     char footer[12];
     snprintf(footer, sizeof(footer), "< %u/%u >", tile + 1, kTileCount);
@@ -709,7 +729,7 @@ void displayWake() {
   if (screenSleeping) {
     oled.setPowerSave(0);
     screenSleeping = false;
-    if (isSignalTile(tile)) startDisplaySignal();
+    if (isSignalTile(tile) && !playbackStatus().automatic) startDisplaySignal();
   }
   drawBody();
 }
@@ -743,18 +763,42 @@ void printDisplayFrame() {
 }
 
 void pollDisplay(int32_t steps, ButtonEvent button) {
+  PlaybackStatus automaticPlayback = playbackStatus();
+  if (ready && automaticPlayback.automatic && !automaticPlaybackWasActive) {
+    restoreSleepAfterAutomaticPlayback = screenSleeping;
+    automaticPlaybackWasActive = true;
+    if (screenSleeping) displayWake();
+  } else if (ready && !automaticPlayback.automatic && automaticPlaybackWasActive) {
+    automaticPlaybackWasActive = false;
+    if (restoreSleepAfterAutomaticPlayback) {
+      restoreSleepAfterAutomaticPlayback = false;
+      displaySleep();
+      return;
+    }
+    restoreSleepAfterAutomaticPlayback = false;
+  }
+  if (automaticPlayback.automatic && button == ButtonEvent::shortPress) {
+    playbackStop();
+    button = ButtonEvent::none;
+  }
   if (!ready) return;
   uint32_t now = millis();
   bool activity = steps != 0 || button != ButtonEvent::none;
   if (activity) lastActivityAt = now;
   if (screenSleeping) {
-    if (!activity) return;
+    if (!activity && !automaticPlayback.automatic) return;
     oled.setPowerSave(0);
     screenSleeping = false;
-    if (isSignalTile(tile)) startDisplaySignal();
+    if (isSignalTile(tile) && !automaticPlayback.automatic) startDisplaySignal();
     drawBody();
     return;
   }
+  if (automaticPlayback.automatic) {
+    if (!showingAutomaticPlayback || now - lastBodyAt >= 500 || activity) drawBody();
+    lastActivityAt = now;
+    return;
+  }
+  if (showingAutomaticPlayback) drawBody();
   bool redraw = false;
   if (button == ButtonEvent::longPress) {
     if (editing) editing = false;
