@@ -13,7 +13,7 @@
 static constexpr gpio_num_t kSpeakerBclkGpio = GPIO_NUM_42;
 static constexpr gpio_num_t kSpeakerLrcGpio = GPIO_NUM_41;
 static constexpr gpio_num_t kSpeakerDataGpio = GPIO_NUM_11;
-static constexpr gpio_num_t kDacBclkGpio = GPIO_NUM_12;
+static constexpr gpio_num_t kDacBclkGpio = GPIO_NUM_18;
 static constexpr gpio_num_t kDacLrcGpio = GPIO_NUM_13;
 static constexpr gpio_num_t kDacDataGpio = GPIO_NUM_15;
 static constexpr uint32_t kToneDurationSeconds = 10;
