@@ -15,6 +15,7 @@
 #include "language.h"
 #include "file_manager.h"
 #include "automatic_record.h"
+#include "automatic_replay.h"
 #include "display.h"
 #include "wifi_manager.h"
 #include "ptt_test.h"
@@ -898,6 +899,11 @@ void initWeb() {
     server.sendHeader("Cache-Control", "no-store");
     server.send_P(200, "text/html; charset=utf-8", kFilesPage);
   });
+  server.on("/automatic-replay", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send_P(200, "text/html; charset=utf-8", kAutomaticReplayPage);
+  });
   server.on("/settings", HTTP_GET, []() {
     wifiManagerNotifyActivity();
     server.sendHeader("Cache-Control", "no-store");
@@ -1181,6 +1187,59 @@ void initWeb() {
   server.on("/api/recordings", HTTP_GET, sendRecordings);
   server.on("/api/files", HTTP_GET, sendFiles);
   server.on("/api/auto-record", HTTP_GET, sendAutomaticRecording);
+  server.on("/api/automatic-replay", HTTP_GET, []() {
+    wifiManagerNotifyActivity();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", automaticReplayRulesJson());
+  });
+  server.on("/api/automatic-replay/rules", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (!server.header("Content-Type").startsWith("application/json") ||
+        (server.header("Origin").length() && server.header("Origin") != "http://" + server.hostHeader())) {
+      server.send(403, "text/plain", "Same-origin JSON required"); return;
+    }
+    String error;
+    if (!automaticReplaySaveRule(server.arg("plain"), error)) {
+      server.send(400, "text/plain", error); return;
+    }
+    server.send(200, "application/json", automaticReplayRulesJson());
+  });
+  server.on("/api/automatic-replay/activate", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (!server.header("Content-Type").startsWith("application/json") ||
+        (server.header("Origin").length() && server.header("Origin") != "http://" + server.hostHeader())) {
+      server.send(403, "text/plain", "Same-origin JSON required"); return;
+    }
+    String id = server.arg("id"), enabled = server.arg("enabled");
+    if (id.isEmpty() || id.length() > 10 || (enabled != "0" && enabled != "1")) {
+      server.send(400, "text/plain", "Invalid replay rule state"); return;
+    }
+    for (char digit : id) if (!isDigit(digit)) {
+      server.send(400, "text/plain", "Invalid replay rule id"); return;
+    }
+    String error;
+    if (!automaticReplaySetRuleActive(static_cast<uint32_t>(strtoul(id.c_str(), nullptr, 10)), enabled == "1", error)) {
+      server.send(409, "text/plain", error); return;
+    }
+    server.send(200, "application/json", automaticReplayRulesJson());
+  });
+  server.on("/api/automatic-replay/stop", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    automaticReplayStop();
+    server.send(200, "application/json", automaticReplayRulesJson());
+  });
+  server.on("/api/automatic-replay/arm", HTTP_POST, []() {
+    wifiManagerNotifyActivity();
+    if (server.arg("confirm") != "MEASURED TOT" ||
+        !server.header("Content-Type").startsWith("application/json") ||
+        (server.header("Origin").length() && server.header("Origin") != "http://" + server.hostHeader())) {
+      server.send(403, "text/plain", "Measured TOT and same-origin confirmation required"); return;
+    }
+    String error;
+    if (!automaticReplayRequestArm(error)) { server.send(409, "text/plain", error); return; }
+    displayWake();
+    server.send(202, "application/json", automaticReplayRulesJson());
+  });
   server.on("/api/auto-record/settings", HTTP_POST, setAutomaticRecordingSettings);
   server.on("/api/auto-record/arm", HTTP_POST, []() {
     String source = server.arg("source"), enabled = server.arg("enabled");

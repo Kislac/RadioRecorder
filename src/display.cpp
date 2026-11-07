@@ -11,6 +11,7 @@
 #include "language.h"
 #include "file_manager.h"
 #include "automatic_record.h"
+#include "automatic_replay.h"
 #include "playback.h"
 #include "recorder.h"
 #include "web_server.h"
@@ -521,7 +522,8 @@ void drawBody(bool fullUpdate = true) {
   oled.clearBuffer();
   drawStatus();
   oled.setFont(u8g2_font_6x10_tf);
-  String heading = showingAutomaticPlayback ? "Automatic replay" : inSettings ? "Settings" : tile == kFileTile && browsingFiles ?
+  bool replayArmPending = automaticReplayArmPending();
+  String heading = showingAutomaticPlayback ? "Automatic replay" : replayArmPending ? "Replay arm request" : inSettings ? "Settings" : tile == kFileTile && browsingFiles ?
                    (choosingPlayback ? "Playback" : browsePath == "/" ? "microSD" :
                     browsePath.substring(browsePath.lastIndexOf('/') + 1, browsePath.lastIndexOf('/') + 19)) : kTileNames[tile];
   if (!inSettings && tile == kFileTile && browsingFiles) oled.drawStr(0, 22, heading.c_str());
@@ -539,6 +541,9 @@ void drawBody(bool fullUpdate = true) {
              static_cast<unsigned long>(remaining % 60));
     oled.drawStr(0, 42, progress);
     drawText(0, 51, playbackPttActive() ? "PTT commanded ON" : "PTT commanded OFF");
+  } else if (replayArmPending) {
+    drawText(0, 35, "Check radio and TOT");
+    drawText(0, 47, "Hold to confirm");
   } else if (inSettings) {
     drawSettings();
   } else if (tile == 0) {
@@ -586,13 +591,13 @@ void drawBody(bool fullUpdate = true) {
   } else {
     drawText(0, 38, "Unavailable");
   }
-  bool inMenu = !showingAutomaticPlayback && (inSettings || (tile == kFileTile && browsingFiles) || (isSignalTile(tile) && graphMode));
+  bool inMenu = !showingAutomaticPlayback && !replayArmPending && (inSettings || (tile == kFileTile && browsingFiles) || (isSignalTile(tile) && graphMode));
   if (!inMenu) oled.drawHLine(0, 56, 128);
   if (messagePending) {
     if (inMenu) { oled.setDrawColor(0); oled.drawBox(0, 55, 128, 9); oled.setDrawColor(1); }
     drawText(0, 63, message);
     messagePending = false;
-  } else if (showingAutomaticPlayback) {
+  } else if (showingAutomaticPlayback || replayArmPending) {
     drawText(0, 63, "Press = stop");
   } else if (!inMenu) {
     char footer[12];
@@ -777,8 +782,12 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
     }
     restoreSleepAfterAutomaticPlayback = false;
   }
-  if (automaticPlayback.automatic && button == ButtonEvent::shortPress) {
-    playbackStop();
+  if ((automaticPlayback.automatic || automaticReplayArmed()) && button == ButtonEvent::shortPress) {
+    automaticReplayStop();
+    button = ButtonEvent::none;
+  }
+  if (automaticReplayArmPending() && button == ButtonEvent::longPress) {
+    automaticReplayConfirmArm();
     button = ButtonEvent::none;
   }
   if (!ready) return;
@@ -786,14 +795,14 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
   bool activity = steps != 0 || button != ButtonEvent::none;
   if (activity) lastActivityAt = now;
   if (screenSleeping) {
-    if (!activity && !automaticPlayback.automatic) return;
+    if (!activity && !automaticPlayback.automatic && !automaticReplayArmPending()) return;
     oled.setPowerSave(0);
     screenSleeping = false;
     if (isSignalTile(tile) && !automaticPlayback.automatic) startDisplaySignal();
     drawBody();
     return;
   }
-  if (automaticPlayback.automatic) {
+  if (automaticPlayback.automatic || automaticReplayArmPending()) {
     if (!showingAutomaticPlayback || now - lastBodyAt >= 500 || activity) drawBody();
     lastActivityAt = now;
     return;

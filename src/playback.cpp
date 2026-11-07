@@ -1,4 +1,5 @@
 #include "playback.h"
+#include "automatic_replay.h"
 
 #include <SD_MMC.h>
 #include <Preferences.h>
@@ -355,6 +356,10 @@ static bool startRadioSegment(uint32_t &keyedAt, uint32_t &releasedAt) {
     if (elapsed < kRadioOffMs && !waitRadio(kRadioOffMs - elapsed, true)) return false;
   }
   if (playbackStopRequested.load() || playbackPaused.load()) return false;
+  if (automaticPlayback.load() && !keyedAt && !automaticReplayReadyToKey()) {
+    snprintf(playbackError, sizeof(playbackError), "Radio channel not verified silent");
+    return false;
+  }
   if (!acquirePlaybackPtt((playbackRadioTotSeconds() - 1) * 1000UL)) {
     snprintf(playbackError, sizeof(playbackError), "Radio PTT unavailable");
     return false;

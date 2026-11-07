@@ -17,6 +17,7 @@ async function fileRequest(path, body) {
 function updateSelection() {
   document.querySelector("#selectionCount").textContent = selectedFiles.size + " selected";
   for (const id of ["copySelected", "moveSelected", "deleteSelected"]) document.querySelector("#" + id).disabled = !selectedFiles.size || operationActive;
+  document.querySelector("#replaySelected").disabled = operationActive || ![...selectedFiles.values()].some(item => !item.directory && /\.wav$/i.test(item.name));
   const checks = [...listEl.querySelectorAll('input[type="checkbox"]')];
   document.querySelector("#selectAll").checked = checks.length > 0 && checks.every(check => check.checked);
   document.querySelector("#selectAll").indeterminate = checks.some(check => check.checked) && !checks.every(check => check.checked);
@@ -65,6 +66,9 @@ function render(item) {
     const radio = actionButton("Play on Radio", () => openPlayback(item, "radio"));
     speaker.dataset.espPlay = ""; radio.dataset.radioPlay = "";
     options.append(speaker, radio);
+    const replayLink = document.createElement("a");
+    replayLink.href = "/automatic-replay?path=" + encodeURIComponent(item.path);
+    replayLink.textContent = "Automatic replay"; options.append(replayLink);
   }
   menu.addEventListener("toggle", () => {
     if (!menu.open) return;
@@ -260,6 +264,11 @@ document.querySelector("#selectAll").addEventListener("change", event => {
   for (const check of listEl.querySelectorAll('input[type="checkbox"]')) { check.checked = checked; check.dispatchEvent(new Event("change")); }
 });
 for (const action of ["copy", "move"]) document.querySelector("#" + action + "Selected").addEventListener("click", () => openDialog(action, [...selectedFiles.values()]));
+document.querySelector("#replaySelected").addEventListener("click", () => {
+  const paths = new URLSearchParams();
+  for (const item of selectedFiles.values()) if (!item.directory && /\.wav$/i.test(item.name)) paths.append("path", item.path);
+  location.href = "/automatic-replay?" + paths;
+});
 document.querySelector("#deleteSelected").addEventListener("click", () => deleteItems([...selectedFiles.values()]));
 document.querySelector("#newFolder").addEventListener("click", () => openDialog("mkdir"));
 document.querySelector("#uploadButton").addEventListener("click", () => document.querySelector("#uploadFiles").click());

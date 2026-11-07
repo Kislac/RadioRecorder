@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = ROOT / "web"
-PAGES = {"index": "kPage", "files": "kFilesPage", "settings": "kSettingsPage", "test": "kTestPage", "radio": "kRadioPage", "dac_test": "kDacTestPage"}
+PAGES = {"index": "kPage", "files": "kFilesPage", "settings": "kSettingsPage", "test": "kTestPage", "radio": "kRadioPage", "dac_test": "kDacTestPage", "automatic_replay": "kAutomaticReplayPage"}
 
 
 def unique_language_object(pairs):
@@ -117,7 +117,7 @@ def generate_header(destination):
     definitions = []
     for name, symbol in PAGES.items():
         document = render_page(name)
-        delimiter = "RR_" + name.upper()
+        delimiter = ("RR_" + name.upper())[:16]
         if ')' + delimiter + '"' in document:
             raise ValueError("C++ raw string delimiter occurs in " + name)
         definitions.append('const char ' + symbol + '[] PROGMEM = R"' + delimiter + '(' +

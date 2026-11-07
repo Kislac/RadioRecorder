@@ -1,6 +1,13 @@
-# Automatikus rádiós visszajátszás - tervezet
+# Automatikus rádiós visszajátszás
 
-**Állapot:** az automatikus ütemezés tervezés, nem megvalósított funkció. A kézi rádiós WAV és a DAC-próbajel már PTT-t kapcsol; a nyílt AP-n nincs adásindítási hitelesítés. A lejátszó automatikus rádiós jelölést is támogat, de ütemező még nem hívja. A megjelölt lejátszáshoz OLED állapotnézet (fájl, haladás, PCM-alapú hátralévő idő és parancsolt PTT-állapot) tartozik. Induláskor a kijelző felébred, és csak akkor alszik vissza a munkamenet végén, ha előtte is aludt; közben az encoder rövid nyomása leállítja a futó lejátszást. Ez önmagában nem törli a később megvalósítandó sort vagy globális élesítést, ezért nem teljes vészstop.
+**Állapot:** a fájlonkénti első verzió megvalósult; az alábbi részletes tervezet további célokat is tartalmaz, nem mindegyik elérhető. A kézi rádiós WAV és a DAC-próbajel PTT-t kapcsol, a nyílt AP-n nincs adásindítási hitelesítés. Az OLED automatikus lejátszás közben felébred, jelzi a haladást és a parancsolt PTT-t; a helyi stop az automatikus sort és az élesítést is törli.
+
+## Megvalósult első verzió és korlátok
+
+- A `/automatic-replay` oldalon legfeljebb 16 egyedi WAV-szabály tárolható az SD `replay-rules.json` fájljában; ideiglenes fájl és mentés segít a sérült főpéldány helyreállításában. A mentés inaktív szabályt hoz létre, külön kapcsoló aktiválja. A fájlkezelőből kijelölt WAV-ok átadhatók az oldalnak, de az átadás nem indít adást. A dátum a böngésző helyi időzónájából UTC-re alakítva mentődik; DST-ambiguitás nincs külön kezelve.
+- Egyszeri UTC időpont vagy horgony + rendszeres óra/perc intervallum, determinisztikus perceltolás és napi aktív/csendes ablak használható. Az eltolás kétszerese kisebb kell legyen az intervallumnál a rendezett eseményekhez. A RAM-sor legfeljebb 32 alkalmat tart; telítődéskor az automata hibával leáll. Rebootkor a sor és a globális élesítés elveszik, múltbeli egyszeri alkalom nem pótlódik. Az egyszeri szabály sikeres lejátszás után inaktív és befejezett lesz.
+- Az AP-ról kérhető élesítés csak 30 másodperces, helyi encoderes megerősítés után érvényes; bootkor mindig kikapcsolt. Első PTT előtt 10 másodperc küszöb alatti, friss és egymást követő rádió-ADC minta szükséges; hiányzó/frissítetlen mérés, foglalt felvevő, hiányzó óra vagy érvénytelen WAV esetén nincs első PTT. Új sorbeli fájlnál új csendablak kell; az ugyanazon fájl TOT-folytatása kivétel. Stop a futó automata lejátszást megszakítja és a sort törli, másik kézi PTT-tesztet nem állít le.
+- Mappaszabályok, négyféle relatív késleltetés-bevitel, állítható külön csendidő, véletlen sorsolás, részletes sor-/várakozási okok és teljes AP-hozzáférésvédelem még hiányoznak. A relé valódi nyitását, rádió-TOT-ot, DAC hangot és squelch viselkedést szoftveresen nem lehet igazolni. A következő szakaszok ezekre vonatkozó részei tervek, nem jelenlegi kezelési utasítások.
 
 ## Cél és határok
 

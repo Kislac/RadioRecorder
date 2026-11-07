@@ -110,6 +110,9 @@ class PreviewDevice:
         self.radio_volume = 5
         self.radio_boost = 1
         self.radio_tot = 60
+        self.replay_rules = []
+        self.replay_next_id = 1
+        self.replay_pending = False
         self.boost = 1
         self.screen_minutes = 5
         self.performance_enabled = True
@@ -230,6 +233,42 @@ class PreviewDevice:
 
     def api(self, method, path, params):
         self.tick()
+        if path.startswith("/api/automatic-replay"):
+            if method == "GET" and path == "/api/automatic-replay":
+                return 200, {"armed": False, "armPending": self.replay_pending, "storageValid": self.sd_ready,
+                             "queueLength": 0, "error": "", "rules": [dict(rule) for rule in self.replay_rules]}
+            if method == "POST" and path == "/api/automatic-replay/stop":
+                self.replay_pending = False
+                return self.api("GET", "/api/automatic-replay", {})
+            if method == "POST" and path == "/api/automatic-replay/arm":
+                if params.get("confirm") != "MEASURED TOT":
+                    return 403, "Measured TOT required"
+                if not any(rule["active"] for rule in self.replay_rules):
+                    return 409, "No active rule"
+                self.replay_pending = True
+                return 202, self.api("GET", "/api/automatic-replay", {})[1]
+            if method == "POST" and path == "/api/automatic-replay/rules":
+                if not self.sd_ready or self.replay_pending or len(self.replay_rules) >= 16:
+                    return 409, "SD or replay busy"
+                required = ("path", "anchorUtc", "intervalSeconds", "jitterMinutes", "window", "startMinute", "endMinute")
+                if not all(key in params for key in required) or params["path"] not in self.files or not params["path"].lower().endswith(".wav"):
+                    return 400, "Invalid WAV path or schedule"
+                if not isinstance(params["anchorUtc"], int) or params["anchorUtc"] < 1577836800 or not 0 <= params["intervalSeconds"] <= 604800 or params["jitterMinutes"] * 120 >= params["intervalSeconds"] > 0:
+                    return 400, "Invalid WAV path or schedule"
+                rule = {key: params[key] for key in required}
+                rule.update(id=self.replay_next_id, active=False, completed=False, nextUtc=params["anchorUtc"])
+                self.replay_next_id += 1
+                self.replay_rules.append(rule)
+                return self.api("GET", "/api/automatic-replay", {})
+            if method == "POST" and path == "/api/automatic-replay/activate":
+                rule = next((item for item in self.replay_rules if str(item["id"]) == str(params.get("id"))), None)
+                if not rule or str(params.get("enabled")) not in ("0", "1"):
+                    return 400, "Invalid rule id or state"
+                if str(params["enabled"]) == "1" and rule["path"] not in self.files:
+                    return 409, "WAV unavailable"
+                rule["active"] = str(params["enabled"]) == "1"
+                return self.api("GET", "/api/automatic-replay", {})
+            return 404, "Not found"
         self.automatic.tick(time.monotonic())
         automatic = self.automatic.api(method, path, params)
         if automatic is not None:
@@ -819,7 +858,8 @@ class PreviewHandler(BaseHTTPRequestHandler):
                     return
             if method == "GET":
                 routes = {"/": "index.html", "/files": "files.html", "/settings": "settings.html",
-                          "/test": "test.html", "/radio": "radio.html", "/dac-test": "dac_test.html"}
+                          "/test": "test.html", "/radio": "radio.html", "/dac-test": "dac_test.html",
+                          "/automatic-replay": "automatic_replay.html"}
                 name = routes.get(url.path, url.path.lstrip("/"))
                 allowed = {page + extension for page in ("index", "files", "settings", "radio", "dac_test")
                            for extension in (".html", ".css", ".js")}

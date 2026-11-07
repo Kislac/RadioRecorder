@@ -57,11 +57,13 @@ class FrameTests(unittest.TestCase):
 
     def test_automatic_replay_press_stops_even_when_oled_is_asleep(self):
         source = (Path(__file__).resolve().parents[1] / "src/display.cpp").read_text(encoding="utf-8")
+        controller = (Path(__file__).resolve().parents[1] / "src/automatic_replay.cpp").read_text(encoding="utf-8")
         poll = source.split("void pollDisplay(int32_t steps, ButtonEvent button) {", 1)[1]
-        self.assertLess(poll.index("playbackStop();"), poll.index("if (!ready) return;"))
-        self.assertLess(poll.index("playbackStop();"), poll.index("if (screenSleeping) {"))
-        self.assertIn("if (!activity && !automaticPlayback.automatic) return;", poll)
-        self.assertIn("if (automaticPlayback.automatic) {", poll)
+        self.assertLess(poll.index("automaticReplayStop();"), poll.index("if (!ready) return;"))
+        self.assertLess(poll.index("automaticReplayStop();"), poll.index("if (screenSleeping) {"))
+        self.assertLess(controller.index("replayArmed.store(false);"), controller.index("playbackStop();"))
+        self.assertIn("if (!activity && !automaticPlayback.automatic && !automaticReplayArmPending()) return;", poll)
+        self.assertIn("if (automaticPlayback.automatic || automaticReplayArmPending()) {", poll)
         self.assertIn("Press = stop", source)
         self.assertIn("automaticPlayback.bytesTotal - automaticPlayback.bytesPlayed", source)
 
@@ -74,7 +76,7 @@ class FrameTests(unittest.TestCase):
         self.assertIn("if (screenSleeping) displayWake();", start)
         self.assertIn("if (restoreSleepAfterAutomaticPlayback) {", end)
         self.assertIn("displaySleep();", end)
-        self.assertLess(poll.index("if (screenSleeping) displayWake();"), poll.index("playbackStop();"))
+        self.assertLess(poll.index("if (screenSleeping) displayWake();"), poll.index("automaticReplayStop();"))
         wake = source.split("void displayWake() {", 1)[1].split("void printDisplayState()", 1)[0]
         self.assertIn("if (isSignalTile(tile) && !playbackStatus().automatic) startDisplaySignal();", wake)
 

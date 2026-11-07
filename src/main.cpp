@@ -4,6 +4,7 @@
 #include "recorder.h"
 #include "app_control.h"
 #include "automatic_record.h"
+#include "automatic_replay.h"
 #include "file_manager.h"
 #include "web_server.h"
 #include "controls.h"
@@ -250,6 +251,7 @@ void setup() {
   initControls();
   bool sdReady = SD_MMC.setPins(39, 38, 40) && SD_MMC.begin("/sdcard", true, false) && SD_MMC.cardType() != CARD_NONE;
   appSetSdReady(sdReady);
+  initAutomaticReplay(sdReady);
   if (sdReady) recorderSetRecordingsPresent(hasRecordings());
   performancePrimeLogCount();
   initRecorderAdc();
@@ -283,6 +285,7 @@ void loop() {
   }
   pollDisplay(steps, button);
   pollAutomaticRecording();
+  pollAutomaticReplay();
   if (frameRequested) printDisplayFrame();
   pollWeb();
   playbackPollSettings();

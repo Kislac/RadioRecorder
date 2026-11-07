@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Automatic replay - Radio Recorder</title>
+    <link rel="stylesheet" href="/settings.css" />
+    <link rel="stylesheet" href="/station.css" />
+    <link rel="stylesheet" href="/automatic_replay.css" />
+  </head>
+  <body>
+    <header>
+      <a class="site-brand" href="/"><img src="/logo.svg" alt="" /><span>RADIORECORDER<small>CLEAR SKY / SIGNAL STATION</small></span></a>
+      <nav aria-label="Pages"><a href="/">Recording</a><a href="/files">File manager</a><a href="/settings#autoSettings">Automatic settings</a><a href="/automatic-replay" aria-current="page">Automatic replay</a><a href="/settings">Settings</a><a href="/radio">Radio Programming</a></nav>
+    </header>
+    <main>
+      <h1>Automatic replay</h1>
+      <div class="replay-toolbar"><strong id="replayState">Loading...</strong><span id="replayQueue"></span><button id="replayStop" type="button">Stop transmission and disarm</button><button id="replayArm" type="button" disabled>Request local arming</button></div>
+      <p id="replayError" role="status" aria-live="polite"></p>
+      <section>
+        <h2>Files</h2>
+        <div class="replay-toolbar"><button id="replayParent" type="button" title="Parent folder" aria-label="Parent folder">↑</button><strong id="replayFolder">microSD</strong><button id="replayRefresh" type="button">Refresh</button></div>
+        <div id="replayFiles" class="replay-files"></div>
+        <p id="replaySelection" role="status"></p>
+      </section>
+      <section>
+        <h2>Rule</h2>
+        <form id="replayForm">
+          <label>File path<input id="replayPath" type="text" maxlength="220" required placeholder="/recording.wav" /></label>
+          <label>Schedule<select id="replayMode"><option value="once">Once</option><option value="regular">Recurring</option></select></label>
+          <label>Start (local time)<input id="replayDate" type="datetime-local" required /></label>
+          <div id="replayInterval" class="replay-grid" hidden><label>Interval hours<input id="replayHours" type="number" min="0" max="168" value="1" /></label><label>Interval minutes<input id="replayMinutes" type="number" min="0" max="59" value="0" /></label><label>Random offset (minutes)<input id="replayJitter" type="number" min="0" value="0" /></label></div>
+          <label>Daily window<select id="replayWindow"><option value="0">Any time</option><option value="1">Active window</option><option value="2">Quiet window</option></select></label>
+          <div id="replayWindowTimes" class="replay-grid" hidden><label>From<input id="replayFrom" type="time" value="08:00" /></label><label>To<input id="replayTo" type="time" value="20:00" /></label></div>
+          <button type="submit">Save inactive rule for selected WAVs</button>
+        </form>
+      </section>
+      <section><h2>Saved rules</h2><div id="replayRules"></div></section>
+    </main>
+    <nav class="bottom-nav" aria-label="Main views"><a href="/"><span aria-hidden="true">&#9673;</span>Recording</a><a href="/settings#autoSettings" class="auto-link"><span aria-hidden="true">&#9678;</span>Auto settings</a><a href="/files"><span aria-hidden="true">&#9636;</span>Files</a><a href="/settings" class="settings-link"><span aria-hidden="true">&#9881;</span>System</a><details class="more-menu"><summary><span aria-hidden="true">&#8943;</span>More</summary><div><a href="/automatic-replay">Automatic replay</a><a href="/settings#diagnostics">Diagnostics</a><a href="/radio">Radio Programming</a><a href="/test">Hardware tests</a><a href="/dac-test">DAC test</a></div></details></nav>
+    <footer>ESP32-S3 / Radio Recorder</footer>
+    <script src="/automatic_replay.js"></script>
+  </body>
+</html>
