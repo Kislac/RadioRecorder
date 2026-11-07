@@ -155,6 +155,7 @@ void sendStatus() {
   json += ",\"playbackBytesPlayed\":" + String(speaker.bytesPlayed);
   json += ",\"playbackBytesTotal\":" + String(speaker.bytesTotal);
   json += ",\"playbackPaused\":" + String(speaker.paused ? "true" : "false");
+  json += ",\"radioPttActive\":" + String(playbackPttActive() ? "true" : "false");
   json += ",\"playback\":\"" + String(playback == PlaybackState::idle ? "idle" : playback == PlaybackState::starting ? "starting" : "playing") + "\"";
   json += ",\"playbackTarget\":\"" + String(speaker.target == PlaybackTarget::radio ? "radio" : "speaker") + "\"";
   json += ",\"playbackPath\":\"" + speaker.path + "\"";
@@ -171,6 +172,7 @@ void sendSettings() {
   server.sendHeader("Cache-Control", "no-store");
   String json = "{\"screenOffMinutes\":" + String(appScreenOffMinutes());
   json += ",\"language\":\"" + String(appLanguage()) + "\"";
+  json += ",\"radioTotSeconds\":" + String(playbackRadioTotSeconds());
   json += ",\"performanceEnabled\":" + String(performanceEnabled() ? "true" : "false");
   json += ",\"wifiAutoOffMinutes\":" + String(wifiManagerAutoOffMinutes());
   json += ",\"wifi\":" + wifiManagerStatusJson() + "}";
@@ -320,6 +322,12 @@ void saveSettings() {
     server.send(400, "text/plain", "wifiAutoOffMinutes must be an integer from 0 to 999");
     return;
   }
+  String totValue = server.arg("radioTotSeconds");
+  uint16_t totSeconds = playbackRadioTotSeconds();
+  if (!totValue.isEmpty() && (!parseMinutes(totValue, totSeconds) || totSeconds < 10 || totSeconds > 600)) {
+    server.send(400, "text/plain", "radioTotSeconds must be an integer from 10 to 600");
+    return;
+  }
   if (!appSetScreenOffMinutes(screenMinutes)) {
     server.send(500, "text/plain", "Could not save screen settings to NVS");
     return;
@@ -328,10 +336,15 @@ void saveSettings() {
     server.send(500, "text/plain", "Could not save Wi-Fi settings to NVS");
     return;
   }
+  if (!totValue.isEmpty() && !playbackSetRadioTotSeconds(totSeconds)) {
+    server.send(500, "text/plain", "Could not save radio TOT to NVS");
+    return;
+  }
   displayWake();
   server.sendHeader("Cache-Control", "no-store");
   String json = "{\"screenOffMinutes\":" + String(appScreenOffMinutes());
-  json += ",\"wifiAutoOffMinutes\":" + String(wifiManagerAutoOffMinutes()) + "}";
+  json += ",\"wifiAutoOffMinutes\":" + String(wifiManagerAutoOffMinutes());
+  json += ",\"radioTotSeconds\":" + String(playbackRadioTotSeconds()) + "}";
   server.send(200, "application/json", json);
 }
 

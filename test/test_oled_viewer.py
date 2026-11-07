@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 
 from scripts.oled_viewer import (FRAME_BYTES, KEY_COMMANDS, SCREENSHOT_DIR, bind_controls, body_pixels,
                                  find_device, parse_frame, pixel, read_frame, save_frame_png)
-from scripts.test_device import (DISPLAY_TILES, SETTINGS_TILE, delete_test_recording, menu_state, rtc_live_check, rtc_snapshot,
+from scripts.test_device import (DISPLAY_TILES, SETTINGS_TILE, SETTING_COUNT, delete_test_recording, menu_state, rtc_live_check, rtc_snapshot,
                                  rtc_test_eligible, read_until, test_display_all, test_signal, valid_signal, validate_display_frames,
                                  verify_rtc_progress)
 from scripts.test_support import TestRun, firmware_at_least
@@ -330,7 +330,7 @@ int main() {
         def write(command):
             if command == b"l":
                 field = "setting" if state["settings"] else "tile"
-                state[field] = (state[field] + 1) % (24 if state["settings"] else 12)
+                state[field] = (state[field] + 1) % (SETTING_COUNT if state["settings"] else 12)
             elif command == b"k":
                 self.assertIn(state["tile"], (4, SETTINGS_TILE))
                 state["settings"] = state["tile"] == SETTINGS_TILE

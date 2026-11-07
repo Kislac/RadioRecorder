@@ -109,6 +109,7 @@ class PreviewDevice:
         self.volume = 25
         self.radio_volume = 5
         self.radio_boost = 1
+        self.radio_tot = 60
         self.boost = 1
         self.screen_minutes = 5
         self.performance_enabled = True
@@ -339,12 +340,14 @@ class PreviewDevice:
                              "radioVolume": self.radio_volume, "radioBoost": self.radio_boost,
                              "playbackBytesPlayed": pcm_played, "playbackBytesTotal": pcm_total,
                              "playbackPaused": bool(self.play_paused_at),
+                             "radioPttActive": bool(self.playing and not self.play_paused_at and self.playback_target == "radio"),
                              "playback": "playing" if self.playing else "idle", "playbackPath": self.playing,
                              "playbackTarget": self.playback_target,
                              "playbackError": "", "hasRecordings": bool(self.files) and self.sd_ready,
                              "error": "" if self.sd_ready else "SD unavailable", "wifi": dict(self.wifi)}
             if path == "/api/settings":
                 return 200, {"screenOffMinutes": self.screen_minutes, "wifiAutoOffMinutes": self.wifi_minutes,
+                             "radioTotSeconds": self.radio_tot,
                              "wifi": dict(self.wifi), "language": self.language,
                              "performanceEnabled": self.performance_enabled}
             if path == "/api/performance":
@@ -599,9 +602,14 @@ class PreviewDevice:
                 screen = self.integer(params, "screenOffMinutes", 0, 999)
                 wifi = self.integer({"wifiAutoOffMinutes": params.get("wifiAutoOffMinutes", str(self.wifi_minutes))},
                                     "wifiAutoOffMinutes", 0, 999)
+                tot = self.integer({"radioTotSeconds": params.get("radioTotSeconds", str(self.radio_tot))},
+                                   "radioTotSeconds", 10, 600)
+                if tot != self.radio_tot and self.playing and self.playback_target == "radio":
+                    return 500, "Radio TOT cannot change during transmission"
                 self.screen_minutes, self.wifi_minutes = screen, wifi
+                self.radio_tot = tot
                 self.wifi["autoOffMinutes"] = wifi
-                return 200, {"screenOffMinutes": screen, "wifiAutoOffMinutes": wifi}
+                return 200, {"screenOffMinutes": screen, "wifiAutoOffMinutes": wifi, "radioTotSeconds": tot}
             if path == "/api/performance":
                 if params.get("enabled") not in ("0", "1"):
                     return 400, "Invalid enabled value"

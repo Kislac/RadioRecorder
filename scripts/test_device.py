@@ -15,7 +15,7 @@ DISPLAY_TILES = ("Manual radio record", "Manual mic record", "Auto radio record"
                  "Auto mic record", "File manager", "Radio signal", "Microphone signal",
                  "Diagnostics", "PTT control", "Wi-Fi", "Time", "Settings")
 SETTINGS_TILE = DISPLAY_TILES.index("Settings")
-SETTING_COUNT = 24
+SETTING_COUNT = 25
 
 
 def verify_rtc_progress(before, after, elapsed, reboot=False):
@@ -699,7 +699,7 @@ def main():
     performance_mode.add_argument("--check-performance", action="store_true", help="Verify enabled diagnostics and timing samples after online tests (read-only)")
     parser.add_argument("--language-test", action="store_true", help="Opt in to hu/en language NVS writes, restoring the original selection")
     parser.add_argument("--auto-test", action="store_true", help="Opt in to restoring automatic settings/priority and brief warm-up arming checks")
-    parser.add_argument("--play-radio", metavar="WAV_PATH", help="Opt in to DAC playback of an existing SD WAV, no PTT")
+    parser.add_argument("--play-radio", metavar="WAV_PATH", help="Opt in to radio transmission of an existing SD WAV with PTT")
     parser.add_argument("--list-wav", action="store_true", help="List supported SD WAV paths over serial (read-only)")
     parser.add_argument("--display-only", action="store_true", help="Test every OLED tile and setting row")
     parser.add_argument("--rtc", action="store_true", help="Check RTC against elapsed time, AP-only without NTP")

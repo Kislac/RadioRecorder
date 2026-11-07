@@ -1,6 +1,7 @@
 const form = document.querySelector("#settingsForm"),
   minutes = document.querySelector("#screenOffMinutes"),
   wifiMinutes = document.querySelector("#wifiAutoOffMinutes"),
+  radioTot = document.querySelector("#radioTotSeconds"),
   save = document.querySelector("#save"),
   wakeDisplay = document.querySelector("#wakeDisplay"),
   result = document.querySelector("#result");
@@ -316,6 +317,7 @@ async function loadSettings() {
     const settings = await response.json();
     minutes.value = settings.screenOffMinutes;
     wifiMinutes.value = settings.wifiAutoOffMinutes;
+    radioTot.value = settings.radioTotSeconds;
     save.disabled = false;
     keepApInput.checked = !!settings.wifi.keepApHost;
     forgetButton.disabled = !settings.wifi.hasSavedNetwork;
@@ -344,6 +346,7 @@ form.addEventListener("submit", async (event) => {
     const params = new URLSearchParams({
       screenOffMinutes: minutes.value,
       wifiAutoOffMinutes: wifiMinutes.value,
+      radioTotSeconds: radioTot.value,
     });
     const response = await fetch("/api/settings?" + params, { method: "POST" });
     if (!response.ok) throw Error(await response.text());
@@ -353,7 +356,7 @@ form.addEventListener("submit", async (event) => {
       settings.screenOffMinutes +
       " min · Wi-Fi " +
       settings.wifiAutoOffMinutes +
-      " min";
+      " min · radio TOT " + settings.radioTotSeconds + " s";
   } catch (error) {
     result.textContent = error.message || "Save failed.";
   } finally {

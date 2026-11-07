@@ -156,11 +156,10 @@ function openPlayback(item, target) {
     browserAudio.play().catch(() => { if (playbackSession === session) speakerStatus.textContent = "Browser playback unavailable."; });
     loadWaveform(item, target, session);
   } else {
-    loadWaveform(item, target, session).then(async () => {
-      if (playbackSession === session) {
-        if (!await playOnEsp(item.path, target)) { playbackPause.disabled = true; speakerStop.disabled = true; }
-      }
+    playOnEsp(item.path, target).then((started) => {
+      if (playbackSession === session && !started) { playbackPause.disabled = true; speakerStop.disabled = true; }
     });
+    loadWaveform(item, target, session);
   }
 }
 dialogVolume.addEventListener("input", () => {

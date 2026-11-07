@@ -10,3 +10,6 @@ bool latchPttTest();
 void stopPttTest();
 void pollPttTest();
 bool pttTestActive();
+bool acquirePlaybackPtt(uint32_t maxKeyMs);
+bool playbackPttActive();
+void releasePlaybackPtt();

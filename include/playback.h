@@ -49,5 +49,7 @@ bool playbackSeek(uint32_t offset);
 void playbackSetVolume(uint8_t volume);
 void playbackSetRadioVolume(uint8_t volume);
 void playbackSetRadioBoost(uint8_t boost);
+uint16_t playbackRadioTotSeconds();
+bool playbackSetRadioTotSeconds(uint16_t seconds);
 void playbackSetBoost(uint8_t boost);
 void playbackPollSettings();

@@ -26,7 +26,7 @@ namespace {
 constexpr int kSdaGpio = 4;
 constexpr int kSclGpio = 5;
 constexpr uint8_t kTileCount = 12;
-constexpr uint8_t kSettingsCount = 24;
+constexpr uint8_t kSettingsCount = 25;
 constexpr uint8_t kBrowseRows = 5;
 constexpr uint8_t kSettingsRows = 5;
 constexpr uint8_t kFileTile = 4;
@@ -81,6 +81,7 @@ struct BrowseRow {
 BrowseRow browseRows[kBrowseRows];
 tm clockEdit = {};
 uint8_t zoneEdit = 0;
+uint16_t totEdit = 60;
 AutoRecordConfig automaticEdit[2];
 std::array<RecordingMode, 4> priorityEdit;
 char message[26] = {};
@@ -498,6 +499,11 @@ void drawSettings() {
         auto order = editing && setting >= 19 && setting <= 22 ? priorityEdit : automaticPriorities();
         drawSettingValue(y, recordingModeLabel(order[index - 19])); break;
       }
+      case 23: {
+        drawText(9, y, "Radio TOT");
+        char value[8]; snprintf(value, sizeof(value), "%us", editing && setting == index ? totEdit : playbackRadioTotSeconds());
+        drawSettingValue(y, value); break;
+      }
       default: drawText(9, y, "Back"); break;
     }
   }
@@ -586,6 +592,8 @@ void onPress() {
         if (!automaticSaveSettings(automaticEdit[0], automaticEdit[1], priorityEdit)) setMessage("NVS save failed");
       } else if (setting == 12) {
         if (!appClockSetTimezone(zoneEdit)) setMessage("Timezone save failed");
+      } else if (setting == 23) {
+        if (!playbackSetRadioTotSeconds(totEdit)) setMessage("NVS save failed");
       } else if (setting >= 7 && setting <= 11) {
         char value[64];
         snprintf(value, sizeof(value), "%04d-%02d-%02dT%02d:%02d", clockEdit.tm_year + 1900,
@@ -595,7 +603,7 @@ void onPress() {
       editing = false;
       return;
     }
-    if (setting == 23) { inSettings = false; return; }
+    if (setting == 24) { inSettings = false; return; }
     if (setting == 14) {
       if (!appSetLanguage(appNextLanguage())) setMessage("NVS save failed");
       return;
@@ -610,6 +618,7 @@ void onPress() {
       if (!appClockLocal(clockEdit)) { clockEdit.tm_year = 126; clockEdit.tm_mday = 1; }
     }
     if (setting == 12) zoneEdit = appClockTimezone();
+    if (setting == 23) totEdit = playbackRadioTotSeconds();
     if (setting >= 15 && setting <= 22) {
       automaticEdit[0] = automaticStatus(false).config; automaticEdit[1] = automaticStatus(true).config;
       priorityEdit = automaticPriorities();
@@ -648,7 +657,8 @@ void onPress() {
       setMessage("No saved Wi-Fi");
     }
   } else if (tile == kPttTile) {
-    if (pttTestActive()) stopPttTest();
+    if (playbackPttActive()) playbackStop();
+    else if (pttTestActive()) stopPttTest();
     else if (!latchPttTest()) setMessage("Cannot activate PTT");
   }
 }
@@ -778,6 +788,8 @@ void pollDisplay(int32_t steps, ButtonEvent button) {
         RecordingMode replacement = static_cast<RecordingMode>((static_cast<int>(priorityEdit[rank]) + steps % 4 + 4) % 4);
         for (uint8_t index = 0; index < 4; ++index) if (priorityEdit[index] == replacement) { priorityEdit[index] = priorityEdit[rank]; break; }
         priorityEdit[rank] = replacement;
+      } else if (editing && setting == 23) {
+        totEdit = constrain(static_cast<int32_t>(totEdit) + steps, 10L, 600L);
       } else if (editing && setting == 2) {
         int32_t volume = playbackStatus().volume + steps * 5;
         playbackSetVolume(constrain(volume, 0L, 100L));

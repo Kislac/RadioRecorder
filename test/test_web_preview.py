@@ -21,6 +21,52 @@ from scripts.web_assets import AssetReferences, PAGES, WEB_ROOT, generate_header
 
 
 class WebAssetTests(unittest.TestCase):
+    def test_playback_ptt_cannot_be_released_by_manual_test(self):
+        source = (WEB_ROOT.parent / "src" / "ptt_test.cpp").read_text(encoding="utf-8")
+        self.assertIn('enum class PttOwner { none, test, playback }', source)
+        self.assertIn('owner == PttOwner::test', source.split('void stopPttTest()', 1)[1].split('void pollPttTest()', 1)[0])
+        self.assertIn('owner != PttOwner::none', source.split('bool startPttTest()', 1)[1])
+        self.assertIn('owner != PttOwner::none', source.split('bool latchPttTest()', 1)[1])
+        self.assertIn('owner == PttOwner::playback', source.split('void releasePlaybackPtt()', 1)[1])
+        self.assertIn('esp_timer_start_once(playbackTimer', source)
+        self.assertIn('timerArgs.name = "ptt-playback"', source)
+
+    def test_dac_tone_keys_only_after_dac_is_ready_and_rekeys_before_tot(self):
+        source = (WEB_ROOT.parent / "src" / "playback.cpp").read_text(encoding="utf-8")
+        tone = source.split('static void playDacTone()', 1)[1].split('static void speakerLoop(', 1)[0]
+        self.assertLess(tone.index('startDacOutput(outputHandle, config)'), tone.index('startRadioSegment(keyedAt, releasedAt)'))
+        self.assertLess(tone.index('startRadioSegment(keyedAt, releasedAt)'), tone.index('i2s_channel_write(outputHandle'))
+        self.assertIn('stopRadioSegment(outputHandle, true)', tone)
+        self.assertIn('stopRadioSegment(outputHandle, enabled', tone)
+        self.assertIn('(playbackRadioTotSeconds() - 1) * 1000UL - kRadioDrainReserveMs', tone)
+
+    def test_radio_tot_is_validated_and_persisted_in_global_settings(self):
+        playback = (WEB_ROOT.parent / "src" / "playback.cpp").read_text(encoding="utf-8")
+        server = (WEB_ROOT.parent / "src" / "web_server.cpp").read_text(encoding="utf-8")
+        self.assertIn('getUShort(kRadioTotKey, 60)', playback)
+        self.assertIn('putUShort(kRadioTotKey, seconds)', playback)
+        self.assertIn('totSeconds < 10 || totSeconds > 600', server)
+        self.assertIn('playbackSetRadioTotSeconds(totSeconds)', server)
+        self.assertIn('\\"radioTotSeconds\\":', server)
+        self.assertIn('Radio DAC drain failed', playback)
+
+    def test_device_playback_request_precedes_waveform_loading(self):
+        script = (WEB_ROOT / "files.js").read_text(encoding="utf-8")
+        branch = script.split('if (target === "browser") {', 1)[1].split('dialogVolume.addEventListener', 1)[0]
+        self.assertLess(branch.index('playOnEsp(item.path, target)'),
+                        branch.index('loadWaveform(item, target, session);', branch.index('} else {')))
+
+    def test_radio_wav_prepares_pcm_before_ptt_and_releases_on_pause_seek_tot(self):
+        source = (WEB_ROOT.parent / "src" / "playback.cpp").read_text(encoding="utf-8")
+        wav = source.split('static void speakerLoop(', 1)[1].split('static bool initSpeaker()', 1)[0]
+        self.assertLess(wav.index('prepared = file.read(input'), wav.index('startRadioSegment(keyedAt, releasedAt)'))
+        self.assertLess(wav.index('startRadioSegment(keyedAt, releasedAt)'), wav.index('i2s_channel_write(outputHandle'))
+        self.assertIn('playbackPaused.load() ||', wav)
+        self.assertIn('stopRadioSegment(outputHandle, true)', wav)
+        self.assertIn('stopRadioSegment(outputHandle, false)', wav)
+        self.assertIn('remaining -= count;', wav)
+        self.assertIn('if (radio && !playbackPttActive())', wav)
+
     def test_phone_clock_script_runs_on_each_page_and_sends_utc(self):
         for page in PAGES:
             document = render_page(page)
@@ -894,16 +940,18 @@ assert.equal(element.textContent, 'TIME UNSET');
                 relay.index("pinMode(kRelayGpio, OUTPUT);"))
         self.assertLess(relay.index("pinMode(kRelayGpio, OUTPUT);"),
                 relay.index("digitalWrite(kRelayGpio, kRelayIdleLevel);"))
-        self.assertIn("if (active && !latched && static_cast<uint32_t>(millis() - startedAt) >= kPttTestPulseMs) stopPttTest();", relay)
+        self.assertIn("owner == PttOwner::test && !latched && static_cast<uint32_t>(millis() - startedAt) >= kPttTestPulseMs", relay)
+        self.assertIn("if (expired) stopPttTest();", relay)
         self.assertIn("esp_timer_create(&timerArgs, &pulseTimer) == ESP_OK", relay)
         self.assertIn("esp_timer_start_once(pulseTimer, static_cast<uint64_t>(kPttTestPulseMs) * 1000)", relay)
         self.assertIn("timerArgs.dispatch_method = ESP_TIMER_TASK", relay)
-        self.assertIn("digitalWrite(kRelayGpio, kRelayIdleLevel);\n    active = false;", relay)
-        self.assertIn("if (!initialized || active) return false;", relay)
+        self.assertIn("if (owner == PttOwner::test) {", relay)
+        self.assertIn("if (owner == PttOwner::playback) {", relay)
+        self.assertIn("if (!initialized || owner != PttOwner::none)", relay)
         self.assertIn("initPttTest();", main)
         self.assertLess(main.index("initPttTest();", main.index("void setup()")),
                 main.index("Serial.begin(115200);", main.index("void setup()")))
-        self.assertIn("if (!initialized || active) return false;\n  latched = true;", relay)
+        self.assertIn("if (!initialized || owner != PttOwner::none) { portEXIT_CRITICAL(&relayMux); return false; }\n  latched = true;", relay)
         self.assertIn("pollPttTest();", main)
         self.assertIn("if (pttTestActive()) stopPttTest();", display)
         self.assertIn("else if (!latchPttTest())", display)
@@ -1080,7 +1128,7 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(status["radioBoost"], 16)
         self.assertEqual(status["speakerBoost"], 1)
 
-    def test_radio_dac_playback_reports_target_and_stops_without_ptt(self):
+    def test_radio_dac_playback_reports_ptt_and_releases_on_pause_stop(self):
         status, _, _ = self.request("/api/play?path=%2FREC00001.wav&target=invalid", "POST")
         self.assertEqual(status, 400)
         status, _, _ = self.request("/api/play?path=%2FREC00001.wav&target=radio", "POST")
@@ -1091,11 +1139,15 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertTrue(playback["radioReady"])
         self.assertEqual(playback["playbackTarget"], "radio")
         self.assertEqual(playback["playback"], "playing")
+        self.assertTrue(playback["radioPttActive"])
         self.assertFalse(self.server.device.ptt_latched)
+        self.assertEqual(self.request("/api/play/pause?paused=1", "POST")[0], 200)
+        self.assertFalse(json.loads(self.request("/api/status")[1])["radioPttActive"])
         status, _, _ = self.request("/api/play/stop", "POST")
         self.assertEqual(status, 200)
         status, data, _ = self.request("/api/status")
         self.assertEqual(json.loads(data)["playback"], "idle")
+        self.assertFalse(json.loads(data)["radioPttActive"])
 
     def request(self, path, method="GET", params=None, headers=None):
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
@@ -1274,6 +1326,18 @@ class PreviewHttpTests(unittest.TestCase):
         settings = json.loads(self.request('/api/settings')[1])
         self.assertEqual(settings["screenOffMinutes"], 0)
         self.assertEqual(settings["wifiAutoOffMinutes"], 999)
+
+    def test_radio_tot_settings_validate_and_retain_saved_value(self):
+        self.assertEqual(json.loads(self.request('/api/settings')[1])['radioTotSeconds'], 60)
+        self.assertEqual(self.request('/api/settings', 'POST',
+                        {'screenOffMinutes': '5', 'radioTotSeconds': '90'})[0], 200)
+        for value in ('0', '9', '601', 'abc', '-1'):
+            with self.subTest(value=value):
+                self.assertEqual(self.request('/api/settings', 'POST',
+                                 {'screenOffMinutes': '6', 'radioTotSeconds': value})[0], 400)
+        settings = json.loads(self.request('/api/settings')[1])
+        self.assertEqual(settings['radioTotSeconds'], 90)
+        self.assertEqual(settings['screenOffMinutes'], 5)
 
     def test_language_setting_validates_and_restores_saved_selection(self):
         for path in ('/', '/files', '/settings', '/test', '/radio', '/dac-test'):

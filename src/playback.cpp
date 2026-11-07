@@ -6,6 +6,7 @@
 #include <cmath>
 #include <esp_err.h>
 #include "driver/i2s_std.h"
+#include "ptt_test.h"
 #include "recorder.h"
 #include "wav.h"
 #include "watchdog.h"
@@ -28,6 +29,7 @@ static std::atomic<uint8_t> speakerVolume{25};
 static std::atomic<uint8_t> speakerBoost{1};
 static std::atomic<uint8_t> radioVolume{5};
 static std::atomic<uint8_t> radioBoost{1};
+static std::atomic<uint16_t> radioTotSeconds{60};
 static std::atomic<uint32_t> playbackBytesPlayed{0};
 static std::atomic<uint32_t> playbackBytesTotal{0};
 static std::atomic<bool> playbackPaused{false};
@@ -37,6 +39,10 @@ static constexpr char kSpeakerVolumeKey[] = "spkVol";
 static constexpr char kSpeakerBoostKey[] = "spkBoost";
 static constexpr char kRadioVolumeKey[] = "radioVol";
 static constexpr char kRadioBoostKey[] = "radioGain";
+static constexpr char kRadioTotKey[] = "radioTot";
+static constexpr uint32_t kRadioSettleMs = 1000;
+static constexpr uint32_t kRadioOffMs = 1000;
+static constexpr uint32_t kRadioDrainReserveMs = 500;
 static constexpr char kRecordCueKey[] = "recCues";
 static constexpr uint32_t kSpeakerSaveDelayMs = 1000;
 static uint8_t savedSpeakerVolume = 25;
@@ -194,6 +200,7 @@ void playbackRecordCue(bool automatic, bool microphone, bool started) {
 bool playbackStop() {
   if (playbackState.load() == PlaybackState::idle) return false;
   playbackStopRequested.store(true);
+  releasePlaybackPtt();
   return true;
 }
 
@@ -229,6 +236,20 @@ void playbackSetRadioBoost(uint8_t boost) {
   radioBoost.store(boost);
   speakerSettingsChangedAt = millis();
   speakerSettingsDirty = true;
+}
+
+uint16_t playbackRadioTotSeconds() { return radioTotSeconds.load(); }
+
+bool playbackSetRadioTotSeconds(uint16_t seconds) {
+  if (seconds < 10 || seconds > 600) return false;
+  if (playbackState.load() != PlaybackState::idle && playbackTarget == PlaybackTarget::radio) return false;
+  if (radioTotSeconds.load() == seconds) return true;
+  Preferences preferences;
+  if (!preferences.begin(kSpeakerSettingsNamespace, false)) return false;
+  bool saved = preferences.putUShort(kRadioTotKey, seconds) == sizeof(seconds);
+  preferences.end();
+  if (saved) radioTotSeconds.store(seconds);
+  return saved;
 }
 
 void playbackSetBoost(uint8_t boost) {
@@ -314,6 +335,54 @@ static void stopDacOutput(i2s_chan_handle_t outputHandle, bool enabled) {
     snprintf(playbackError, sizeof(playbackError), "Speaker restore failed");
 }
 
+static bool waitRadio(uint32_t durationMs, bool requirePlaying = false) {
+  uint32_t started = millis();
+  while (static_cast<uint32_t>(millis() - started) < durationMs) {
+    if (playbackStopRequested.load() || (requirePlaying && playbackPaused.load())) return false;
+    watchdogResetCurrentTask();
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+  return !playbackStopRequested.load() && (!requirePlaying || !playbackPaused.load());
+}
+
+static bool startRadioSegment(uint32_t &keyedAt, uint32_t &releasedAt) {
+  if (releasedAt) {
+    uint32_t elapsed = static_cast<uint32_t>(millis() - releasedAt);
+    if (elapsed < kRadioOffMs && !waitRadio(kRadioOffMs - elapsed, true)) return false;
+  }
+  if (playbackStopRequested.load() || playbackPaused.load()) return false;
+  if (!acquirePlaybackPtt((playbackRadioTotSeconds() - 1) * 1000UL)) {
+    snprintf(playbackError, sizeof(playbackError), "Radio PTT unavailable");
+    return false;
+  }
+  keyedAt = millis();
+  if (!waitRadio(kRadioSettleMs, true) || !playbackPttActive()) {
+    if (!playbackStopRequested.load() && !playbackPaused.load())
+      snprintf(playbackError, sizeof(playbackError), "Radio PTT timed out");
+    releasePlaybackPtt();
+    releasedAt = millis();
+    return false;
+  }
+  return true;
+}
+
+static bool stopRadioSegment(i2s_chan_handle_t outputHandle, bool drain) {
+  bool drained = true;
+  if (drain && playbackPttActive() && !playbackStopRequested.load()) {
+    int32_t silence[512] = {};
+    for (uint8_t index = 0; index < 4 && !playbackStopRequested.load(); ++index) {
+      size_t written = 0;
+      if (i2s_channel_write(outputHandle, silence, sizeof(silence), &written, 100) != ESP_OK ||
+          written != sizeof(silence) || !playbackPttActive()) { drained = false; break; }
+    }
+    if (drained && !playbackStopRequested.load()) waitRadio(40);
+  }
+  if (drain && !drained && !playbackStopRequested.load())
+    snprintf(playbackError, sizeof(playbackError), "Radio DAC drain failed");
+  releasePlaybackPtt();
+  return drained;
+}
+
 static void playDacTone() {
   DacToneSettings settings = toneSettings;
   i2s_chan_handle_t outputHandle = nullptr;
@@ -327,10 +396,21 @@ static void playDacTone() {
     int16_t output16[kFrames * 2];
     int32_t output32[kFrames * 2];
     uint32_t framesLeft = settings.sampleRate * settings.durationSeconds;
+    uint32_t keyedAt = 0;
+    uint32_t releasedAt = 0;
     float phase = 0;
     float phaseStep = 2.0f * PI * settings.frequency / settings.sampleRate;
     while ((settings.durationSeconds == 0 || framesLeft) && !playbackStopRequested.load()) {
       watchdogResetCurrentTask();
+      if (keyedAt && releasedAt < keyedAt && !playbackPttActive()) {
+        snprintf(playbackError, sizeof(playbackError), "Radio PTT timed out during tone");
+        break;
+      }
+      if (playbackPttActive() && static_cast<uint32_t>(millis() - keyedAt) >=
+          (playbackRadioTotSeconds() - 1) * 1000UL - kRadioDrainReserveMs) {
+        if (!stopRadioSegment(outputHandle, true)) break;
+        releasedAt = millis();
+      }
       size_t frames = settings.durationSeconds ? min(static_cast<size_t>(framesLeft), kFrames) : kFrames;
       for (size_t index = 0; index < frames; ++index) {
         int16_t sample = static_cast<int16_t>(sinf(phase) * 32767.0f * settings.level / 100.0f);
@@ -339,6 +419,7 @@ static void playDacTone() {
         output16[index * 2] = output16[index * 2 + 1] = sample;
         output32[index * 2] = output32[index * 2 + 1] = static_cast<int32_t>(sample) * 65536;
       }
+      if (!playbackPttActive() && !startRadioSegment(keyedAt, releasedAt)) break;
       size_t bytes = frames * 2 * (settings.bits / 8);
       size_t written = 0;
       result = i2s_channel_write(outputHandle, settings.bits == 16 ? static_cast<void *>(output16) :
@@ -348,6 +429,7 @@ static void playDacTone() {
                  esp_err_to_name(result), written, bytes);
         break;
       }
+      if (!playbackPttActive()) { snprintf(playbackError, sizeof(playbackError), "Radio PTT timed out"); break; }
       uint32_t played = playbackBytesPlayed.load();
       playbackBytesPlayed.store(played > UINT32_MAX - bytes ? UINT32_MAX : played + bytes);
       if (settings.durationSeconds) framesLeft -= frames;
@@ -355,6 +437,7 @@ static void playDacTone() {
   } else {
     snprintf(playbackError, sizeof(playbackError), "DAC tone start: %s", esp_err_to_name(result));
   }
+  stopRadioSegment(outputHandle, enabled && !playbackError[0] && !playbackStopRequested.load());
   stopDacOutput(outputHandle, enabled);
 }
 
@@ -408,21 +491,40 @@ static void speakerLoop(void *) {
         float appliedGain = 0;
         float appliedRadioGain = 0;
         bool radioFirstBlockReported = false;
+        uint32_t keyedAt = 0;
+        uint32_t releasedAt = 0;
+        size_t prepared = 0;
         while (remaining && !playbackStopRequested.load()) {
           if (playbackWatchdog) watchdogResetCurrentTask();
           uint32_t seek = playbackSeekOffset.exchange(UINT32_MAX);
           if (seek != UINT32_MAX) {
+            if (radio) {
+              if (playbackPttActive()) { stopRadioSegment(outputHandle, false); releasedAt = millis(); }
+              prepared = 0;
+              if (i2s_channel_disable(outputHandle) != ESP_OK || i2s_channel_enable(outputHandle) != ESP_OK) {
+                snprintf(playbackError, sizeof(playbackError), "Radio DAC seek reset failed"); break;
+              }
+            }
             if (!file.seek(dataOffset + seek)) { snprintf(playbackError, sizeof(playbackError), "WAV seek failed"); break; }
             remaining = playbackBytesTotal.load() - seek;
             playbackBytesPlayed.store(seek);
           }
+          if (radio && playbackPttActive() && (playbackPaused.load() ||
+              static_cast<uint32_t>(millis() - keyedAt) >=
+                  (playbackRadioTotSeconds() - 1) * 1000UL - kRadioDrainReserveMs)) {
+            if (!stopRadioSegment(outputHandle, true)) break;
+            releasedAt = millis();
+          }
           if (playbackPaused.load()) { vTaskDelay(pdMS_TO_TICKS(20)); continue; }
-          size_t count = file.read(input, min(static_cast<uint32_t>(sizeof(input)), remaining));
-          if (!count || (count & 1)) {
-            snprintf(playbackError, sizeof(playbackError), "WAV read failed");
+          if (!prepared) {
+            prepared = file.read(input, min(static_cast<uint32_t>(sizeof(input)), remaining));
+            if (!prepared || (prepared & 1)) { snprintf(playbackError, sizeof(playbackError), "WAV read failed"); break; }
+          }
+          if (radio && keyedAt && releasedAt < keyedAt && !playbackPttActive()) {
+            snprintf(playbackError, sizeof(playbackError), "Radio PTT timed out during WAV read");
             break;
           }
-          remaining -= count;
+          size_t count = prepared;
           int32_t peak = 0;
           for (size_t index = 0; index < count / 2; ++index) {
             int32_t sample = static_cast<int16_t>(wav16(input + index * 2));
@@ -449,6 +551,13 @@ static void speakerLoop(void *) {
               output[index * 2 + 1] = sample;
             }
           }
+          if (radio && !playbackPttActive()) {
+            if (!startRadioSegment(keyedAt, releasedAt)) {
+              if (playbackPaused.load() && !playbackError[0]) continue;
+              break;
+            }
+          }
+          if (playbackStopRequested.load() || playbackPaused.load() || playbackSeekOffset.load() != UINT32_MAX) continue;
           size_t written = 0;
           size_t bytes = count * (radio ? 4 : 2);
           esp_err_t result = i2s_channel_write(outputHandle,
@@ -461,13 +570,16 @@ static void speakerLoop(void *) {
                           esp_err_to_name(result), static_cast<unsigned>(result), written, bytes);
             break;
           }
+          if (radio && !playbackPttActive()) { snprintf(playbackError, sizeof(playbackError), "Radio PTT timed out"); break; }
+          prepared = 0;
+          remaining -= count;
           playbackBytesPlayed.fetch_add(count);
           if (radio && !radioFirstBlockReported) {
             Serial.printf("Radio DAC first block: %zu I2S bytes\n", written);
             radioFirstBlockReported = true;
           }
         }
-        if (!remaining && !playbackStopRequested.load() && !playbackError[0]) {
+        if (!remaining && !playbackStopRequested.load() && !playbackError[0] && !radio) {
           int32_t silence[512] = {};
           for (int index = 0; index < 4; ++index) {
             size_t written = 0;
@@ -476,6 +588,7 @@ static void speakerLoop(void *) {
           }
           vTaskDelay(pdMS_TO_TICKS(30));
         }
+        if (radio) stopRadioSegment(outputHandle, !remaining && !playbackError[0] && !playbackStopRequested.load());
       }
     }
     if (enabled) {
@@ -514,6 +627,7 @@ void initPlayback(bool sdReady) {
     uint8_t boost = preferences.getUChar(kSpeakerBoostKey, savedSpeakerBoost);
     uint8_t radio = preferences.getUChar(kRadioVolumeKey, savedRadioVolume);
     uint8_t radioGain = preferences.getUChar(kRadioBoostKey, savedRadioBoost);
+    uint16_t tot = preferences.getUShort(kRadioTotKey, 60);
     uint16_t cues = preferences.getUShort(kRecordCueKey, recordCueSettings.load());
     bool validCues = true;
     for (uint8_t shift = 0; shift < 16; shift += 2) if (((cues >> shift) & 3) > 2) validCues = false;
@@ -523,6 +637,7 @@ void initPlayback(bool sdReady) {
     if (radio <= 100) savedRadioVolume = radio;
     if (radioGain == 1 || radioGain == 2 || radioGain == 4 || radioGain == 8 || radioGain == 16)
       savedRadioBoost = radioGain;
+    if (tot >= 10 && tot <= 600) radioTotSeconds.store(tot);
     preferences.end();
   }
   speakerVolume.store(savedSpeakerVolume);
