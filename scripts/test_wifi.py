@@ -1,7 +1,8 @@
-"""Wi-Fi AP smoke tests; run only when the PC can reach the RadioRecorder AP."""
+"""ESP HTTP smoke tests for reachable AP, STA, or forwarded routes."""
 
 import argparse
 from datetime import datetime
+from ipaddress import ip_address
 import io
 import json
 import os
@@ -11,8 +12,9 @@ import time
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen, build_opener, ProxyHandler
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from scripts.oled_viewer import find_device
 from scripts.test_device import delete_test_recording
@@ -53,6 +55,33 @@ def connect_wifi(ssid):
 def request(base_url, path, method="GET"):
     with urlopen(Request(base_url + path, method=method), timeout=5) as response:
         return response.read()
+
+
+def file_transfer_opener(base_url):
+    host = urlsplit(base_url).hostname
+    try:
+        local = not ip_address(host).is_global
+    except ValueError:
+        local = False
+    return build_opener(ProxyHandler({})) if local else build_opener()
+
+
+def transfer_port_available(base_url):
+    job = json.loads(request(base_url, "/api/files/jobs/status"))
+    port = job.get("transferPort", 0)
+    if not port:
+        return True
+    host = urlsplit(base_url).hostname
+    if ":" in host:
+        host = "[" + host + "]"
+    url = "http://" + host + ":" + str(port) + "/zip?id=0"
+    try:
+        with file_transfer_opener(base_url).open(url, timeout=5):
+            return False
+    except HTTPError as error:
+        return error.code == 409
+    except (URLError, OSError, TimeoutError):
+        return False
 
 
 def test_api(base_url, args, report):
@@ -136,6 +165,13 @@ def recording_metadata_found(files, path):
     return any(file.get("path") == path and file.get("bytes", 0) >= 44 for file in files)
 
 
+def recording_metadata_on_sd(base_url, path):
+    folder, name = path.rsplit("/", 1)
+    page = json.loads(request(base_url, "/api/files?dir=" + quote(folder or "/", safe="") +
+                              "&filter=" + quote(name, safe="")))
+    return recording_metadata_found(page["items"], path)
+
+
 def test_record_and_delete(base_url, status, report):
     if not status["ready"] or status["state"] != "idle":
         raise RuntimeError("Recorder not ready or already active; no recording started")
@@ -182,8 +218,7 @@ def test_record_and_delete(base_url, status, report):
 
         if idle:
             try:
-                files = json.loads(request(base_url, "/api/recordings"))["files"]
-                if not recording_metadata_found(files, name):
+                if not recording_metadata_on_sd(base_url, name):
                     raise AssertionError("New recording not found in file list: " + name)
                 report.detail("HTTP verified WAV metadata for " + name)
             except Exception as error:
@@ -205,7 +240,7 @@ def test_file_operations(base_url, report):
     created = False
     last_job = 0
     payload = bytes(range(256)) * 4
-    opener = build_opener(ProxyHandler({}))
+    opener = file_transfer_opener(base_url)
 
     def api(path, data=None):
         body = json.dumps(data).encode() if data is not None else None
@@ -284,7 +319,7 @@ def test_file_operations(base_url, report):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Test the ESP HTTP API via its Wi-Fi AP")
+    parser = argparse.ArgumentParser(description="Test the ESP HTTP API via a reachable AP, STA, or forwarded route")
     parser.add_argument("--base-url", default="http://192.168.4.1")
     parser.add_argument("--connect", action="store_true", help="Switch Windows Wi-Fi to the open RadioRecorder AP")
     parser.add_argument("--record", action="store_true", help="Write a short real WAV to the SD card")
@@ -303,7 +338,15 @@ def main():
             report.skip("Wi-Fi recording/deletion", "API checks failed")
         if args.file_manager:
             if passed and firmware_at_least(str(status.get("version", "")), (0, 1, 76)):
-                report.case("File manager read/write operations and exact cleanup", lambda: test_file_operations(base_url, report))
+                try:
+                    transfer_ready = transfer_port_available(base_url)
+                except (URLError, OSError, ValueError, KeyError) as error:
+                    report.skip("File manager read/write operations", "transfer preflight unavailable: " + str(error))
+                else:
+                    if transfer_ready:
+                        report.case("File manager read/write operations and exact cleanup", lambda: test_file_operations(base_url, report))
+                    else:
+                        report.skip("File manager read/write operations", "transfer port unavailable; forward ESP port 82 for external tests")
             else:
                 report.skip("File manager read/write operations", "requires reachable ready API and firmware 0.1.76+")
         if args.record and not args.preserve_performance:

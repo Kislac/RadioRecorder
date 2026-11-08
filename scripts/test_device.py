@@ -314,15 +314,16 @@ def list_radio_wavs(device, report, firmware_version):
 
 
 def menu_state(device):
-    device.write(b"p")
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        line = device.readline()
-        if line.startswith(b"OLED_STATE "):
-            values = tuple(int(value) for value in line.split()[1:])
-            if len(values) != 5:
-                raise AssertionError("Malformed OLED state")
-            return values
+    for _ in range(2):
+        device.write(b"p")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            line = device.readline()
+            if line.startswith(b"OLED_STATE "):
+                values = tuple(int(value) for value in line.split()[1:])
+                if len(values) != 5:
+                    raise AssertionError("Malformed OLED state")
+                return values
     raise TimeoutError("No OLED menu state received")
 
 

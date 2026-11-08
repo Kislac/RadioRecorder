@@ -5,19 +5,50 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 import threading
 import zipfile
 from types import SimpleNamespace
+from contextlib import redirect_stdout
+from io import StringIO
+from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
 from scripts.preview_web import PreviewDevice, PreviewServer
-from scripts.test_wifi import test_file_operations
+from scripts.test_support import TestRun
+from scripts.test_wifi import file_transfer_opener, main as wifi_main, test_file_operations, transfer_port_available
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class FileRulesTests(unittest.TestCase):
+    def test_external_transfer_port_preflight_skips_file_writes(self):
+      with patch("scripts.test_wifi.request", return_value=b'{"transferPort":82}'):
+        with patch("scripts.test_wifi.file_transfer_opener") as opener:
+          opener.return_value.open.side_effect = HTTPError("http://203.0.113.10:82/zip?id=0", 409, "Conflict", {}, None)
+          self.assertTrue(transfer_port_available("http://203.0.113.10"))
+          opener.return_value.open.side_effect = URLError("port blocked")
+          self.assertFalse(transfer_port_available("http://203.0.113.10"))
+
+      with patch("scripts.test_wifi.build_opener") as build:
+        file_transfer_opener("http://192.168.4.1")
+        self.assertEqual(len(build.call_args.args), 1)
+        file_transfer_opener("http://8.8.8.8")
+        self.assertEqual(build.call_args.args, ())
+
+      with TemporaryDirectory() as folder:
+        with patch("scripts.test_wifi.TestRun", side_effect=lambda name: TestRun(name, folder)):
+          with patch.object(sys, "argv", ["test_wifi", "--base-url", "http://203.0.113.10", "--file-manager"]):
+            with patch("scripts.test_wifi.test_api", return_value={"version": "0.1.103"}):
+              with patch("scripts.test_wifi.transfer_port_available", return_value=False):
+                with patch("scripts.test_wifi.test_file_operations") as writes:
+                  with redirect_stdout(StringIO()) as console:
+                    self.assertEqual(wifi_main(), 0)
+                  writes.assert_not_called()
+                  self.assertIn("SKIP: File manager read/write operations - transfer port unavailable", console.getvalue())
+
     def test_preview_sorted_cursor_pages_and_directory_revision(self):
       device = PreviewDevice()
       device.files = {f"/file{index:03d}.wav": b"x" * index for index in range(250)}

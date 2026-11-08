@@ -7,7 +7,7 @@ import json
 from scripts.test_support import TestRun, validate_performance_snapshot
 from scripts.preview_web import PreviewDevice
 from scripts.test_device import performance_preflight, performance_postcheck
-from scripts.test_wifi import main as wifi_main, recording_metadata_found, test_performance_switch
+from scripts.test_wifi import main as wifi_main, recording_metadata_found, recording_metadata_on_sd, test_performance_switch
 
 
 class PerformanceDiagnosticsTests(unittest.TestCase):
@@ -184,6 +184,10 @@ class PerformanceDiagnosticsTests(unittest.TestCase):
         self.assertTrue(recording_metadata_found(files, path))
         self.assertFalse(recording_metadata_found(files, "/other/RadioMan261103_183319.wav"))
         self.assertFalse(recording_metadata_found([{**files[0], "bytes": 43}], path))
+
+        with patch("scripts.test_wifi.request", return_value=json.dumps({"items": files}).encode()) as get:
+            self.assertTrue(recording_metadata_on_sd("http://device", path))
+        get.assert_called_once_with("http://device", "/api/files?dir=%2F2026-11-03&filter=RadioMan261103_183319.wav")
 
 
 if __name__ == "__main__":

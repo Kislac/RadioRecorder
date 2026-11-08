@@ -23,7 +23,7 @@ from scripts.test_device import (DISPLAY_TILES, SETTINGS_TILE, SETTING_COUNT, de
                                  verify_rtc_progress)
 from scripts.test_support import TestRun, firmware_at_least
 from scripts.test_watchdog import trigger_and_verify_reset
-from scripts.run_tests import run_suite
+from scripts.run_tests import main, online_http_url, run_suite
 from scripts.test_wifi import wifi_profile
 from scripts.web_assets import PAGES, render_page
 
@@ -137,6 +137,54 @@ class FrameTests(unittest.TestCase):
             self.assertEqual(console.getvalue().count("FAILED CASES"), 1)
             self.assertIn("Offline unit tests", console.getvalue().split("FAILED CASES", 1)[1])
             self.assertNotIn("Firmware build", console.getvalue().split("FAILED CASES", 1)[1])
+
+    def test_online_http_url_uses_configured_mode_and_cli_overrides(self):
+        with TemporaryDirectory() as folder:
+            config = Path(folder) / "online-test.ini"
+            self.assertEqual(online_http_url(config_path=config), "http://192.168.4.1")
+            config.write_text("; Available modes: ap, sta, forwarded\n[online]\nmode = sta\n"
+                              "ap = http://192.168.4.1\nsta = http://192.168.0.117\n"
+                              "forwarded = http://203.0.113.10/\n", encoding="utf-8")
+            self.assertEqual(online_http_url(config_path=config), "http://192.168.0.117")
+            self.assertEqual(online_http_url("forwarded", config_path=config), "http://203.0.113.10")
+            self.assertEqual(online_http_url("ap", "http://192.168.4.2:8080/", config), "http://192.168.4.2:8080")
+            with self.assertRaises(ValueError):
+                online_http_url("forwarded", "http://203.0.113.10/api/status", config)
+            with self.assertRaises(ValueError):
+                online_http_url("sta", "http://192.168.0.117:invalid", config)
+            with self.assertRaises(ValueError):
+                online_http_url("sta", "http://192.168.0.117:0", config)
+            config.write_text("[other]\nmode = sta\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, r"\[online\] section"):
+                online_http_url(config_path=config)
+
+    def test_online_cli_uses_configured_target_without_starting_hardware(self):
+        with patch.object(sys, "argv", ["run_tests", "online", "--mode", "sta", "--port", "COM3"]):
+            with patch("scripts.run_tests.online_http_url", return_value="http://192.168.0.117") as resolve:
+                with patch("scripts.run_tests.run_suite", return_value=0) as suite:
+                    with redirect_stdout(StringIO()) as console:
+                        self.assertEqual(main(), 0)
+        resolve.assert_called_once_with("sta", None)
+        suite.assert_called_once_with("online", "COM3", "http://192.168.0.117")
+        self.assertIn("http://192.168.0.117", console.getvalue())
+
+    def test_online_suite_routes_selected_http_origin_to_wifi_checks(self):
+        commands = []
+        target = online_http_url("sta", config_path=Path(__file__).parent / "nonexistent-online-config.json",
+                                 base_url="http://192.168.0.117")
+
+        def fake_command(command, **kwargs):
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 0, "SUMMARY: 1 passed, 0 failed, 0 skipped\n")
+
+        with TemporaryDirectory() as folder, patch("scripts.run_tests.TestRun", side_effect=lambda name: TestRun(name, folder)):
+            with patch("scripts.run_tests.urlopen") as probe:
+                self.assertEqual(run_suite("online", base_url=target, run=fake_command), 0)
+            report = next(Path(folder).glob("online/*.log")).read_text(encoding="utf-8")
+        self.assertEqual(probe.call_args.args[0], "http://192.168.0.117/api/status")
+        self.assertIn("--base-url", commands[4])
+        self.assertEqual(commands[4][commands[4].index("--base-url") + 1], target)
+        self.assertIn("HTTP target: " + target, report)
 
     def test_test_runner_reports_reachable_broken_wifi_api_as_failure(self):
         outputs = []
@@ -748,6 +796,12 @@ int main() {
         device = FakeDevice(b"OLED_STATE 6 0 1 0 0\n")
         self.assertEqual(menu_state(device), (6, 0, 1, 0, 0))
         self.assertEqual(device.commands, [b"p"])
+
+    def test_menu_state_retries_a_lost_reply(self):
+        device = FakeDevice(b"", b"OLED_STATE 6 0 1 0 0\n")
+        with patch("scripts.test_device.time.monotonic", side_effect=[0, 1, 6, 7, 8]):
+            self.assertEqual(menu_state(device), (6, 0, 1, 0, 0))
+        self.assertEqual(device.commands, [b"p", b"p"])
 
     def test_wifi_profile_is_open_and_has_correct_ssid(self):
         profile = ET.fromstring(wifi_profile("RadioRecorder"))
