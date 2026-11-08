@@ -1161,7 +1161,7 @@ class PreviewHttpTests(unittest.TestCase):
         return status, data, response_headers
 
     def test_pages_navigation_and_assets_are_available(self):
-        for path, name in (("/", "index"), ("/files", "files"), ("/settings", "settings"), ("/test", "test"), ("/radio", "radio"), ("/dac-test", "dac_test")):
+        for path, name in (("/", "index"), ("/files", "files"), ("/settings", "settings"), ("/test", "test"), ("/radio", "radio"), ("/dac-test", "dac_test"), ("/automatic-replay", "automatic_replay")):
             with self.subTest(path=path):
                 status, page, _ = self.request(path)
                 self.assertEqual(status, 200)
@@ -1279,11 +1279,12 @@ class PreviewHttpTests(unittest.TestCase):
             query = urlencode({'after': pages[-1]['next'], 'revision': pages[-1]['revision']})
             pages.append(json.loads(self.request('/api/files?' + query)[1]))
         self.assertEqual(pages[-1]['next'], None)
-        self.assertEqual([len(page['items']) for page in pages], [20, 20, 10])
+        self.assertEqual([len(page['items']) for page in pages], [20, 20, 11])
         items = [item for page in pages for item in page['items']]
-        self.assertTrue(all(item['directory'] for item in items[:23]))
-        self.assertTrue(all(not item['directory'] for item in items[23:]))
-        self.assertEqual(len({item['path'] for item in items}), 50)
+        self.assertTrue(all(item['directory'] for item in items[:24]))
+        self.assertTrue(all(not item['directory'] for item in items[24:]))
+        self.assertIn('/performance-logs', [item['path'] for item in items])
+        self.assertEqual(len({item['path'] for item in items}), 51)
 
     def test_same_second_names_do_not_overwrite_and_busy_delete_is_rejected(self):
         self.assertEqual(self.request('/api/time', 'POST', {'local': '2026-10-28T23:25'})[0], 200)

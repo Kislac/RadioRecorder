@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+constexpr char kPerformanceLogDirectory[] = "/performance-logs";
+
 bool performanceInit();
 bool performanceEnabled();
 bool performanceSetEnabled(bool enabled);

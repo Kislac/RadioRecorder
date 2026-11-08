@@ -125,7 +125,7 @@ class PreviewDevice:
         self.wav = sample_wav()
         self.files = {"/REC00001.wav": self.wav, "/REC00002.wav": self.wav,
                   "/Archive/sample.wav": self.wav}
-        self.directories = {"/Archive"}
+        self.directories = {"/Archive", "/performance-logs"}
         self.file_manager = PreviewFileManager(self)
         self.recording_name = self.next_recording_name(self.record_source) if self.recording else ""
         self.playing = ""
@@ -147,10 +147,13 @@ class PreviewDevice:
         self.automatic = PreviewAutomaticRecording(self, saved_auto)
         self.performance_logs = {}
         if self.sd_ready:
-            self.performance_logs["/perf-20261103-120000-v0.1.92-00.txt"] = True
+            previous_log = "/performance-logs/perf-20261103-120000-v0.1.92-00.txt"
+            self.performance_logs[previous_log] = True
+            self.files[previous_log] = b"{}\n"
             if self.performance_log_enabled:
-                self.performance_log_path = "/perf-20261104-080000-v0.1.93-00.txt"
+                self.performance_log_path = "/performance-logs/perf-20261104-080000-v0.1.93-00.txt"
                 self.performance_logs[self.performance_log_path] = True
+                self.files[self.performance_log_path] = b"{}\n"
         self.saved_performance = self.api("GET", "/api/performance", {})[1]
 
     def tick(self):
@@ -438,7 +441,7 @@ class PreviewDevice:
                 if not self.sd_ready or self.recording or self.playing:
                     return 409, "SD or audio busy"
                 selected = params.get("path", self.performance_log_path)
-                if not isinstance(selected, str) or not re.fullmatch(r"/perf-[A-Za-z0-9.-]+\.txt", selected):
+                if not isinstance(selected, str) or not re.fullmatch(r"/performance-logs/perf-[A-Za-z0-9.-]+\.txt", selected):
                     return 400, "Invalid log path"
                 if selected not in self.performance_logs:
                     return 404, "Log not found"
@@ -684,8 +687,9 @@ class PreviewDevice:
                     return 409, "Diagnostics off"
                 self.performance_log_enabled = params["enabled"] == "1"
                 if self.performance_log_enabled and not self.performance_log_path:
-                    self.performance_log_path = "/perf-preview-{:02d}.txt".format(len(self.performance_logs))
+                    self.performance_log_path = "/performance-logs/perf-preview-{:02d}.txt".format(len(self.performance_logs))
                     self.performance_logs[self.performance_log_path] = True
+                    self.files[self.performance_log_path] = b"{}\n"
                 return self.api("GET", "/api/performance", {})
             if path == "/api/record-cues":
                 if set(params) != set(self.record_cues) or any(
@@ -882,7 +886,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
                           "/test": "test.html", "/radio": "radio.html", "/dac-test": "dac_test.html",
                           "/automatic-replay": "automatic_replay.html"}
                 name = routes.get(url.path, url.path.lstrip("/"))
-                allowed = {page + extension for page in ("index", "files", "settings", "radio", "dac_test")
+                allowed = {page + extension for page in ("index", "files", "settings", "radio", "dac_test", "automatic_replay")
                            for extension in (".html", ".css", ".js")}
                 allowed.update(("test.html", "test.js", "live_audio.js", "radio_edit.js", "file_actions.js", "automatic.js"))
                 allowed.update(("station.css", "logo.svg"))

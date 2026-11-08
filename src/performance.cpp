@@ -38,13 +38,14 @@ uint32_t slowLoops = 0;
 constexpr uint32_t kSlowLoopUs = 100000;
 constexpr uint32_t kLogIntervalMs = 60000;
 constexpr uint32_t kLogMaxBytes = 256 * 1024;
-constexpr uint8_t kLogMaxFiles = 16;
+constexpr uint16_t kLogMaxFiles = 128;
 bool logEnabled = false;
 bool logPreferred = true;
 bool autoLogPending = false;
 bool bootLogCountReady = false;
+bool logDirectoryReady = false;
 uint16_t bootLogCount = 0;
-char logPath[64] = {};
+char logPath[96] = {};
 char logError[64] = {};
 uint32_t logBytes = 0;
 uint32_t logSamples = 0;
@@ -59,7 +60,7 @@ bool sdAvailableForLog() {
   !automaticAnyArmed() && !radioProgrammingBusy();
 }
 
-bool validLogPath(const String &path) {
+bool validLegacyLogPath(const String &path) {
   if (!path.startsWith("/perf-") || !path.endsWith(".txt") || path.length() > 63) return false;
   for (size_t index = 1; index < path.length(); ++index) {
     char ch = path[index];
@@ -68,15 +69,60 @@ bool validLogPath(const String &path) {
   return true;
 }
 
+bool validLogPath(const String &path) {
+  return path.startsWith(String(kPerformanceLogDirectory) + "/") &&
+         path.length() < sizeof(logPath) &&
+         validLegacyLogPath(path.substring(sizeof(kPerformanceLogDirectory) - 1));
+}
+
+void stopLog(const char *error);
+
+bool prepareLogDirectory() {
+  if (logDirectoryReady) return true;
+  if (!SD_MMC.exists(kPerformanceLogDirectory) && !SD_MMC.mkdir(kPerformanceLogDirectory)) {
+    stopLog("Cannot create SD log folder");
+    return false;
+  }
+  File directory = SD_MMC.open(kPerformanceLogDirectory, FILE_READ);
+  bool ready = directory && directory.isDirectory();
+  directory.close();
+  if (!ready) { stopLog("Invalid SD log folder"); return false; }
+  while (true) {
+    File root = SD_MMC.open("/", FILE_READ);
+    if (!root || !root.isDirectory()) {
+      root.close(); stopLog("Cannot scan old SD logs"); return false;
+    }
+    String oldPath;
+    File file = root.openNextFile();
+    while (file) {
+      String name = file.name();
+      String path = "/" + name.substring(name.lastIndexOf('/') + 1);
+      if (!file.isDirectory() && validLegacyLogPath(path)) oldPath = path;
+      file.close();
+      if (oldPath.length()) break;
+      feedSystemWatchdog();
+      file = root.openNextFile();
+    }
+    root.close();
+    if (!oldPath.length()) { logDirectoryReady = true; return true; }
+    String destination = String(kPerformanceLogDirectory) + oldPath;
+    if (SD_MMC.exists(destination) || !SD_MMC.rename(oldPath, destination)) {
+      stopLog("Cannot move old SD log");
+      return false;
+    }
+    feedSystemWatchdog();
+  }
+}
+
 uint16_t logFileCount() {
-  File root = SD_MMC.open("/", FILE_READ);
+  File root = SD_MMC.open(kPerformanceLogDirectory, FILE_READ);
   if (!root || !root.isDirectory()) { root.close(); return kLogMaxFiles; }
   uint16_t count = 0;
   uint32_t visited = 0;
   File file = root.openNextFile();
   while (file) {
     String name = file.name();
-    String path = "/" + name.substring(name.lastIndexOf('/') + 1);
+    String path = String(kPerformanceLogDirectory) + "/" + name.substring(name.lastIndexOf('/') + 1);
     if (!file.isDirectory() && validLogPath(path)) ++count;
     file.close();
     if (count >= kLogMaxFiles) break;
@@ -151,7 +197,9 @@ const char *performanceLogPath() { return logPath; }
 bool performanceLogSdIdle() { return sdAvailableForLog(); }
 bool performanceLogValidPath(const String &path) { return validLogPath(path); }
 void performancePrimeLogCount() {
-  if (autoLogPending && appSdReady()) {
+  if (!appSdReady()) return;
+  if (!prepareLogDirectory()) { autoLogPending = false; return; }
+  if (autoLogPending) {
     bootLogCount = logFileCount();
     bootLogCountReady = true;
   }
@@ -170,17 +218,18 @@ bool performanceLogSetEnabled(bool value) {
   autoLogPending = false;
   if (!value) { logEnabled = false; return true; }
   if (logEnabled) return true;
+  if (!prepareLogDirectory()) return false;
   uint16_t existingLogs = bootLogCountReady ? bootLogCount : logFileCount();
   bootLogCountReady = false;
-  if (existingLogs >= kLogMaxFiles) { stopLog("16 SD logs reached; remove older logs"); return false; }
+  if (existingLogs >= kLogMaxFiles) { stopLog("128 SD logs reached; remove older logs"); return false; }
   time_t now = time(nullptr);
   tm utc = {};
   if (now >= 1577836800) gmtime_r(&now, &utc);
-  char base[48];
+  char base[80];
   char stamp[24];
   if (now >= 1577836800) strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &utc);
   else snprintf(stamp, sizeof(stamp), "boot-%lu", static_cast<unsigned long>(millis()));
-  snprintf(base, sizeof(base), "/perf-%s-v%s", stamp, appFirmwareVersion().c_str());
+  snprintf(base, sizeof(base), "%s/perf-%s-v%s", kPerformanceLogDirectory, stamp, appFirmwareVersion().c_str());
   for (uint8_t index = 0; index < 16; ++index) {
     snprintf(logPath, sizeof(logPath), "%s-%02u.txt", base, index);
     if (SD_MMC.exists(logPath)) continue;

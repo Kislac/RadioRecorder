@@ -2,10 +2,10 @@ main { max-width:1100px; margin:auto; }
 main section { padding:18px 0; border-top:1px solid #b8c5bd; }
 .replay-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:12px 0; }
 .replay-toolbar button { min-height:40px; }
-.replay-files { max-height:270px; overflow:auto; border:1px solid #b8c5bd; }
-.replay-files label { display:flex; gap:10px; align-items:center; padding:8px; border-bottom:1px solid #dae1d9; }
-.replay-files button { width:100%; text-align:left; border:0; border-bottom:1px solid #dae1d9; background:transparent; min-height:36px; }
-.replay-files label:hover, .replay-files button:hover { background:#e4ede3; }
+.replay-files { max-height:270px; overflow:auto; border:1px solid var(--border); background:var(--surface); color:var(--text); }
+.replay-files label { display:flex; gap:10px; align-items:center; padding:8px; border-bottom:1px solid var(--border); color:var(--text); }
+.replay-files button { width:100%; text-align:left; border:0; border-bottom:1px solid var(--border); background:transparent; color:var(--text); min-height:36px; }
+.replay-files label:hover, .replay-files button:hover { background:var(--selected); }
 #replayForm { display:grid; gap:12px; max-width:660px; }
 #replayForm label { display:grid; gap:4px; min-width:0; }
 #replayForm input, #replayForm select { width:100%; min-width:0; padding:8px; font:inherit; }

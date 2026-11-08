@@ -947,7 +947,7 @@ void initWeb() {
   server.on("/api/performance/logs", HTTP_GET, []() {
     wifiManagerNotifyActivity();
     if (!performanceLogSdIdle()) { server.send(409, "text/plain", "SD or audio busy"); return; }
-    File root = SD_MMC.open("/", FILE_READ);
+    File root = SD_MMC.open(kPerformanceLogDirectory, FILE_READ);
     if (!root || !root.isDirectory()) { root.close(); server.send(503, "text/plain", "SD unavailable"); return; }
     String json = "{\"files\":[";
     uint8_t count = 0;
@@ -955,7 +955,7 @@ void initWeb() {
     File file = root.openNextFile();
     while (file) {
       String name = file.name();
-      String path = "/" + name.substring(name.lastIndexOf('/') + 1);
+      String path = String(kPerformanceLogDirectory) + "/" + name.substring(name.lastIndexOf('/') + 1);
       if (!file.isDirectory() && performanceLogValidPath(path) && file.size() <= 256 * 1024) {
         if (count++) json += ',';
         json += "{\"path\":\"" + path + "\",\"bytes\":" + String(file.size()) + "}";
@@ -982,7 +982,7 @@ void initWeb() {
     if (!file || file.isDirectory()) { file.close(); server.send(404, "text/plain", "Log not found"); return; }
     if (file.size() > 256 * 1024) { file.close(); server.send(413, "text/plain", "Log too large"); return; }
     server.sendHeader("Cache-Control", "no-store");
-    server.sendHeader("Content-Disposition", "attachment; filename=\"" + path.substring(1) + "\"");
+    server.sendHeader("Content-Disposition", "attachment; filename=\"" + path.substring(path.lastIndexOf('/') + 1) + "\"");
     server.streamFile(file, "application/x-ndjson");
     file.close();
   });

@@ -28,6 +28,21 @@ class ReplayScheduleTests(unittest.TestCase):
         self.assertIn('paths.append("folder", item.path)', files)
         self.assertNotIn("/api/automatic-replay/arm", files)
 
+    def test_browser_entries_have_visible_text(self):
+        css = (ROOT / "web/automatic_replay.css").read_text(encoding="utf-8")
+        self.assertIn(".replay-files label {", css)
+        self.assertIn("background:var(--surface); color:var(--text)", css)
+        self.assertIn("background:transparent; color:var(--text)", css)
+
+    def test_replay_is_reachable_from_every_page_navigation(self):
+        for path in (ROOT / "web").glob("*.html"):
+            with self.subTest(page=path.name):
+                page = path.read_text(encoding="utf-8")
+                header = page.split('<nav aria-label="Pages">', 1)[1].split("</nav>", 1)[0]
+                bottom = page.split('class="bottom-nav"', 1)[1].split("</nav>", 1)[0]
+                self.assertIn('href="/automatic-replay"', header)
+                self.assertIn('href="/automatic-replay"', bottom)
+
     def test_preview_rules_stay_disarmed_and_stop_cancels_arm_request(self):
         from scripts.preview_web import PreviewDevice
         device = PreviewDevice()
