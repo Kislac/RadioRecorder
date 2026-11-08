@@ -93,7 +93,8 @@ function drawWaveform() {
 async function loadWaveform(item, target, session) {
   try {
     if (/\.wav$/i.test(item.name)) {
-      const response = await fetch("/api/play/waveform?path=" + encodeURIComponent(item.path), { cache: "no-store" });
+      const response = await fetch("/api/play/waveform?path=" + encodeURIComponent(item.path),
+        { cache: "no-store", signal: AbortSignal.timeout(6000) });
       if (!response.ok) throw Error();
       const data = await response.json();
       session.peaks = data.peaks;

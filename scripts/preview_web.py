@@ -475,7 +475,7 @@ class PreviewDevice:
                 name = params.get("path", "")
                 if not safe_sd_path(name) or not name.lower().endswith(".wav"):
                     return 400, "Invalid WAV path"
-                if self.recording or self.playing or self.file_manager.busy():
+                if self.recording or self.file_manager.busy():
                     return 409, "SD busy"
                 if name not in self.files:
                     return 404, "WAV not found"

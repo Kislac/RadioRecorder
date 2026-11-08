@@ -55,6 +55,9 @@ class WebAssetTests(unittest.TestCase):
         branch = script.split('if (target === "browser") {', 1)[1].split('dialogVolume.addEventListener', 1)[0]
         self.assertLess(branch.index('playOnEsp(item.path, target)'),
                         branch.index('loadWaveform(item, target, session);', branch.index('} else {')))
+        server = (WEB_ROOT.parent / "src/web_server.cpp").read_text(encoding="utf-8")
+        waveform = server.split('void sendPlaybackWaveform()', 1)[1].split('void initWeb()', 1)[0]
+        self.assertNotIn('playbackGetState() != PlaybackState::idle', waveform)
 
     def test_radio_wav_prepares_pcm_before_ptt_and_releases_on_pause_seek_tot(self):
         source = (WEB_ROOT.parent / "src" / "playback.cpp").read_text(encoding="utf-8")
@@ -1111,6 +1114,9 @@ class PreviewHttpTests(unittest.TestCase):
         self.assertEqual(status, 400)
         status, _, _ = self.request("/api/play?path=%2FREC00001.wav&target=radio", "POST")
         self.assertEqual(status, 200)
+        status, peaks, _ = self.request("/api/play/waveform?path=%2FREC00001.wav")
+        self.assertEqual(status, 200)
+        self.assertGreater(max(json.loads(peaks)["peaks"]), 0)
         self.server.device.play_until -= 0.5
         status, body, _ = self.request("/api/status")
         playback = json.loads(body)

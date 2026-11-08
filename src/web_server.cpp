@@ -810,8 +810,9 @@ void sendPlaybackWaveform() {
   String path = server.arg("path"), lower = path;
   lower.toLowerCase();
   if (!safeSdPath(path) || path == "/" || !lower.endsWith(".wav")) { server.send(400, "text/plain", "Invalid WAV path"); return; }
-  if (!appSdReady() || recorderState() != CaptureState::idle || fileManagerBusy() || automaticAnyArmed() ||
-      playbackGetState() != PlaybackState::idle) { server.send(409, "text/plain", "SD busy"); return; }
+  if (!appSdReady() || recorderState() != CaptureState::idle || fileManagerBusy() || automaticAnyArmed()) {
+    server.send(409, "text/plain", "SD busy"); return;
+  }
   File file = SD_MMC.open(path, FILE_READ);
   if (!file || file.isDirectory()) { server.send(404, "text/plain", "WAV not found"); return; }
   uint32_t length = 0;
