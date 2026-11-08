@@ -250,12 +250,26 @@ class PreviewDevice:
             if method == "POST" and path == "/api/automatic-replay/rules":
                 if not self.sd_ready or self.replay_pending or len(self.replay_rules) >= 16:
                     return 409, "SD or replay busy"
+                params = dict(params)
+                if "delaySeconds" in params:
+                    delay = params.pop("delaySeconds")
+                    if "anchorUtc" in params or params.get("intervalSeconds") != 0 or type(delay) is not int or not 1 <= delay <= 31536000:
+                        return 400, "Invalid relative delay or clock"
+                    params["anchorUtc"] = int(time.time()) + delay
                 required = ("path", "anchorUtc", "intervalSeconds", "jitterMinutes", "window", "startMinute", "endMinute")
-                if not all(key in params for key in required) or params["path"] not in self.files or not params["path"].lower().endswith(".wav"):
+                if not all(key in params for key in required):
                     return 400, "Invalid WAV path or schedule"
-                if not isinstance(params["anchorUtc"], int) or params["anchorUtc"] < 1577836800 or not 0 <= params["intervalSeconds"] <= 604800 or params["jitterMinutes"] * 120 >= params["intervalSeconds"] > 0:
+                folder = params.get("folder", False)
+                if type(folder) is not bool or (folder and (params["path"] not in self.directories and params["path"] != "/")) or (not folder and (params["path"] not in self.files or not params["path"].lower().endswith(".wav"))):
+                    return 400, "Invalid WAV path or schedule"
+                if any(type(params[key]) is not int for key in required if key != "path") or not 1577836800 <= params["anchorUtc"] <= 4102444800 or not 0 <= params["intervalSeconds"] <= 604800 or params["jitterMinutes"] < 0 or params["jitterMinutes"] * 120 >= params["intervalSeconds"] > 0:
                     return 400, "Invalid WAV path or schedule"
                 rule = {key: params[key] for key in required}
+                if folder:
+                    if any(type(params.get(key)) is not int or params[key] not in (0, 1) for key in ("order", "cycle", "batch")):
+                        return 400, "Invalid folder options"
+                    rule.update(folder=True, order=params["order"], cycle=params["cycle"], batch=params["batch"],
+                                cursor="", fileCount=0, fingerprint=0)
                 rule.update(id=self.replay_next_id, active=False, completed=False, nextUtc=params["anchorUtc"])
                 self.replay_next_id += 1
                 self.replay_rules.append(rule)
@@ -264,7 +278,14 @@ class PreviewDevice:
                 rule = next((item for item in self.replay_rules if str(item["id"]) == str(params.get("id"))), None)
                 if not rule or str(params.get("enabled")) not in ("0", "1"):
                     return 400, "Invalid rule id or state"
-                if str(params["enabled"]) == "1" and rule["path"] not in self.files:
+                if str(params["enabled"]) == "1" and rule.get("folder"):
+                    prefix = rule["path"].rstrip("/") + "/"
+                    children = [name for name in self.files if name.startswith(prefix) and
+                                "/" not in name[len(prefix):] and name.lower().endswith(".wav")]
+                    if not children or len(children) > 128:
+                        return 409, "Folder unavailable"
+                    rule["fileCount"] = len(children)
+                elif str(params["enabled"]) == "1" and rule["path"] not in self.files:
                     return 409, "WAV unavailable"
                 rule["active"] = str(params["enabled"]) == "1"
                 return self.api("GET", "/api/automatic-replay", {})

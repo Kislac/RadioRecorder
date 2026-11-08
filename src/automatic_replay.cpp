@@ -28,6 +28,14 @@ struct ReplayRule {
   bool active = false;
   bool completed = false;
   char path[221] = {};
+  bool folder = false;
+  bool shuffled = false;
+  bool loop = false;
+  bool all = false;
+  char cursor[221] = {};
+  uint32_t round = 0;
+  uint16_t fileCount = 0;
+  uint32_t fingerprint = 0;
   ReplaySchedule schedule;
 };
 
@@ -38,11 +46,12 @@ bool storageValid = false;
 uint32_t nextId = 1;
 constexpr size_t kQueueLimit = 32;
 constexpr uint32_t kSilenceMs = 10000;
-struct ReplayEvent { uint8_t ruleIndex; uint32_t occurrence; int64_t dueUtc; };
+struct ReplayEvent { uint8_t ruleIndex; uint32_t occurrence; int64_t dueUtc; uint16_t remaining; };
 ReplayEvent queue[kQueueLimit];
 size_t queueCount = 0;
 uint32_t nextOccurrence[kMaxRules] = {};
 std::atomic<int> playingRule{-1};
+char playingFile[221] = {};
 std::atomic<uint32_t> quietSince{0}, lastSampleAt{0};
 bool signalOwned = false;
 uint32_t lastSequence = 0;
@@ -88,6 +97,59 @@ void popEvent(bool resetSilence = true) {
   if (resetSilence) quietSince.store(0);
 }
 
+String replayBaseName(const File &entry) {
+  String name = entry.name();
+  return name.substring(name.lastIndexOf('/') + 1);
+}
+
+bool folderSnapshot(const ReplayRule &rule, uint16_t &count, uint32_t &fingerprint, bool checkAudio) {
+  File directory = SD_MMC.open(rule.path, FILE_READ);
+  if (!directory || !directory.isDirectory()) { directory.close(); return false; }
+  count = 0;
+  fingerprint = 0;
+  uint16_t scanned = 0;
+  File entry;
+  bool valid = true;
+  while ((entry = directory.openNextFile())) {
+    if (++scanned > 512) { valid = false; entry.close(); break; }
+    String name = replayBaseName(entry), extension = name;
+    extension.toLowerCase();
+    if (!entry.isDirectory() && extension.endsWith(".wav")) {
+      String path = String(rule.path) == "/" ? "/" + name : String(rule.path) + "/" + name;
+      uint32_t remaining = 0;
+      if (++count > 128 || !managedPathValid(path.c_str(), false) ||
+          (checkAudio && !findPcmData(entry, remaining))) valid = false;
+      fingerprint += replayFileHash(name.c_str(), rule.id) ^ static_cast<uint32_t>(entry.size());
+    }
+    entry.close();
+    if (!valid) break;
+  }
+  directory.close();
+  return valid && count > 0;
+}
+
+bool folderSelect(const ReplayRule &rule, String &selected) {
+  File directory = SD_MMC.open(rule.path, FILE_READ);
+  if (!directory || !directory.isDirectory()) { directory.close(); return false; }
+  String next, first;
+  uint32_t seed = rule.id ^ rule.round;
+  File entry;
+  while ((entry = directory.openNextFile())) {
+    String name = replayBaseName(entry), extension = name;
+    extension.toLowerCase();
+    if (!entry.isDirectory() && extension.endsWith(".wav")) {
+        if (first.isEmpty() || replayFileBefore(name.c_str(), first.c_str(), rule.shuffled, seed)) first = name;
+          if (replayFileAfterCursor(name.c_str(), rule.cursor, next.c_str(), rule.shuffled, seed)) next = name;
+    }
+    entry.close();
+  }
+  directory.close();
+  if (next.isEmpty() && rule.loop) next = first;
+  if (next.isEmpty()) return false;
+  selected = String(rule.path) == "/" ? "/" + next : String(rule.path) + "/" + next;
+  return selected.length() <= 220;
+}
+
 bool integerField(const cJSON *object, const char *name, int64_t minimum, int64_t maximum, int64_t &out) {
   const cJSON *field = cJSON_GetObjectItemCaseSensitive(object, name);
   if (!cJSON_IsNumber(field) || field->valuedouble < minimum || field->valuedouble > maximum ||
@@ -101,10 +163,12 @@ bool decodeRule(const cJSON *object, ReplayRule &rule) {
   const cJSON *path = cJSON_GetObjectItemCaseSensitive(object, "path");
   const cJSON *active = cJSON_GetObjectItemCaseSensitive(object, "active");
   const cJSON *completed = cJSON_GetObjectItemCaseSensitive(object, "completed");
-    String extension = cJSON_IsString(path) ? String(path->valuestring) : String();
-    extension.toLowerCase();
+  String extension = cJSON_IsString(path) ? String(path->valuestring) : String();
+  extension.toLowerCase();
+  const cJSON *folder = cJSON_GetObjectItemCaseSensitive(object, "folder");
   if (!integerField(object, "id", 1, UINT32_MAX - 1, id) || !cJSON_IsString(path) ||
-      !managedPathValid(path->valuestring, false) || !extension.endsWith(".wav") ||
+      !managedPathValid(path->valuestring) || (!cJSON_IsTrue(folder) && !extension.endsWith(".wav")) ||
+      (folder && !cJSON_IsBool(folder)) ||
       !cJSON_IsBool(active) || !cJSON_IsBool(completed) ||
       !integerField(object, "anchorUtc", 1577836800, 4102444800LL, anchor) ||
       !integerField(object, "intervalSeconds", 0, 604800, interval) ||
@@ -115,6 +179,27 @@ bool decodeRule(const cJSON *object, ReplayRule &rule) {
   rule.id = static_cast<uint32_t>(id);
   rule.active = cJSON_IsTrue(active);
   rule.completed = cJSON_IsTrue(completed);
+  rule.folder = cJSON_IsTrue(folder);
+  if (rule.folder) {
+    int64_t order, cycle, batch, count, signature, round;
+    const cJSON *cursor = cJSON_GetObjectItemCaseSensitive(object, "cursor");
+    String cursorPath = String(path->valuestring) == "/" ? "/" : String(path->valuestring) + "/";
+    if (cJSON_IsString(cursor)) cursorPath += cursor->valuestring;
+    if (!integerField(object, "order", 0, 1, order) || !integerField(object, "cycle", 0, 1, cycle) ||
+        !integerField(object, "batch", 0, 1, batch) || !integerField(object, "fileCount", 0, 128, count) ||
+        !integerField(object, "fingerprint", 0, UINT32_MAX, signature) ||
+        !integerField(object, "round", 0, UINT32_MAX, round) || !cJSON_IsString(cursor) ||
+        (cursor->valuestring[0] && (strchr(cursor->valuestring, '/') ||
+          !managedPathValid(cursorPath.c_str(), false)))) return false;
+    rule.shuffled = order;
+    rule.loop = cycle;
+    rule.all = batch;
+    rule.fileCount = count;
+    rule.fingerprint = signature;
+    rule.round = round;
+    String(cursor->valuestring).toCharArray(rule.cursor, sizeof(rule.cursor));
+    if (rule.active && !rule.fileCount) return false;
+  }
   String(path->valuestring).toCharArray(rule.path, sizeof(rule.path));
   rule.schedule.anchorUtc = anchor;
   rule.schedule.intervalSeconds = interval;
@@ -132,6 +217,16 @@ cJSON *encodeRule(const ReplayRule &rule) {
   cJSON_AddStringToObject(object, "path", rule.path);
   cJSON_AddBoolToObject(object, "active", rule.active);
   cJSON_AddBoolToObject(object, "completed", rule.completed);
+  if (rule.folder) {
+    cJSON_AddBoolToObject(object, "folder", true);
+    cJSON_AddNumberToObject(object, "order", rule.shuffled ? 1 : 0);
+    cJSON_AddNumberToObject(object, "cycle", rule.loop ? 1 : 0);
+    cJSON_AddNumberToObject(object, "batch", rule.all ? 1 : 0);
+    cJSON_AddStringToObject(object, "cursor", rule.cursor);
+    cJSON_AddNumberToObject(object, "fileCount", rule.fileCount);
+    cJSON_AddNumberToObject(object, "fingerprint", rule.fingerprint);
+    cJSON_AddNumberToObject(object, "round", rule.round);
+  }
   cJSON_AddNumberToObject(object, "anchorUtc", static_cast<double>(rule.schedule.anchorUtc));
   cJSON_AddNumberToObject(object, "intervalSeconds", rule.schedule.intervalSeconds);
   cJSON_AddNumberToObject(object, "jitterMinutes", rule.schedule.jitterMinutes);
@@ -269,7 +364,16 @@ bool automaticReplayRequestArm(String &error) {
   }
   bool active = false;
   for (size_t index = 0; index < ruleCount; ++index) if (rules[index].active && !rules[index].completed) {
-    File file = SD_MMC.open(rules[index].path, FILE_READ);
+    ReplayRule &rule = rules[index];
+    uint16_t count = 0;
+    uint32_t fingerprint = 0;
+    if (rule.folder) {
+      if (!folderSnapshot(rule, count, fingerprint, false) || count != rule.fileCount ||
+          fingerprint != rule.fingerprint) { error = "Folder changed or unavailable"; return false; }
+      active = true;
+      continue;
+    }
+    File file = SD_MMC.open(rule.path, FILE_READ);
     uint32_t remaining = 0;
     bool valid = file && !file.isDirectory() && findPcmData(file, remaining);
     if (file) file.close();
@@ -323,9 +427,28 @@ void pollAutomaticReplay() {
     PlaybackStatus finished = playbackStatus();
     stopSignal();
     if (finished.error.length()) { replayError = finished.error; automaticReplayStop(); return; }
-    if (!rules[index].schedule.intervalSeconds) {
-      rules[index].active = false;
-      rules[index].completed = true;
+    ReplayRule &rule = rules[index];
+    if (rule.folder) {
+      String basename = String(playingFile).substring(String(playingFile).lastIndexOf('/') + 1);
+      basename.toCharArray(rule.cursor, sizeof(rule.cursor));
+      if (queueCount && queue[0].remaining) --queue[0].remaining;
+      String following;
+      ReplayRule remainingInRound = rule;
+      remainingInRound.loop = false;
+      bool more = folderSelect(remainingInRound, following);
+      if (!rule.schedule.intervalSeconds || (!rule.loop && !more)) {
+        rule.active = false;
+        rule.completed = true;
+        if (queueCount) queue[0].remaining = 0;
+      } else if (rule.loop && !more) {
+        rule.cursor[0] = 0;
+        if (rule.shuffled) ++rule.round;
+      }
+      if (!writeConfig()) { replayError = "Cannot persist folder position"; automaticReplayStop(); return; }
+      if (queueCount && !queue[0].remaining) popEvent();
+    } else if (!rule.schedule.intervalSeconds) {
+      rule.active = false;
+      rule.completed = true;
       if (!writeConfig()) { replayError = "Cannot persist completed rule"; automaticReplayStop(); return; }
     }
     return;
@@ -342,13 +465,14 @@ void pollAutomaticReplay() {
       else nextOccurrence[index] = UINT32_MAX;
       if (!inWindow(rule, due)) continue;
       if (queueCount == kQueueLimit) { replayError = "Replay queue full"; automaticReplayStop(); return; }
-      enqueue({static_cast<uint8_t>(index), occurrence, due});
+      enqueue({static_cast<uint8_t>(index), occurrence, due, static_cast<uint16_t>(rule.folder && rule.all ? rule.fileCount : 1)});
     }
   }
   if (!queueCount) { stopSignal(); return; }
   ReplayEvent event = queue[0];
   ReplayRule &rule = rules[event.ruleIndex];
-  if (!rule.active || !inWindow(rule, nowUtc)) { popEvent(); stopSignal(); return; }
+  if (!rule.active) { popEvent(); stopSignal(); return; }
+  if (!inWindow(rule, nowUtc)) { stopSignal(); return; }
   if (recorderState() != CaptureState::idle || fileManagerBusy() || radioProgrammingBusy() ||
       playbackGetState() != PlaybackState::idle || pttTestActive()) { quietSince.store(0); return; }
   if (!recorderSignalStatus().enabled) {
@@ -371,15 +495,25 @@ void pollAutomaticReplay() {
     lastSampleAt.store(nowMs);
   }
   if (!automaticReplayReadyToKey()) return;
-  File file = SD_MMC.open(rule.path, FILE_READ);
+  String selected = rule.path;
+  if (rule.folder) {
+    uint16_t count = 0;
+    uint32_t fingerprint = 0;
+    if (!folderSnapshot(rule, count, fingerprint, false) || count != rule.fileCount ||
+        fingerprint != rule.fingerprint || !folderSelect(rule, selected)) {
+      replayError = "Replay folder changed or exhausted"; automaticReplayStop(); return;
+    }
+  }
+  File file = SD_MMC.open(selected, FILE_READ);
   uint32_t remaining = 0;
   bool valid = file && !file.isDirectory() && findPcmData(file, remaining);
   if (file) file.close();
   if (!valid) { replayError = "Replay WAV missing or invalid"; automaticReplayStop(); return; }
   if (!appCanStartPlayback()) { quietSince.store(0); return; }
   playingRule.store(event.ruleIndex);
-  popEvent(false);
-  playbackStart(rule.path, PlaybackTarget::radio, true);
+  selected.toCharArray(playingFile, sizeof(playingFile));
+  if (!rule.folder) popEvent(false);
+  playbackStart(selected, PlaybackTarget::radio, true);
   if (!playbackStatus().automatic) { replayError = "Replay start failed"; automaticReplayStop(); }
 }
 
@@ -401,12 +535,33 @@ bool automaticReplaySaveRule(const String &json, String &error) {
   const cJSON *providedId = cJSON_GetObjectItemCaseSensitive(input, "id");
   bool hasId = providedId && integerField(input, "id", 1, UINT32_MAX - 1, id);
   if (providedId && !hasId) { cJSON_Delete(input); error = "Invalid rule id"; return false; }
+  if (cJSON_GetObjectItemCaseSensitive(input, "delaySeconds")) {
+    int64_t delay = 0, interval = 0, anchor = 0;
+    if (!clockTrusted() || cJSON_GetObjectItemCaseSensitive(input, "anchorUtc") ||
+        !integerField(input, "intervalSeconds", 0, 0, interval) ||
+        !integerField(input, "delaySeconds", 1, 31536000, delay) ||
+        !replayResolveDelay(static_cast<int64_t>(time(nullptr)), static_cast<uint32_t>(delay), anchor)) {
+      cJSON_Delete(input); error = "Invalid relative delay or clock"; return false;
+    }
+    cJSON_DeleteItemFromObjectCaseSensitive(input, "delaySeconds");
+    cJSON_AddNumberToObject(input, "anchorUtc", static_cast<double>(anchor));
+  }
   ReplayRule candidate;
   cJSON *normalized = cJSON_Duplicate(input, 1);
   cJSON_Delete(input);
   if (!normalized) { error = "Out of memory"; return false; }
   cJSON_DeleteItemFromObjectCaseSensitive(normalized, "active");
   cJSON_DeleteItemFromObjectCaseSensitive(normalized, "completed");
+  if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(normalized, "folder"))) {
+    cJSON_DeleteItemFromObjectCaseSensitive(normalized, "cursor");
+    cJSON_DeleteItemFromObjectCaseSensitive(normalized, "fileCount");
+    cJSON_DeleteItemFromObjectCaseSensitive(normalized, "fingerprint");
+    cJSON_DeleteItemFromObjectCaseSensitive(normalized, "round");
+    cJSON_AddStringToObject(normalized, "cursor", "");
+    cJSON_AddNumberToObject(normalized, "fileCount", 0);
+    cJSON_AddNumberToObject(normalized, "fingerprint", 0);
+    cJSON_AddNumberToObject(normalized, "round", 0);
+  }
   if (!providedId) cJSON_AddNumberToObject(normalized, "id", nextId);
   cJSON_AddBoolToObject(normalized, "active", false);
   cJSON_AddBoolToObject(normalized, "completed", false);
@@ -449,15 +604,20 @@ bool automaticReplaySetRuleActive(uint32_t id, bool enabled, String &error) {
     error = "Valid RTC, NTP, manual or phone time required"; return false;
   }
   if (enabled) {
-    File file = SD_MMC.open(rule.path, FILE_READ);
-    uint32_t remaining = 0;
-    bool supported = file && !file.isDirectory() && findPcmData(file, remaining);
-    if (file) file.close();
+    bool supported = false;
+    if (rule.folder) {
+      supported = folderSnapshot(rule, rule.fileCount, rule.fingerprint, true);
+    } else {
+      File file = SD_MMC.open(rule.path, FILE_READ);
+      uint32_t remaining = 0;
+      supported = file && !file.isDirectory() && findPcmData(file, remaining);
+      if (file) file.close();
+    }
     if (!supported) { error = "Missing or unsupported WAV"; return false; }
   }
-  bool previous = rule.active;
+  ReplayRule previous = rule;
   rule.active = enabled;
-  if (!writeConfig()) { rule.active = previous; error = "Cannot save SD configuration"; return false; }
+  if (!writeConfig()) { rule = previous; error = "Cannot save SD configuration"; return false; }
   return true;
 }
 

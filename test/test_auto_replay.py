@@ -15,11 +15,17 @@ class ReplayScheduleTests(unittest.TestCase):
         self.assertEqual(PAGES["automatic_replay"], "kAutomaticReplayPage")
         page = render_page("automatic_replay")
         self.assertIn('id="replayStop"', page)
+        self.assertIn('id="replayStartMode"', page)
+        self.assertIn('id="replayDelayMode"', page)
+        self.assertIn('id="replayIsFolder"', page)
+        self.assertIn('id="replayOrder"', page)
+        self.assertIn('id="replayBatch"', page)
         self.assertIn("/api/automatic-replay/rules", page)
         self.assertIn("Confirm on the encoder within 30 seconds", page)
         files = (ROOT / "web/file_actions.js").read_text(encoding="utf-8")
         self.assertIn('replayLink.href = "/automatic-replay?path="', files)
         self.assertIn('paths.append("path", item.path)', files)
+        self.assertIn('paths.append("folder", item.path)', files)
         self.assertNotIn("/api/automatic-replay/arm", files)
 
     def test_preview_rules_stay_disarmed_and_stop_cancels_arm_request(self):
@@ -36,6 +42,58 @@ class ReplayScheduleTests(unittest.TestCase):
         stopped = device.api("POST", "/api/automatic-replay/stop", {})[1]
         self.assertFalse(stopped["armPending"])
         self.assertFalse(stopped["armed"])
+
+    def test_preview_relative_delay_is_resolved_once_at_save(self):
+        import time
+        from scripts.preview_web import PreviewDevice
+        device = PreviewDevice()
+        rule = {"path": "/REC00001.wav", "delaySeconds": 666, "intervalSeconds": 0,
+                "jitterMinutes": 0, "window": 0, "startMinute": 0, "endMinute": 0}
+        before = int(time.time())
+        status, response = device.api("POST", "/api/automatic-replay/rules", rule)
+        self.assertEqual(status, 200)
+        anchor = response["rules"][0]["anchorUtc"]
+        self.assertLessEqual(before + 666, anchor)
+        self.assertLessEqual(anchor, int(time.time()) + 666)
+        self.assertEqual(device.api("GET", "/api/automatic-replay", {})[1]["rules"][0]["anchorUtc"], anchor)
+        self.assertEqual(device.api("POST", "/api/automatic-replay/rules", {**rule, "delaySeconds": 0})[0], 400)
+        self.assertIn('replayResolveDelay(static_cast<int64_t>(time(nullptr))',
+                      (ROOT / "src/automatic_replay.cpp").read_text(encoding="utf-8"))
+        node = shutil.which("node")
+        if node:
+            script = ("const vm=require('vm'),a=require('assert'),fs=require('fs'),f={};"
+                      "const c=vm.createContext({document:{getElementById:id=>f[id]}});"
+                      "vm.runInContext('const replay=id=>document.getElementById(id);'+fs.readFileSync(process.argv[1],'utf8').match(/function replayDelaySeconds\\(\\) \\{[\\s\\S]*?\\n\\}/)[0],c);"
+                      "f.replayDelayMode={value:'parts'};f.replayDays={value:0};f.replayDelayHours={value:2};"
+                      "f.replayDelayMinutes={value:30};f.replayDelaySeconds={value:0};a.strictEqual(c.replayDelaySeconds(),9000);"
+                      "f.replayDelayMode.value='seconds';f.replayDelayTotal={value:666};a.strictEqual(c.replayDelaySeconds(),666);"
+                      "f.replayDelayMode.value='minutes';f.replayDelayTotal.value=1220;a.strictEqual(c.replayDelaySeconds(),73200);"
+                      "f.replayDelayMode.value='hours';f.replayDelayTotal.value=30;a.strictEqual(c.replayDelaySeconds(),108000);"
+                      "f.replayDelayTotal.value=0;a.throws(()=>c.replayDelaySeconds());")
+            result = subprocess.run([node, "-e", script, str(ROOT / "web/automatic_replay.js")],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_preview_folder_rule_requires_separate_activation_and_has_bounded_files(self):
+        from scripts.preview_web import PreviewDevice
+        device = PreviewDevice()
+        rule = {"path": "/Archive", "folder": True, "order": 1, "cycle": 0, "batch": 1,
+                "anchorUtc": 1794000000, "intervalSeconds": 3600, "jitterMinutes": 0,
+                "window": 0, "startMinute": 0, "endMinute": 0}
+        status, response = device.api("POST", "/api/automatic-replay/rules", rule)
+        self.assertEqual(status, 200)
+        self.assertFalse(response["rules"][0]["active"])
+        self.assertEqual(response["rules"][0]["fileCount"], 0)
+        self.assertEqual(device.api("POST", "/api/automatic-replay/rules", {**rule, "order": 9})[0], 400)
+        status, activated = device.api("POST", "/api/automatic-replay/activate", {"id": 1, "enabled": 1})
+        self.assertEqual(status, 200)
+        self.assertEqual(activated["rules"][0]["fileCount"], 1)
+        self.assertTrue(activated["rules"][0]["active"])
+        self.assertFalse(activated["armed"])
+        controller = (ROOT / "src/automatic_replay.cpp").read_text(encoding="utf-8")
+        self.assertIn("folderSnapshot(rule, count, fingerprint, false)", controller)
+        self.assertIn("if (queueCount && queue[0].remaining) --queue[0].remaining;", controller)
+        self.assertIn("if (rule.shuffled) ++rule.round;", controller)
 
     def test_sd_rule_api_remains_disarmed_after_boot_and_web_writes(self):
         controller = (ROOT / "src/automatic_replay.cpp").read_text(encoding="utf-8")
@@ -80,6 +138,7 @@ class ReplayScheduleTests(unittest.TestCase):
             self.skipTest("Host g++ required for replay schedule tests")
         source = r'''
             #include <cassert>
+            #include <initializer_list>
             #include "replay_rules.h"
             int main() {
               ReplaySchedule once;
@@ -88,6 +147,33 @@ class ReplayScheduleTests(unittest.TestCase):
               assert(replayNextOccurrence(once, once.anchorUtc - 1, 1) == 0);
               assert(replayNextOccurrence(once, once.anchorUtc, 1) == UINT32_MAX);
               assert(replayDueAt(once, 0, 1) == once.anchorUtc);
+              int64_t resolved = 0;
+              assert(replayResolveDelay(1760000000, 9000, resolved) && resolved == 1760009000);
+              assert(replayNextOccurrence(once, resolved, 1) == UINT32_MAX);
+              assert(!replayResolveDelay(1760000000, 0, resolved));
+              assert(!replayResolveDelay(946684800, 9000, resolved));
+              assert(!replayResolveDelay(1760000000, 31536001, resolved));
+            assert(replayFileBefore("a.wav", "b.wav", false, 1));
+            assert(!replayFileBefore("b.wav", "a.wav", false, 1));
+            assert(replayFileBefore("a.wav", "b.wav", true, 7) !=
+                replayFileBefore("b.wav", "a.wav", true, 7));
+            assert(replayFileHash("a.wav", 7) == replayFileHash("a.wav", 7));
+                        assert(replayFileAfterCursor("b.wav", "a.wav", "", false, 1));
+                        assert(!replayFileAfterCursor("a.wav", "a.wav", "", false, 1));
+                        assert(!replayFileAfterCursor("c.wav", "a.wav", "b.wav", false, 1));
+                        const char *names[] = {"c.wav", "a.wav", "b.wav"};
+                        for (bool shuffled : {false, true}) {
+                            const char *cursor = "";
+                            for (int position = 0; position < 3; ++position) {
+                                const char *best = "";
+                                for (const char *name : names)
+                                    if (replayFileAfterCursor(name, cursor, best, shuffled, 17)) best = name;
+                                assert(*best && (!*cursor || replayFileBefore(cursor, best, shuffled, 17)));
+                                cursor = best;
+                            }
+                            for (const char *name : names)
+                                assert(!replayFileAfterCursor(name, cursor, "", shuffled, 17));
+                        }
               ReplaySchedule regular;
               regular.anchorUtc = 1760000000;
               regular.intervalSeconds = 3600;

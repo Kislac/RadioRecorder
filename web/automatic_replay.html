@@ -26,13 +26,25 @@
       <section>
         <h2>Rule</h2>
         <form id="replayForm">
-          <label>File path<input id="replayPath" type="text" maxlength="220" required placeholder="/recording.wav" /></label>
+          <label>File or folder path<input id="replayPath" type="text" maxlength="220" required placeholder="/recording.wav" /></label>
+          <label><input id="replayIsFolder" type="checkbox" /> Folder rule</label>
+          <div id="replayFolderOptions" class="replay-grid" hidden>
+            <label>File order<select id="replayOrder"><option value="0">Name</option><option value="1">Shuffled</option></select></label>
+            <label>Traversal<select id="replayCycle"><option value="0">One pass</option><option value="1">Loop</option></select></label>
+            <label>Per occurrence<select id="replayBatch"><option value="0">One file</option><option value="1">All files</option></select></label>
+          </div>
           <label>Schedule<select id="replayMode"><option value="once">Once</option><option value="regular">Recurring</option></select></label>
-          <label>Start (local time)<input id="replayDate" type="datetime-local" required /></label>
+          <label>Start mode<select id="replayStartMode"><option value="date">Local date and time</option><option value="delay">Delay from save</option></select></label>
+          <label id="replayDateField">Start (local time)<input id="replayDate" type="datetime-local" required /></label>
+          <div id="replayDelay" hidden>
+            <label>Delay unit<select id="replayDelayMode"><option value="parts">Days / hours / minutes / seconds</option><option value="seconds">Total seconds</option><option value="minutes">Total minutes</option><option value="hours">Total hours</option></select></label>
+            <div id="replayDelayParts" class="replay-grid"><label>Days<input id="replayDays" type="number" min="0" step="1" value="0" /></label><label>Hours<input id="replayDelayHours" type="number" min="0" max="23" step="1" value="0" /></label><label>Minutes<input id="replayDelayMinutes" type="number" min="0" max="59" step="1" value="5" /></label><label>Seconds<input id="replayDelaySeconds" type="number" min="0" max="59" step="1" value="0" /></label></div>
+            <label id="replayDelayTotalField" hidden>Amount<input id="replayDelayTotal" type="number" min="1" step="1" value="1" /></label>
+          </div>
           <div id="replayInterval" class="replay-grid" hidden><label>Interval hours<input id="replayHours" type="number" min="0" max="168" value="1" /></label><label>Interval minutes<input id="replayMinutes" type="number" min="0" max="59" value="0" /></label><label>Random offset (minutes)<input id="replayJitter" type="number" min="0" value="0" /></label></div>
           <label>Daily window<select id="replayWindow"><option value="0">Any time</option><option value="1">Active window</option><option value="2">Quiet window</option></select></label>
           <div id="replayWindowTimes" class="replay-grid" hidden><label>From<input id="replayFrom" type="time" value="08:00" /></label><label>To<input id="replayTo" type="time" value="20:00" /></label></div>
-          <button type="submit">Save inactive rule for selected WAVs</button>
+          <button type="submit">Save inactive rules</button>
         </form>
       </section>
       <section><h2>Saved rules</h2><div id="replayRules"></div></section>
