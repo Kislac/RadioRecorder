@@ -1,4 +1,5 @@
 import json
+from html.parser import HTMLParser
 import os
 import re
 from pathlib import Path
@@ -15,6 +16,41 @@ from scripts.web_assets import ROOT, PAGES, generate_languages, load_languages, 
 
 
 class LanguageTests(unittest.TestCase):
+    def test_replay_labels_and_statuses_have_hungarian_translations(self):
+        class Labels(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.labels = []
+
+            def handle_data(self, data):
+                if data.strip():
+                    self.labels.append(data.strip())
+
+            def handle_starttag(self, tag, attrs):
+                self.labels.extend(value for name, value in attrs if name in ("title", "aria-label"))
+
+        labels = Labels()
+        labels.feed((ROOT / "web/automatic_replay.html").read_text(encoding="utf-8"))
+        catalog = load_languages()["hu"]["web"]
+        script = (ROOT / "web/automatic_replay.js").read_text(encoding="utf-8")
+        self.assertIn("toLocaleString(document.documentElement.lang)", script)
+        proper_names = {"RADIORECORDER", "CLEAR SKY / SIGNAL STATION", "microSD", "ESP32-S3 / Radio Recorder"}
+        self.assertEqual({text for text in labels.labels if text not in catalog and text not in proper_names
+                          and any(letter.isalpha() for letter in text)}, set())
+        controller = (ROOT / "src/automatic_replay.cpp").read_text(encoding="utf-8")
+        server = (ROOT / "src/web_server.cpp").read_text(encoding="utf-8")
+        errors = set(re.findall(r'(?:replayError|error) = "([^"]+)"', controller))
+        routes = server.split('server.on("/api/automatic-replay/rules"', 1)[1].split('server.on("/api/auto-record/settings"', 1)[0]
+        errors.update(re.findall(r'server.send\(\d+, "text/plain", "([^"]+)"\)', routes))
+        self.assertEqual({text for text in errors if text not in catalog or catalog[text] == text}, set())
+        for key in ("Automatic replay", "Disarmed", "Awaiting local confirmation", "{count} waiting",
+                    "Completed", "Inactive", "Folder (", "{count} WAVs,", "start", "Every {minutes} min",
+                    "Next: {date}", "Activate", "Deactivate", "Edit", "Invalid schedule",
+                    "Delay must be 1 second to 365 days", "Confirm on the encoder within 30 seconds"):
+            with self.subTest(label=key):
+                self.assertIn(key, catalog)
+                self.assertNotEqual(catalog[key], key)
+
     def test_duplicate_catalog_keys_are_rejected_even_with_equal_values(self):
         catalogs = load_languages()
         with TemporaryDirectory() as folder:
@@ -169,6 +205,13 @@ window.RR_I18N.applyLanguage('hu');
 assert.equal(nodes[0].textContent, catalogs.hu.web.Settings);
 assert.equal(nodes[1].textContent, catalogs.hu.web['Stop recording']);
 assert.equal(nodes[2].textContent, catalogs.hu.web['GPIO{number} signal'].replace('{number}', '1'));
+assert.equal(window.RR_I18N.translate('3 WAVs, '), '3 WAV, ');
+assert.equal(window.RR_I18N.translate('Folder ('), 'Mappa (');
+assert.equal(window.RR_I18N.translate('start'), 'eleje');
+assert.equal(window.RR_I18N.translate('Every 15 min'), '15 percenként');
+assert.equal(window.RR_I18N.translate('Next: 2026. 11. 08.'), 'Következő: 2026. 11. 08.');
+assert.equal(window.RR_I18N.translate('0 waiting'), '0 várakozik');
+assert.equal(window.RR_I18N.translate('/Archive'), '/Archive');
 assert.equal(window.RR_I18N.applyLanguage('invalid'), false);
 assert.equal(document.documentElement.lang, 'hu');
 assert.equal(window.RR_I18N.translate('Preflight: 64 / 6464 bytes'),

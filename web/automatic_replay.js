@@ -23,7 +23,10 @@ async function replayRefresh() {
       const item = document.createElement("div"); item.className = "replay-rule";
       const title = document.createElement("strong"); title.textContent = rule.path;
       const detail = document.createElement("p");
-      detail.textContent = `#${rule.id} · ${rule.completed ? "Completed" : rule.active ? "Active" : "Inactive"} · ${rule.folder ? `Folder (${rule.fileCount || 0} WAVs, ${rule.cursor || "start"}) · ` : ""}${rule.intervalSeconds ? "Every " + rule.intervalSeconds / 60 + " min" : "Once"} · Next: ${rule.nextUtc ? new Date(rule.nextUtc * 1000).toLocaleString() : "—"}`;
+      detail.append(`#${rule.id} · `, rule.completed ? "Completed" : rule.active ? "Active" : "Inactive", " · ");
+      if (rule.folder) detail.append("Folder (", `${rule.fileCount || 0} WAVs, `, rule.cursor || "start", ") · ");
+      detail.append(rule.intervalSeconds ? `Every ${rule.intervalSeconds / 60} min` : "Once",
+        " · ", `Next: ${rule.nextUtc ? new Date(rule.nextUtc * 1000).toLocaleString(document.documentElement.lang) : "—"}`);
       const toggle = document.createElement("button"); toggle.type = "button";
       toggle.textContent = rule.active ? "Deactivate" : "Activate";
       toggle.disabled = replaySnapshot.armed || rule.completed;
